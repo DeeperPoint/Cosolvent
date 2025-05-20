@@ -1,4 +1,4 @@
 # cosolvent
 Project for development of open source AI Market Matching and possibly and eventual Negotiation System
 
-Design documents will be stored in the Github site [[https://github.com/uzumeri/Cosolvent/wiki|Wiki]]
+Design documents will be stored in the Github site [[https://github.com/uzumeri/Cosolvent/wiki]]
