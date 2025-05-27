@@ -1,4 +1,4 @@
-name: CI/CD for Cosolvent
+name: CI for Cosolvent
 
 on:
   push:
@@ -30,7 +30,6 @@ jobs:
       run: |
         docker-compose exec -T microservice-a pytest tests/
         docker-compose exec -T microservice-b pytest tests/
-      # to be adjusted as needed
 
     - name: Run linter (optional)
       run: |
@@ -40,15 +39,3 @@ jobs:
     - name: Tear down services
       if: always()
       run: docker-compose down
-
-  cd:
-    name: 🚀 Deploy to EC2
-    needs: ci
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Placeholder – SSH to EC2 and deploy
-      run: |
-        echo "Here you'll SSH into EC2 and run:"
-        echo "docker-compose pull && docker-compose up -d --build"
