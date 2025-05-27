@@ -2,9 +2,9 @@ name: CI/CD for Cosolvent
 
 on:
   push:
-    branches: [main, dev]
+    branches: [dev]
   pull_request:
-    branches: [main, dev]
+    branches: [dev]
 
 jobs:
   ci:
