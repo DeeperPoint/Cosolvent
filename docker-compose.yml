@@ -1,5 +1,8 @@
 version: '3.8'
+
 services:
+  # ─── Infrastructure ───────────────────────────────────────────────────────
+
   redis:
     image: redis:7.0
     ports:
@@ -15,3 +18,126 @@ services:
     image: mongo:6.0
     ports:
       - "27017:27017"
+
+  # ─── Application Services ─────────────────────────────────────────────────
+
+  admin_service:
+    build:
+      context: .
+      dockerfile: src/services/admin_service/Dockerfile
+    ports:
+      - "8001:8001"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+
+  asset_service:
+    build:
+      context: .
+      dockerfile: src/services/asset_service/Dockerfile
+    ports:
+      - "8002:8002"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+
+  gateway:
+    build:
+      context: .
+      dockerfile: src/services/gateway/Dockerfile
+    ports:
+      - "8003:8003"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+
+  industry_context_service:
+    build:
+      context: .
+      dockerfile: src/services/industry_context_service/Dockerfile
+    ports:
+      - "8004:8004"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+
+  llm_orchestration_service:
+    build:
+      context: .
+      dockerfile: src/services/llm_orchestration_service/Dockerfile
+    ports:
+      - "8005:8005"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+
+  metadata_service:
+    build:
+      context: .
+      dockerfile: src/services/metadata_service/Dockerfile
+    ports:
+      - "8006:8006"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+
+  profile_generation_service:
+    build:
+      context: .
+      dockerfile: src/services/profile_generation_service/Dockerfile
+    ports:
+      - "8007:8007"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+
+  profile_management_service:
+    build:
+      context: .
+      dockerfile: src/services/profile_management_service/Dockerfile
+    ports:
+      - "8008:8008"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+
+  search_service:
+    build:
+      context: .
+      dockerfile: src/services/search_service/Dockerfile
+    ports:
+      - "8009:8009"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+
+  translation_service:
+    build:
+      context: .
+      dockerfile: src/services/translation_service/Dockerfile
+    ports:
+      - "8010:8010"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+
+  user_management_service:
+    build:
+      context: .
+      dockerfile: src/services/user_management_service/Dockerfile
+    ports:
+      - "8011:8011"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
