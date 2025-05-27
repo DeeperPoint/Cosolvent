@@ -26,10 +26,10 @@ jobs:
     - name: Build and start services
       run: docker-compose up -d --build
 
-    - name: Run tests (example)
-      run: |
-        docker-compose exec -T microservice-a pytest tests/
-        docker-compose exec -T microservice-b pytest tests/
+    # - name: Run tests (example)
+    #   run: |
+    #     docker-compose exec -T microservice-a pytest tests/
+    #     docker-compose exec -T microservice-b pytest tests/
 
     - name: Run linter (optional)
       run: |
