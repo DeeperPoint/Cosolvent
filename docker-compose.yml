@@ -81,7 +81,7 @@ services:
       context: .
       dockerfile: src/services/metadata_service/Dockerfile
     ports:
-      - "8006:8006"
+      - "8017:8006"
     depends_on:
       - redis
       - rabbitmq
