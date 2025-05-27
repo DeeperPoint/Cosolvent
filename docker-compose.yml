@@ -12,6 +12,6 @@ services:
       - "15672:15672"
 
   mongodb:
-    image: mongo
+    image: mongo:6.0
     ports:
       - "27017:27017"
