@@ -1,0 +1,54 @@
+name: CI/CD for Cosolvent
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  ci:
+    name: Build and Test with Docker Compose
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Set up Docker Compose
+      run: |
+        docker-compose --version || sudo curl -L "https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose
+        sudo chmod +x /usr/local/bin/docker-compose
+
+    - name: Build and start services
+      run: docker-compose up -d --build
+
+    - name: Run tests (example)
+      run: |
+        docker-compose exec -T microservice-a pytest tests/
+        docker-compose exec -T microservice-b pytest tests/
+      # to be adjusted as needed
+
+    - name: Run linter (optional)
+      run: |
+        docker-compose exec -T microservice-a flake8 app/
+        docker-compose exec -T microservice-b flake8 app/
+
+    - name: Tear down services
+      if: always()
+      run: docker-compose down
+
+  cd:
+    name: 🚀 Deploy to EC2
+    needs: ci
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Placeholder – SSH to EC2 and deploy
+      run: |
+        echo "Here you'll SSH into EC2 and run:"
+        echo "docker-compose pull && docker-compose up -d --build"
