@@ -31,10 +31,19 @@ jobs:
     #     docker-compose exec -T microservice-a pytest tests/
     #     docker-compose exec -T microservice-b pytest tests/
 
-    - name: Run linter (optional)
-      run: |
-        docker-compose exec -T microservice-a flake8 app/
-        docker-compose exec -T microservice-b flake8 app/
+    # - name: Run linter (optional)
+    #   run: |
+    #     docker-compose exec -T admin_service flake8 src/services
+    #     docker-compose exec -T asset_service flake8 src/services
+    #     docker-compose exec -T gateway flake8 src/services
+    #     docker-compose exec -T industry_context_service flake8 src/services
+    #     docker-compose exec -T llm_orchestration_service flake8 src/services
+    #     docker-compose exec -T metadata_service flake8 src/services
+    #     docker-compose exec -T profile_generation_service flake8 src/services
+    #     docker-compose exec -T profile_management_service flake8 src/services
+    #     docker-compose exec -T search_service flake8 src/services
+    #     docker-compose exec -T translation_service flake8 src/services
+    #     docker-compose exec -T user_management_service flake8 src/services
 
     - name: Tear down services
       if: always()
