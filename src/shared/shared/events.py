@@ -10,6 +10,7 @@ class AssetType(str, Enum):
     VIDEO = "video"
     AUDIO = "audio"
     TEXT = "text"
+    DOCUMENT = "document"  # covers PDF, DOCX, etc.
 
 
 class ImageMetadata(BaseModel):
@@ -33,6 +34,12 @@ class AudioMetadata(BaseModel):
 class TextMetadata(BaseModel):
     charset: str = Field(..., description="e.g., UTF-8")
     word_count: int
+
+
+class DocumentMetadata(BaseModel):
+    format: str = Field(..., description="e.g., PDF, DOCX")
+    size_bytes: int = Field(..., description="File size in bytes")
+    page_count: int = Field(..., description="Number of pages, if applicable")
 
 
 class AssetUploadedBase(BaseModel):
@@ -62,11 +69,17 @@ class AssetTextUploaded(AssetUploadedBase):
     metadata: TextMetadata
 
 
+class AssetDocumentUploaded(AssetUploadedBase):
+    asset_type: Annotated[AssetType, Field(constant=True)] = AssetType.DOCUMENT
+    metadata: DocumentMetadata
+
+
 AssetUploaded = Union[
     AssetImageUploaded,
     AssetVideoUploaded,
     AssetAudioUploaded,
     AssetTextUploaded,
+    AssetDocumentUploaded,
 ]
 
 __all__ = [
@@ -75,10 +88,12 @@ __all__ = [
     "VideoMetadata",
     "AudioMetadata",
     "TextMetadata",
+    "DocumentMetadata",
     "AssetUploadedBase",
     "AssetImageUploaded",
     "AssetVideoUploaded",
     "AssetAudioUploaded",
     "AssetTextUploaded",
+    "AssetDocumentUploaded",
     "AssetUploaded",
 ]
