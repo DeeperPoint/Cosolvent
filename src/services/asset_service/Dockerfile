@@ -11,5 +11,6 @@ COPY src/services/asset_service /opt/service
 WORKDIR /opt/service
 RUN pip install --no-cache-dir -r requirements.txt
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+RUN chmod +x /opt/service/entrypoint.sh
+ENTRYPOINT ["/opt/service/entrypoint.sh"]
 

@@ -7,17 +7,23 @@ services:
     image: redis:7.0
     ports:
       - "6379:6379"
+    networks:
+      - app_network
 
   rabbitmq:
     image: rabbitmq:3-management
     ports:
       - "5672:5672"
       - "15672:15672"
+    networks:
+      - app_network
 
   mongodb:
     image: mongo:6.0
     ports:
       - "27017:27017"
+    networks:
+      - app_network
     
 
   # ─── Application Services ─────────────────────────────────────────────────
@@ -45,6 +51,9 @@ services:
       - redis
       - rabbitmq
       - mongodb
+      - s3-server
+    env_file:
+      - .env
     networks:
       - app_network
 

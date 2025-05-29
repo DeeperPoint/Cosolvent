@@ -2,10 +2,12 @@ import io, os
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from uuid import uuid4
 import boto3
+from botocore.exceptions import ClientError
 
 from src.schemas.asset_service_schema import AssetCreate, AssetResponse
 from src.database.crud.asset_service_crud import AssetCRUD
 from src.core.config import Config
+from fastapi import Query
 
 router = APIRouter()
 
@@ -31,6 +33,12 @@ s3_client = boto3.client(
     aws_access_key_id=Config.S3_ACCESS_KEY,
     aws_secret_access_key=Config.S3_SECRET_KEY,
 )
+# Ensure the target bucket exists (idempotent)
+try:
+    s3_client.create_bucket(Bucket=Config.S3_BUCKET)
+except ClientError:
+    # ignore if bucket already exists or access issues
+    pass
 
 @router.post("/assets", response_model=AssetResponse)
 async def upload_asset(
@@ -44,13 +52,27 @@ async def upload_asset(
     data = await file.read()
     key = f"{uuid4().hex}-{file.filename}"
     
-    # Upload
-    s3_client.upload_fileobj(
-        io.BytesIO(data),
-        Config.S3_BUCKET,
-        key,
-        ExtraArgs={"ContentType": file.content_type},
-    )
+    # Upload, ensure bucket exists
+    try:
+        s3_client.upload_fileobj(
+            io.BytesIO(data),
+            Config.S3_BUCKET,
+            key,
+            ExtraArgs={"ContentType": file.content_type},
+        )
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code")
+        if error_code == "NoSuchBucket":
+            # create bucket then retry
+            s3_client.create_bucket(Bucket=Config.S3_BUCKET)
+            s3_client.upload_fileobj(
+                io.BytesIO(data),
+                Config.S3_BUCKET,
+                key,
+                ExtraArgs={"ContentType": file.content_type},
+            )
+        else:
+            raise HTTPException(status_code=500, detail=str(e))
 
     url = f"{Config.S3_ENDPOINT}/{Config.S3_BUCKET}/{key}"
     file_type = file.content_type.split("/")[0]
@@ -66,11 +88,20 @@ async def upload_asset(
     saved = await AssetCRUD.create(asset_data)
     return saved
 
-@router.get("/assets/{asset_id}", response_model=AssetResponse)
-async def get_asset(asset_id: str):
-    asset = await AssetCRUD.get_by_id(asset_id)
-    if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
-    return asset
 
-    
+
+@router.get("/assets", response_model=list[AssetResponse])
+async def get_assets(
+    user_id: str = Query(None),
+    asset_id: str = Query(None)
+):
+    if asset_id:
+        asset = await AssetCRUD.get_by_id(asset_id)
+        if not asset:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        return [asset]
+    elif user_id:
+        assets = await AssetCRUD.get_by_user_id(user_id)
+        return assets
+    else:
+        raise HTTPException(status_code=400, detail="Either user_id or asset_id must be provided")

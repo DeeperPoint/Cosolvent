@@ -4,3 +4,4 @@ motor
 python-dotenv
 boto3
 pydantic
+python-multipart
