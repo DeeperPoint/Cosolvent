@@ -17,4 +17,4 @@ class ServiceConfig(BaseModel):
 
 class AppConfig(BaseModel):
     providers: Dict[str, ProviderConfig]
-    services: Dict[str, ServiceConfig]  # e.g. “translate”, “search”, etc.
+    services: Dict[str, ServiceConfig]  # e.g. 'translate', 'search', etc.
