@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 import httpx
 
 from core.config import settings
@@ -42,13 +42,18 @@ async def proxy(service: str, path: str, request: Request):
         raise HTTPException(status_code=502, detail=f"Bad gateway: {exc}") from exc
 
     content_type = resp.headers.get("content-type", "")
+    # If response is JSON, use envelope JSONResponse
     if "application/json" in content_type:
         body = resp.json()
-    else:
-        body = resp.text
-
-    return JSONResponse(
+        return JSONResponse(
+            status_code=resp.status_code,
+            content={"status_code": resp.status_code, "content": body},
+            headers={"x-upstream-content-type": content_type},
+        )
+    # For non-JSON, return raw response with correct Content-Type
+    return Response(
+        content=resp.content,
         status_code=resp.status_code,
-        content={"status_code": resp.status_code, "content": body},
-        headers={"content-type": content_type}
+        headers={"content-type": content_type},
+        media_type=content_type,
     )
