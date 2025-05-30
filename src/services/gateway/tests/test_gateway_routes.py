@@ -16,7 +16,7 @@ def test_health_ok(monkeypatch, client):
 
     res = client.get("/api/assets/health")
     assert res.status_code == 200
-    assert res.text == "OK"
+    assert res.json()["content"] == "OK"
 
 def test_cors_headers_present(monkeypatch, client):
     # reuse health mock
