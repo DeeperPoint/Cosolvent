@@ -67,14 +67,10 @@ services:
 
   llm_orchestration_service:
     build:
-      context: .
-      dockerfile: src/services/llm_orchestration_service/Dockerfile
+      context: ./src/services/llm_orchestration_service
     ports:
-      - "8005:8005"
-    depends_on:
-      - redis
-      - rabbitmq
-      - mongodb
+      - "8005:8000"
+
 
   metadata_service:
     build:
