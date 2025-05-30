@@ -1,0 +1,16 @@
+name: CD for Cosolvent
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  cd:
+    name: 🚀 Deploy to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Placeholder – SSH to EC2 and deploy
+      run: |
+        echo "Here you'll SSH into EC2 and run:"
+        echo "docker-compose pull && docker-compose up -d --build"

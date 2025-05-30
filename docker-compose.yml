@@ -1,17 +1,233 @@
 version: '3.8'
+
 services:
+  # ─── Infrastructure ───────────────────────────────────────────────────────
+
   redis:
     image: redis:7.0
     ports:
       - "6379:6379"
+    networks:
+      - app_network
 
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:4.0-management
     ports:
       - "5672:5672"
       - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
 
   mongodb:
     image: mongo:6.0
     ports:
       - "27017:27017"
+    networks:
+      - app_network
+    
+
+  # ─── Application Services ─────────────────────────────────────────────────
+
+  admin_service:
+    build:
+      context: .
+      dockerfile: src/services/admin_service/Dockerfile
+    ports:
+      - "8001:8001"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+    networks:
+      - app_network
+
+  asset_service:
+    build:
+      context: .
+      dockerfile: src/services/asset_service/Dockerfile
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    ports:
+      - "8002:8002"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+      - s3-server
+    env_file:
+      - .env
+    networks:
+      - app_network
+
+  gateway:
+    build:
+      context: .
+      dockerfile: src/services/gateway/Dockerfile
+    ports:
+      - "8003:8003"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+    networks:
+      - app_network
+
+  industry_context_service:
+    build:
+      context: .
+      dockerfile: src/services/industry_context_service/Dockerfile
+    ports:
+      - "8004:8004"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+    networks:
+      - app_network
+
+  llm_orchestration_service:
+    build:
+      context: .
+      dockerfile: src/services/llm_orchestration_service/Dockerfile
+    ports:
+      - "8005:8005"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+    networks:
+      - app_network
+
+  metadata_service:
+    build:
+      context: .
+      dockerfile: src/services/metadata_service/Dockerfile
+    ports:
+      - "8017:8006"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+    networks:
+      - app_network
+
+  profile_generation_service:
+    build:
+      context: .
+      dockerfile: src/services/profile_generation_service/Dockerfile
+    ports:
+      - "8007:8007"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+    networks:
+      - app_network
+
+  profile_management_service:
+    build:
+      context: .
+      dockerfile: src/services/profile_management_service/Dockerfile
+    ports:
+      - "8008:8008"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+    networks:
+      - app_network
+
+  search_service:
+    build:
+      context: .
+      dockerfile: src/services/search_service/Dockerfile
+    ports:
+      - "8009:8009"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+    networks:
+      - app_network
+
+  translation_service:
+    build:
+      context: .
+      dockerfile: src/services/translation_service/Dockerfile
+    ports:
+      - "8010:8010"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+    networks:
+      - app_network
+
+  user_management_service:
+    build:
+      context: .
+      dockerfile: src/services/user_management_service/Dockerfile
+    ports:
+      - "8011:8011"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongodb
+    networks:
+      - app_network
+  s3-server:
+    image: minio/minio:latest
+    container_name: UploadServer
+    ports:
+      - "${S3_API_PORT}:9000"  # S3 API Port
+      - "${S3_WEB_PORT}:9001"   # Web UI
+    env_file:
+      - .env
+    volumes:
+      - s3-data:/data
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://s3-server:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - app_network
+
+  mc:
+    image: minio/mc
+    container_name: mc-init
+    depends_on:
+      s3-server:
+        condition: service_healthy
+    env_file:
+      - .env
+    entrypoint: >
+      /bin/sh -c "
+        # Configure the MinIO client alias
+        mc alias set myminio http://s3-server:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD;
+        # Create the bucket if missing
+        mc mb --ignore-existing myminio/$ASSETS_BUCKET;
+        # Make it publicly readable
+        mc anonymous set download myminio/$ASSETS_BUCKET;
+        echo 'Bucket \"$ASSETS_BUCKET\" is ready';
+        exit 0;
+      "
+    networks:
+      - app_network
+
+networks:
+  app_network:
+
+volumes:
+  s3-data:
+  rabbitmq_data:
