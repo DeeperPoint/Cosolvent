@@ -11,12 +11,20 @@ services:
       - app_network
 
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:4.0-management
     ports:
       - "5672:5672"
       - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
 
   mongodb:
     image: mongo:6.0
@@ -45,6 +53,8 @@ services:
     build:
       context: .
       dockerfile: src/services/asset_service/Dockerfile
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
     ports:
       - "8002:8002"
     depends_on:
@@ -220,3 +230,4 @@ networks:
 
 volumes:
   s3-data:
+  rabbitmq_data:

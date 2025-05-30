@@ -3,11 +3,12 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from uuid import uuid4
 import boto3
 from botocore.exceptions import ClientError
-
+from src.utils.publisher import publish_asset
 from src.schemas.asset_service_schema import AssetCreate, AssetResponse
 from src.database.crud.asset_service_crud import AssetCRUD
 from src.core.config import Config
 from fastapi import Query
+from bson import ObjectId
 
 router = APIRouter()
 
@@ -85,7 +86,12 @@ async def upload_asset(
         "url": url,
     }
 
+
     saved = await AssetCRUD.create(asset_data)
+
+    await publish_asset({
+            "asset_id": str(saved["id"]),
+        })
     return saved
 
 
@@ -96,11 +102,18 @@ async def get_assets(
     asset_id: str = Query(None)
 ):
     if asset_id:
+        # Validate asset_id as a valid ObjectId
+        try:
+            ObjectId(asset_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid asset_id format")
         asset = await AssetCRUD.get_by_id(asset_id)
         if not asset:
             raise HTTPException(status_code=404, detail="Asset not found")
         return [asset]
     elif user_id:
+        if not user_id.strip():
+            raise HTTPException(status_code=400, detail="user_id cannot be empty")
         assets = await AssetCRUD.get_by_user_id(user_id)
         return assets
     else:
