@@ -1,6 +1,7 @@
 import pytest
 from fastapi import status
 import httpx
+import json
 
 def test_health_ok(monkeypatch, client):
     # Mock downstream health check
@@ -9,6 +10,13 @@ def test_health_ok(monkeypatch, client):
         content = b"OK"
         headers = {"content-type": "text/plain"}
 
+        @property
+        def text(self) -> str:
+            return self.content.decode()
+
+        def json(self):
+            return json.loads(self.text)
+
     async def fake_send(req, **kwargs):
         return DummyResp()
 
@@ -16,7 +24,7 @@ def test_health_ok(monkeypatch, client):
 
     res = client.get("/api/assets/health")
     assert res.status_code == 200
-    assert res.json()["content"] == "OK"
+    assert res.text == "OK"
 
 def test_cors_headers_present(monkeypatch, client):
     # reuse health mock
@@ -24,6 +32,13 @@ def test_cors_headers_present(monkeypatch, client):
         status_code = 200
         content = b"OK"
         headers = {"content-type": "text/plain"}
+
+        @property
+        def text(self) -> str:
+            return self.content.decode()
+
+        def json(self):
+            return json.loads(self.text)
 
     async def fake_send(req, **kwargs):
         return DummyResp()
