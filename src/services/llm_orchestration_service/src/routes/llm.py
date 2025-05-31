@@ -102,9 +102,9 @@ async def metadata_extraction_endpoint(service_name: str = "metadata_extraction"
         logger.warning("File name not provided in metadata_extraction_endpoint.")
         raise HTTPException(status_code=400, detail="File name is required.")
     try:
-        result = await services.extract_textual_metadata_from_file(file=file, service_name=service_name)
-        # TODO: Potentially parse `result` if it's expected to be JSON and re-serialize for consistency or validation.
-        return LLMServiceResponse(result=result)
+        raw = await services.extract_textual_metadata_from_file(file=file, service_name=service_name)
+        # wrap raw metadata string into an envelope with description field
+        return LLMServiceResponse(result={"description": raw})
     except ConfigurationException as e:
         logger.error(f"Configuration error in /metadata for service '{service_name}': {e}")
         raise HTTPException(status_code=400, detail=f"Configuration error: {e}")
