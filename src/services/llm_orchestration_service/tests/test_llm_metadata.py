@@ -17,7 +17,7 @@ def stub_extract(monkeypatch):
         fake_extract
     )
 
-@ pytest.mark.asyncio
+@pytest.mark.asyncio
 async def test_llm_metadata_endpoint(client):
     # Build a dummy upload file
     file_content = b"dummy"
