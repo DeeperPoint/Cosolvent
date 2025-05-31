@@ -4,7 +4,7 @@ from aio_pika import IncomingMessage
 import httpx
 
 from core.config import settings
-from schemas.metadata_schema import AssetUploadedEvent, MetadataResponse
+from schemas.metadata_service_schema import AssetUploadedEvent, MetadataResponse
 
 logger = logging.getLogger("metadata_service.router")
 router = APIRouter()
