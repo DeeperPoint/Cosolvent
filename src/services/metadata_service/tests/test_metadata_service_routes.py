@@ -42,3 +42,20 @@ def test_describe_asset(monkeypatch, client):
     body = res.json()
     assert body["asset_id"] == asset_id
     assert body["description"] == "an image"
+
+def test_describe_asset_not_found(monkeypatch, client):
+    asset_id = "doesnt_exist"
+    # Mock asset metadata endpoint to return empty list
+    class RMetaEmpty:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self): return []
+
+    async def fake_get(self, url, **kwargs):
+        return RMetaEmpty()
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    # Call the describe endpoint and expect 404
+    res = client.post(f"/describe/{asset_id}")
+    assert res.status_code == status.HTTP_404_NOT_FOUND
+    assert res.json().get("detail") == "Asset not found"
