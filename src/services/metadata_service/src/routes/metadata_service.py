@@ -31,6 +31,8 @@ async def process_asset(asset_id: str) -> MetadataResponse:
         raise HTTPException(status_code=404, detail="Asset not found")
     asset_info = assets[0]
     download_url = asset_info.get("url")
+    if not is_valid_url(download_url):
+        raise HTTPException(status_code=400, detail="Invalid download URL")
     # 2) Download binary data
     async with httpx.AsyncClient() as client:
         resp_file = await client.get(download_url)
