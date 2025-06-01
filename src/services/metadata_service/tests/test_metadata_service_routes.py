@@ -58,4 +58,4 @@ def test_describe_asset_not_found(monkeypatch, client):
     # Call the describe endpoint and expect 404
     res = client.post(f"/describe/{asset_id}")
     assert res.status_code == status.HTTP_404_NOT_FOUND
-    assert res.json().get("detail") == "Asset not found"
+    assert res.json() == {"detail": "Asset not found"}
