@@ -23,31 +23,26 @@ async def process_asset(asset_id: str) -> MetadataResponse:
     # 1) Fetch asset metadata (to get download URL) from Asset Service
     list_url = f"{settings.asset_service_url.rstrip('/')}/assets"
     params = {"asset_id": asset_id}
-    async with httpx.AsyncClient() as client:
-        resp_meta = await client.get(list_url, params=params)
-        resp_meta.raise_for_status()
-        assets = resp_meta.json()
+ resp_meta = await shared_http_client.get(list_url, params=params)
+    resp_meta.raise_for_status()
+    assets = resp_meta.json()
     if not assets:
         raise HTTPException(status_code=404, detail="Asset not found")
     asset_info = assets[0]
     download_url = asset_info.get("url")
     # 2) Download binary data
-    async with httpx.AsyncClient() as client:
-        resp_file = await client.get(download_url)
-        resp_file.raise_for_status()
-        data = resp_file.content
-
+    resp_file = await shared_http_client.get(download_url)
+    resp_file.raise_for_status()
+    data = resp_file.content
     # TODO: handle audio, video, PDF, DOCX; for now only images
     files = {"file": (f"{asset_id}", data, asset_info.get("content_type", "application/octet-stream"))}
-
     # 3) Call LLM Orchestration metadata endpoint
-    async with httpx.AsyncClient() as client:
-        llm_resp = await client.post(
-            f"{settings.llm_orchestration_service_url.rstrip('/')}/llm/metadata",
-            files=files
-        )
-        llm_resp.raise_for_status()
-        payload = llm_resp.json()
+    llm_resp = await shared_http_client.post(
+        f"{settings.llm_orchestration_service_url.rstrip('/')}/llm/metadata",
+        files=files
+    )
+    llm_resp.raise_for_status()
+    payload = llm_resp.json()
         # unwrap LLMServiceResponse wrapper
         result = payload.get("result", payload)
 
