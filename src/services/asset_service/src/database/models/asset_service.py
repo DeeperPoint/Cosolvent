@@ -1,13 +1,22 @@
+class AssetModel:
+    def __init__(self, asset: dict):
+        self.id = str(asset.get("_id"))
+        self.user_id = asset.get("user_id")
+        self.filename = asset.get("filename")
+        self.content_type = asset.get("content_type")
+        self.url = asset.get("url")
+        # include file_type if present
+        self.file_type = asset.get("file_type", None)
 
-def asset_to_dict(asset: dict) -> dict:
-    asset_dict = {
-        "id": str(asset.get("_id")),
-        "user_id": asset.get("user_id"),
-        "filename": asset.get("filename"),
-        "content_type": asset.get("content_type"),
-        "url": asset.get("url"),
-    }
-    # include file_type if present
-    if "file_type" in asset:
-        asset_dict["file_type"] = asset["file_type"]
-    return asset_dict
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "filename": self.filename,
+            "content_type": self.content_type,
+            "url": self.url,
+            "file_type": self.file_type,
+            "meta_data": {
+                "description": None  # Default value, can be updated later
+            }
+        }
