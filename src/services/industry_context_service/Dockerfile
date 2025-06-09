@@ -1,14 +1,27 @@
-# ./src/services/user_management_service/Dockerfile
 FROM python:3.11-slim
 
-# 1. Copy & install the shared library
-COPY src/shared /opt/shared
-WORKDIR /opt/shared
-RUN pip install --no-cache-dir -e .
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y build-essential libpoppler-cpp-dev pkg-config poppler-utils \
+                       libxml2-dev libxslt1-dev libjpeg-dev zlib1g-dev libglib2.0-0 \
+                       libsm6 libxext6 libxrender-dev && \
+    rm -rf /var/lib/apt/lists/*
 
-# 2. Copy & install the service
-COPY src/services/user_management_service /opt/service
-WORKDIR /opt/service
+WORKDIR /usr/src/app
+
+# Copy requirements
+COPY requirements.txt ./
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-CMD ["python", "src/main.py"]
+# Copy application code
+COPY ./src .
+
+# Download NLTK punkt (for sentence splitting, if needed)
+RUN python -c "import nltk; nltk.download('punkt')"
+
+# Expose port
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
