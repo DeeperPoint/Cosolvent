@@ -16,4 +16,7 @@ class AssetModel:
             "content_type": self.content_type,
             "url": self.url,
             "file_type": self.file_type,
+            "metadata": {
+                "description": None  # Default value, can be updated later
+            }
         }

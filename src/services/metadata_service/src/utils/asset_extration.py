@@ -21,7 +21,7 @@ class AssetExtraction:
     """
 
     SUPPORTED_TYPES = {
-        "text",
+        "plain",
         "pdf",
         "msword",
         "vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -56,24 +56,21 @@ class AssetExtraction:
         data = await loop.run_in_executor(None, response["Body"].read)
 
         # Dispatch based on MIME type
-        content_type = content_type.split("/")
-        print(f"Processing content type: {content_type}")
-        if content_type == "text":
-            return data.decode('utf-8')
+        content_type = content_type.split("/")[1]
+        if content_type == "plain":
+            return str(data.decode('utf-8'))
 
         if content_type == "pdf":
             reader = PdfReader(BytesIO(data))
             return "\n\n".join((page.extract_text() or "") for page in reader.pages)
         if content_type == "msword":
-            return textract.process(BytesIO(data), extension='doc').decode('utf-8')
+            return str(textract.process(input_data=data, extension='doc').decode('utf-8'))
 
         if content_type == "vnd.openxmlformats-officedocument.wordprocessingml.document":
             with BytesIO(data) as bio:
                 doc = Document(bio)
                 return "\n\n".join(p.text for p in doc.paragraphs)
         
-        # application/msword
-        # textract will detect .doc when extension parameter is 'doc'
         else:
             return ExtractUsingLLM(url , content_type).extract()
     @staticmethod
@@ -89,5 +86,5 @@ class AssetExtraction:
             return None
 
         asset_url = raw["url"]
-        file_type = raw["file_type"]
+        file_type = raw["content_type"]
         return await AssetExtraction.read_from_s3(asset_url,  file_type)

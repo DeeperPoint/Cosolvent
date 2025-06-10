@@ -33,6 +33,8 @@ async def process_asset(message: aio_pika.IncomingMessage):
 
             # Extract description asynchronously
             description = await AssetExtraction.read_asset_by_id(asset_id)
+            # make the description in one line
+            description = description.replace("\n", " ").strip()
             await AssetCRUD.add_description(asset_id, description)
             logger.info(f"Asset {asset_id} processed successfully with description: {description}")
 
