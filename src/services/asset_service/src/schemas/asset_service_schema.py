@@ -1,4 +1,9 @@
 from pydantic import BaseModel, Field
+from typing import Optional
+
+class MetaData(BaseModel):
+    """Additional metadata for an asset, e.g., generated description."""
+    description: Optional[str] = Field(None, description="Description text for the asset")
 
 class AssetCreate(BaseModel):
     user_id: str = Field(..., description="ID of the uploading user")
@@ -9,3 +14,7 @@ class AssetCreate(BaseModel):
 class AssetResponse(AssetCreate):
     id: str = Field(..., description="Database ID of the asset")
     url: str = Field(..., description="S3 URL to the stored file")
+    meta_data: Optional[MetaData] = Field(
+        default_factory=MetaData,
+        description="Additional metadata (e.g., description)"
+    )

@@ -33,5 +33,8 @@ class AssetCRUD:
         )
         if result.modified_count > 0:
             print(result )
-            return await AssetCRUD.get_by_id(asset_id)
+            cur =  await AssetCRUD.get_by_id(asset_id)
+            print("the updated asset is :")
+            print(cur)
+            return cur
         return None
