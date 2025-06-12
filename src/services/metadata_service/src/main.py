@@ -2,6 +2,8 @@ from fastapi import FastAPI
 import asyncio
 import aio_pika
 from core.config import settings
+from core.rabbitmq import connect as rabbit_connect
+from routes.worker import startup_consumer
 from routes.metadata_service import router, on_event
 
 app = FastAPI(title="Metadata Service")
@@ -12,15 +14,18 @@ async def health():
 
 @app.on_event("startup")
 async def startup():
-    # Connect to RabbitMQ and start consuming AssetUploaded events
-    connection = await aio_pika.connect_robust(settings.rabbitmq_url)
-    channel = await connection.channel()
-    queue = await channel.declare_queue("asset.uploaded", durable=True)
-    await queue.consume(on_event)
-    app.state.rabbitmq_connection = connection
+    """
+    Initialize RabbitMQ connection and start the asset.uploaded consumer.
+    """
+    # Initialize connection and channel via core.rabbitmq
+    await rabbit_connect()
+    # Declare queue and start consuming using worker logic
+    await startup_consumer()
 
 @app.on_event("shutdown")
 async def shutdown():
-    await app.state.rabbitmq_connection.close()
+    """Clean up RabbitMQ connection on shutdown."""
+    from core.rabbitmq import connection
+    await connection.close()
 
 app.include_router(router)
