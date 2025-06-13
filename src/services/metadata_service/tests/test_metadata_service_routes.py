@@ -43,27 +43,20 @@ def test_describe_asset(monkeypatch, client):
     assert body["asset_id"] == asset_id
     assert body["description"] == "an image"
 
-def test_describe_asset_not_found(mock_httpx_get, client):
-    asset_id = "doesnt_exist"
+def test_describe_asset_not_found(monkeypatch, client):
+    # Simulate asset-service returning an empty list of metadata
+    class RMetaEmpty:
+        status_code = 200
         def raise_for_status(self): pass
         def json(self): return []
 
-    class RMeta:
-        status_code = 200
-        def raise_for_status(self): pass
-        def json(self):
-            return [{"url": "http://assets.test/download/123", "content_type": "image/jpeg"}]
+    async def fake_get(self, url, **kwargs):
+        return RMetaEmpty()
+    # Patch httpx.AsyncClient.get to use our fake_get
+    import httpx
+    monkeypatch.setattr(httpx.AsyncClient, 'get', fake_get)
 
-    class RFile:
-        status_code = 200
-        content = b"fake-image-bytes"
-        def raise_for_status(self): pass
-
-    def fake_get(self, url, **kwargs):
-        if "doesnt_exist" in url:
-            return RMetaEmpty()
-        return responses.pop(0)
-
-    responses = [RMeta(), RFile()]
+    asset_id = "doesnt_exist"
+    res = client.post(f"/describe/{asset_id}")
     assert res.status_code == status.HTTP_404_NOT_FOUND
     assert res.json() == {"detail": "Asset not found"}

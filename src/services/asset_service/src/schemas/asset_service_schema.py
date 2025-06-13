@@ -9,3 +9,9 @@ class AssetCreate(BaseModel):
 class AssetResponse(AssetCreate):
     id: str = Field(..., description="Database ID of the asset")
     url: str = Field(..., description="S3 URL to the stored file")
+    description: str | None = Field(None, description="Text description of the asset")
+    status: str | None = Field(None, description="Processing status of the asset (e.g., described)")
+
+class AssetMetadataUpdate(BaseModel):
+    description: str = Field(..., description="New description for the asset")
+    status: str = Field(..., description="New processing status for the asset")

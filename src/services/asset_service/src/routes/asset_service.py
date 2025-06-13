@@ -4,7 +4,7 @@ from uuid import uuid4
 import boto3
 from botocore.exceptions import ClientError
 from src.utils.publisher import publish_asset
-from src.schemas.asset_service_schema import AssetCreate, AssetResponse
+from src.schemas.asset_service_schema import AssetCreate, AssetResponse, AssetMetadataUpdate
 from src.database.crud.asset_service_crud import AssetCRUD
 from src.core.config import Config
 from fastapi import Query
@@ -94,7 +94,15 @@ async def upload_asset(
         })
     return saved
 
-
+@router.patch("/assets/{asset_id}/metadata", response_model=AssetResponse)
+async def update_asset_metadata(asset_id: str, metadata: AssetMetadataUpdate):
+    """
+    Update an asset's description and processing status.
+    """
+    updated = await AssetCRUD.update_metadata(asset_id, metadata.dict())
+    if not updated:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return updated
 
 @router.get("/assets", response_model=list[AssetResponse])
 async def get_assets(
