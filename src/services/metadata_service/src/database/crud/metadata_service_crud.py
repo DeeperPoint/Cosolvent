@@ -29,7 +29,7 @@ class AssetCRUD:
         """
         result = await db.assets.update_one(
             {"_id": ObjectId(asset_id)},
-            {"$set": {"metadata": {"description": description}}}
+            {"$set": {"metadata.description": description}}
         )
         if result.modified_count > 0:
             print(result )
