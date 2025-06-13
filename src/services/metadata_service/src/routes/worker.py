@@ -1,15 +1,13 @@
 import json
 import logging
-from fastapi import APIRouter
 from aio_pika import IncomingMessage
 from ..core.rabbitmq import publish_ready_for_indexing
 from ..core.asset_client import update_metadata
 from ..schemas.asset import AssetUpdatePayload, AssetReadyForIndexing
 from core.llm_client import extract_description
 from ..core.rabbitmq import channel
+from shared.shared.events import QueueEventNames  # use shared constant for queue names
 
-
-router = APIRouter()
 
 async def on_message(msg: IncomingMessage):
     async with msg.process():
@@ -31,6 +29,7 @@ async def startup_consumer():
     """
     Declares the AssetUploaded queue and starts consuming messages with on_message callback.
     """
-    queue = await channel.declare_queue("asset.uploaded", durable=True)
+    # Use shared queue name instead of hardcoded string
+    queue = await channel.declare_queue(QueueEventNames.asset_upload, durable=True)
     await queue.consume(on_message)
 
