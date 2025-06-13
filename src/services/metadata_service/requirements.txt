@@ -1,5 +1,14 @@
 fastapi
-uvicorn
 pydantic
 aio-pika
 httpx
+uvicorn[standard]
+motor
+python-dotenv
+boto3
+python-multipart
+tenacity
+PyPDF2
+docx2txt
+textract
+python-docx

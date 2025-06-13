@@ -7,8 +7,13 @@ WORKDIR /opt/shared
 RUN pip install --no-cache-dir -e .
 
 # 2. Copy & install the service
-COPY src/services/user_management_service /opt/service
-WORKDIR /opt/service
-RUN pip install --no-cache-dir -r requirements.txt
 
-CMD ["python", "src/main.py"]
+COPY src/services/metadata_service /opt/service
+WORKDIR /opt/service
+
+# 3 copy and install requirements
+COPY src/services/metadata_service/requirements.txt /opt/service/requirements.txt
+RUN pip install -r requirements.txt
+ENV PYTHONPATH=/opt/service
+
+CMD ["python", "-u", "-m", "src.utils.asset_consumer"]
