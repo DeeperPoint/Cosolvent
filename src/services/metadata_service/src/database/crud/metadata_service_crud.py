@@ -17,7 +17,7 @@ class AssetCRUD:
     @staticmethod
     async def get_by_user_id(user_id: str) -> list[dict]:
         assets = await db.assets.find({"user_id": user_id}).to_list(length=None)
-        return [AssetModel(assets).to_dict() for asset in assets] if assets else []
+        return [AssetModel(asset).to_dict() for asset in assets] if assets else []
     @staticmethod
     async def add_description(asset_id: str, description: str) -> Optional[dict]:
         """
@@ -32,9 +32,6 @@ class AssetCRUD:
             {"$set": {"metadata.description": description}}
         )
         if result.modified_count > 0:
-            print(result )
             cur =  await AssetCRUD.get_by_id(asset_id)
-            print("the updated asset is :")
-            print(cur)
             return cur
         return None
