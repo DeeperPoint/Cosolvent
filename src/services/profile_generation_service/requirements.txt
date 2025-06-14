@@ -1,0 +1,10 @@
+fastapi
+pydantic
+aio-pika
+httpx
+uvicorn[standard]
+motor
+python-dotenv
+boto3
+python-multipart
+tenacity

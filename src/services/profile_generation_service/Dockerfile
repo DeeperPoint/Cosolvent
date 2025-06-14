@@ -6,9 +6,12 @@ COPY src/shared /opt/shared
 WORKDIR /opt/shared
 RUN pip install --no-cache-dir -e .
 
-# 2. Copy & install the service
-COPY src/services/user_management_service /opt/service
-WORKDIR /opt/service
-RUN pip install --no-cache-dir -r requirements.txt
+ # 2. Set up service directory and install dependencies (cache pip layer unless requirements change)
+ WORKDIR /opt/service
+ COPY src/services/profile_generation_service/requirements.txt ./requirements.txt
+ RUN pip install --no-cache-dir -r requirements.txt
+ # Copy service code
+ COPY src/services/profile_generation_service /opt/service
+ENV PYTHONPATH=/opt/service
 
-CMD ["python", "src/main.py"]
+CMD ["python", "-u", "-m", "src.utils.profile_consumer"]

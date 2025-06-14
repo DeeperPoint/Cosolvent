@@ -128,6 +128,10 @@ services:
       dockerfile: src/services/profile_generation_service/Dockerfile
     ports:
       - "8007:8007"
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017
+    env_file:
+      - .env    
     depends_on:
       - redis
       - rabbitmq
@@ -140,11 +144,14 @@ services:
       context: .
       dockerfile: src/services/profile_management_service/Dockerfile
     ports:
-      - "8008:8008"
+      - "8003:8003"
     depends_on:
       - redis
       - rabbitmq
       - mongodb
+      - s3-server
+    env_file:
+      - .env
     networks:
       - app_network
 
