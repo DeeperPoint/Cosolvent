@@ -9,7 +9,7 @@ from src.core.config import Settings
 from src.utils.asset_extration import AssetExtraction
 from src.database.crud.metadata_service_crud import AssetCRUD
 from shared.events import QueueEventNames
-
+from src.utils.asset_publisher import publish_metadata_extraction_completed
 
 import sys
 
@@ -35,8 +35,18 @@ async def process_asset(message: aio_pika.IncomingMessage):
             description = await AssetExtraction.read_asset_by_id(asset_id)
             # make the description in one line
             description = description.replace("\n", " ").strip()
+            asset = await AssetCRUD.get_by_id(asset_id)
+            user_id = asset["user_id"]
+
+            if not user_id:
+                logger.error(f"User ID not found for asset_id: {asset_id}")
+                return
             await AssetCRUD.add_description(asset_id, description)
-            logger.info(f"Asset {asset_id} processed successfully with description: {description}")
+            await publish_metadata_extraction_completed({
+                "asset_id": asset_id,
+                "user_id": user_id
+            })
+            logger.info(f"Asset {asset_id} processed successfully with description: {description[:30]}")
 
 
         except json.JSONDecodeError:
