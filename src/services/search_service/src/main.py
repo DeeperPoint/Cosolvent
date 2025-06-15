@@ -18,10 +18,11 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Health-check endpoint
-@app.get("/health", tags=["Root"])
-async def health():
-    return {"status": "ok"}
+# Root endpoint
+@app.get("/", tags=["Root"], summary="Search Service root endpoint")
+async def root():
+    """Root endpoint to verify service liveness."""
+    return {"status": "Search Service is running"}
 
 # Startup: connect to RabbitMQ and start consumer
 @app.on_event("startup")

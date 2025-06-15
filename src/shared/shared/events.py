@@ -1,4 +1,4 @@
 class QueueEventNames:
-    asset_uploaded = "asset.uploaded"
-    asset_ready_for_indexing = "asset.ready_for_indexing"
+    ASSET_UPLOADED = "asset.uploaded"
+    ASSET_READY_FOR_INDEXING = "asset.ready_for_indexing"
 
