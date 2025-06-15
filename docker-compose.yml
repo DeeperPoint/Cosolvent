@@ -31,7 +31,10 @@ services:
     ports:
       - "27017:27017"
     networks:
-      - app_network
+      app_network:
+        aliases:
+          - mongo
+          - mongodb
     
 
   # ─── Application Services ─────────────────────────────────────────────────
@@ -55,6 +58,7 @@ services:
       dockerfile: src/services/asset_service/Dockerfile
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - MONGO_URI=mongodb://mongodb:27017
     ports:
       - "8002:8002"
     depends_on:
@@ -107,6 +111,10 @@ services:
       dockerfile: src/services/metadata_service/Dockerfile
     ports:
       - "8017:8006"
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017
+    env_file:
+      - .env
     depends_on:
       - redis
       - rabbitmq
