@@ -1,0 +1,225 @@
+"""YAML marketplace config loader + Pydantic validation models.
+
+The marketplace.yaml file is the single source of truth for all runtime behaviour.
+This module loads it, validates it, and exposes typed models for the rest of the app.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Literal
+
+import yaml
+from pydantic import BaseModel, field_validator, model_validator
+
+
+# ── Field definition inside a profile schema section ──────────────────────
+
+class FieldDefinition(BaseModel):
+    name: str
+    label: str
+    type: Literal["text", "number", "select", "multi_select", "date", "file", "rich_text", "location"]
+    required: bool = False
+    options: list[str] | None = None
+    visibility: Literal["public", "protected", "private"] = "public"
+    searchable: bool = False
+
+    @field_validator("options")
+    @classmethod
+    def options_required_for_select(cls, v: list[str] | None, info) -> list[str] | None:
+        if info.data.get("type") in ("select", "multi_select") and not v:
+            raise ValueError("options required for select/multi_select fields")
+        return v
+
+
+class ProfileSection(BaseModel):
+    name: str
+    fields: list[FieldDefinition]
+
+
+class ProfileSchema(BaseModel):
+    sections: list[ProfileSection]
+
+    @property
+    def all_fields(self) -> list[FieldDefinition]:
+        return [f for s in self.sections for f in s.fields]
+
+    def get_field(self, name: str) -> FieldDefinition | None:
+        for f in self.all_fields:
+            if f.name == name:
+                return f
+        return None
+
+
+# ── Participant type permissions ──────────────────────────────────────────
+
+class ParticipantPermissions(BaseModel):
+    can_list: bool = False
+    can_search: bool = False
+    can_initiate_conversation: bool = False
+    can_receive_conversation: bool = False
+    can_share_private_assets: bool = False
+    requires_onboarding: bool = True
+    requires_approval: bool = False
+    visible_in_search: bool = False
+
+
+class ParticipantType(BaseModel):
+    name: str
+    slug: str
+    role: Literal["supply", "demand", "facilitator"]
+    permissions: ParticipantPermissions
+
+
+# ── Onboarding settings per type ─────────────────────────────────────────
+
+class OnboardingConfig(BaseModel):
+    requires_approval: bool = True
+    approval_type: Literal["manual", "auto"] = "manual"
+    document_upload_required: bool = False
+    ai_extraction_enabled: bool = False
+    ai_profile_generation: bool = False
+    welcome_email_on_approval: bool = True
+    profile_completeness_threshold: int = 100
+
+
+# ── Communication rules ──────────────────────────────────────────────────
+
+class ConversationRule(BaseModel):
+    initiator: str
+    receiver: str
+    requires_approval: bool = True
+
+
+class CommunicationConfig(BaseModel):
+    conversation_rules: list[ConversationRule]
+
+
+# ── Discovery / AI settings ──────────────────────────────────────────────
+
+class ResultVisibility(BaseModel):
+    anonymous: Literal["public"] = "public"
+    authenticated: Literal["public", "protected"] = "protected"
+
+
+class AIDiscoveryConfig(BaseModel):
+    vector_search_enabled: bool = True
+    rag_query_enabled: bool = True
+    follow_up_suggestions: bool = True
+
+
+class DiscoveryConfig(BaseModel):
+    searchable_types: list[str]
+    filter_fields: list[str] = []
+    result_visibility: ResultVisibility = ResultVisibility()
+    ai: AIDiscoveryConfig = AIDiscoveryConfig()
+
+
+# ── Marketplace identity ─────────────────────────────────────────────────
+
+class MarketplaceIdentity(BaseModel):
+    name: str
+    description: str = ""
+    industry: str = ""
+
+
+# ── Root config ──────────────────────────────────────────────────────────
+
+class MarketplaceConfig(BaseModel):
+    marketplace: MarketplaceIdentity
+    participant_types: list[ParticipantType]
+    profile_schemas: dict[str, ProfileSchema]
+    onboarding: dict[str, OnboardingConfig]
+    communication: CommunicationConfig
+    discovery: DiscoveryConfig
+
+    # ── helpers ───────────────────────────────────────────────────────
+    def get_type(self, slug: str) -> ParticipantType | None:
+        for pt in self.participant_types:
+            if pt.slug == slug:
+                return pt
+        return None
+
+    def type_slugs(self) -> list[str]:
+        return [pt.slug for pt in self.participant_types]
+
+    # ── cross-validation ─────────────────────────────────────────────
+    @model_validator(mode="after")
+    def cross_validate(self) -> "MarketplaceConfig":
+        slugs = {pt.slug for pt in self.participant_types}
+
+        # Need at least 2 participant types
+        if len(self.participant_types) < 2:
+            raise ValueError("At least 2 participant types required")
+        if len(self.participant_types) > 3:
+            raise ValueError("Maximum 3 participant types for MVP")
+
+        # Profile schemas must exist for every participant type
+        for slug in slugs:
+            if slug not in self.profile_schemas:
+                raise ValueError(f"Missing profile schema for participant type '{slug}'")
+
+        # Onboarding config must exist for every participant type
+        for slug in slugs:
+            if slug not in self.onboarding:
+                raise ValueError(f"Missing onboarding config for participant type '{slug}'")
+
+        # Conversation rules must reference valid type slugs
+        for rule in self.communication.conversation_rules:
+            if rule.initiator not in slugs:
+                raise ValueError(
+                    f"Conversation rule references unknown initiator type '{rule.initiator}'"
+                )
+            if rule.receiver not in slugs:
+                raise ValueError(
+                    f"Conversation rule references unknown receiver type '{rule.receiver}'"
+                )
+
+        # At least one type must can_search
+        if not any(pt.permissions.can_search for pt in self.participant_types):
+            raise ValueError("At least one participant type must have can_search=true")
+
+        # At least one type must be visible_in_search
+        if not any(pt.permissions.visible_in_search for pt in self.participant_types):
+            raise ValueError("At least one participant type must have visible_in_search=true")
+
+        # Searchable types in discovery must reference valid slugs
+        for st in self.discovery.searchable_types:
+            if st not in slugs:
+                raise ValueError(f"Discovery searchable_types references unknown type '{st}'")
+
+        # Filter fields must exist in at least one profile schema
+        all_field_names = set()
+        for schema in self.profile_schemas.values():
+            for f in schema.all_fields:
+                all_field_names.add(f.name)
+        for ff in self.discovery.filter_fields:
+            if ff not in all_field_names:
+                raise ValueError(f"Discovery filter_field '{ff}' not found in any profile schema")
+
+        return self
+
+
+def load_marketplace_config(path: str | Path) -> MarketplaceConfig:
+    """Load and validate a marketplace YAML config file."""
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Marketplace config not found: {path}")
+    raw: dict[str, Any] = yaml.safe_load(path.read_text())
+    return MarketplaceConfig(**raw)
+
+
+# ── Module-level singleton (set during app startup) ──────────────────────
+
+_config: MarketplaceConfig | None = None
+
+
+def get_marketplace_config() -> MarketplaceConfig:
+    if _config is None:
+        raise RuntimeError("Marketplace config not loaded. Call load_marketplace_config first.")
+    return _config
+
+
+def set_marketplace_config(cfg: MarketplaceConfig) -> None:
+    global _config
+    _config = cfg
