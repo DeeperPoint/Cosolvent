@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import questionary
 import yaml
 from rich.console import Console
 from rich.syntax import Syntax
@@ -7,7 +8,7 @@ from rich.syntax import Syntax
 console = Console()
 
 
-def step_review_generate(config: dict) -> None:
+def step_review_generate(config: dict) -> bool:
     console.print("\n[bold]Configuration Summary:[/]\n")
 
     yaml_str = yaml.dump(config, default_flow_style=False, sort_keys=False)
@@ -29,3 +30,9 @@ def step_review_generate(config: dict) -> None:
         console.print(f"    - {rule['initiator']} -> {rule['receiver']}")
 
     console.print()
+
+    try:
+        result = questionary.confirm("Generate this configuration?").ask()
+        return bool(result)
+    except KeyboardInterrupt:
+        return False
