@@ -77,6 +77,10 @@ async def _ensure_indexes() -> None:
     await db.notifications.create_index("user_id")
     await db.notifications.create_index([("user_id", 1), ("is_read", 1)])
 
+    # FAQs
+    await db.faqs.create_index("is_active")
+    await db.faqs.create_index("sort_order")
+
     # AI collections
     await db.ai_documents.create_index("status")
     await db.ai_chat_history.create_index("user_id")

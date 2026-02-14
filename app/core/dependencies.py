@@ -33,6 +33,9 @@ async def get_current_user(session_token: str = Cookie(None)) -> dict[str, Any]:
     if not user:
         raise HTTPException(401, "User not found")
 
+    if user.get("is_active") is False:
+        raise HTTPException(403, "Account deactivated")
+
     user["_id"] = str(user["_id"])
     return user
 
