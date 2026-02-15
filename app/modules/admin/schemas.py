@@ -9,6 +9,12 @@ class ApprovalAction(BaseModel):
     feedback: str | None = None
 
 
+class ApplicationDecisionResponse(BaseModel):
+    status: Literal["approved", "rejected"]
+    profile_id: str | None = None
+    feedback: str | None = None
+
+
 class UserRoleUpdate(BaseModel):
     role: Literal["user", "admin"]
 

@@ -4,7 +4,7 @@
 
 Cosolvent is a configurable, single-tenant marketplace platform. A single YAML configuration file (`marketplace.yaml`) drives all runtime behavior — participant types, profile schemas, permissions, communication rules, discovery settings, and onboarding workflows.
 
-The backend is a FastAPI application backed by MongoDB (via Motor for async operations), Redis (sessions and job queues), Pinecone (vector search), and S3 (file storage).
+The backend is a FastAPI application backed by MongoDB (via Motor for async operations), Redis (job queues), Pinecone (vector search), and S3 (file storage).
 
 ## Project Structure
 
@@ -81,7 +81,7 @@ Engines are stateless, config-driven components that interpret the marketplace Y
 
 ## Authentication & Authorization
 
-- **Sessions:** Token-based, stored in Redis with configurable TTL (default 72h). Delivered via HTTP-only cookies.
+- **Sessions:** Token-based, stored in MongoDB with TTL index (default 72h). Delivered via HTTP-only cookies.
 - **User roles:** `user` or `admin`. Admins bypass all permission checks.
 - **Deactivation guard:** Users with `is_active: false` receive 403 on any authenticated request.
 - **Permission checks:** Config-driven via `ParticipantPermissions` on each type.

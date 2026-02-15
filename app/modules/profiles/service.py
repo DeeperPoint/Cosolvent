@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from bson import ObjectId
+
 from app.core.database import get_collection
 from app.core.exceptions import AppError, ConflictError, ForbiddenError, NotFoundError
 from app.core.marketplace_config import MarketplaceConfig
+from app.core.queue import enqueue_job
 from app.engine.schema_engine import compute_completeness, validate_profile_fields
 from app.engine.visibility_engine import ViewerTier, filter_fields, get_viewer_tier
+from app.modules.profiles.ai_generation import generate_profile_content
 from app.modules.profiles import repository as repo
 
 
@@ -79,9 +85,12 @@ async def submit_draft(user: dict, config: MarketplaceConfig) -> dict:
         )
         await repo.delete_draft(user_id)
         await get_collection("users").update_one(
-            {"_id": user["_id"] if not isinstance(user["_id"], str) else user["_id"]},
+            {"_id": _as_object_id(user["_id"])},
             {"$set": {"has_onboarded": True}},
         )
+        await _queue_profile_index(str(profile["_id"]))
+        if onboarding.welcome_email_on_approval and user.get("email"):
+            await _queue_welcome_email(user["email"], config.marketplace.name)
         return {"status": "active", "profile_id": str(profile["_id"])}
 
 
@@ -133,6 +142,7 @@ async def update_profile(
         "fields": validated,
         "completeness": completeness,
     })
+    await _queue_profile_index(profile_id)
     return _profile_response(updated, config, "owner")
 
 
@@ -157,11 +167,15 @@ async def approve_application(app_id: str, feedback: str = "") -> dict:
     await repo.delete_draft(application["user_id"])
     await repo.update_application(app_id, {"status": "approved", "admin_feedback": feedback})
 
-    from bson import ObjectId
     await get_collection("users").update_one(
         {"_id": ObjectId(application["user_id"])},
         {"$set": {"has_onboarded": True}},
     )
+    await _queue_profile_index(str(profile["_id"]))
+
+    user = await get_collection("users").find_one({"_id": ObjectId(application["user_id"])})
+    if user and user.get("email"):
+        await _queue_welcome_email(user["email"], "Cosolvent Marketplace")
 
     return {"status": "approved", "profile_id": str(profile["_id"])}
 
@@ -183,16 +197,58 @@ async def ai_generate_profile(profile_id: str, user: dict, config: MarketplaceCo
     profile = await repo.get_profile_by_id(profile_id)
     if not profile:
         raise NotFoundError("Profile not found")
-    # Stub — will be implemented in Phase 5
-    return {"status": "ai_generation_not_implemented"}
+    if profile["user_id"] != str(user["_id"]) and user.get("role") != "admin":
+        raise ForbiddenError("Not your profile")
+
+    summary = await generate_profile_content(
+        fields=profile.get("fields", {}),
+        participant_type=profile.get("participant_type", ""),
+        marketplace_context=config.marketplace.description,
+    )
+    updated = await repo.update_profile(
+        profile_id,
+        {
+            "ai_profile_draft": summary,
+            "ai_profile_status": "generated",
+            "ai_profile_updated_at": datetime.now(timezone.utc),
+        },
+    )
+    return _ai_action_response(updated, "generated")
 
 
 async def ai_approve_profile(profile_id: str) -> dict:
-    return {"status": "not_implemented"}
+    profile = await repo.get_profile_by_id(profile_id)
+    if not profile:
+        raise NotFoundError("Profile not found")
+    draft = profile.get("ai_profile_draft")
+    if not draft:
+        raise AppError("No generated AI profile draft to approve")
+
+    updated = await repo.update_profile(
+        profile_id,
+        {
+            "ai_profile": draft,
+            "ai_profile_status": "approved",
+            "ai_profile_updated_at": datetime.now(timezone.utc),
+        },
+    )
+    return _ai_action_response(updated, "approved")
 
 
 async def ai_reject_profile(profile_id: str) -> dict:
-    return {"status": "not_implemented"}
+    profile = await repo.get_profile_by_id(profile_id)
+    if not profile:
+        raise NotFoundError("Profile not found")
+
+    updated = await repo.update_profile(
+        profile_id,
+        {
+            "ai_profile_draft": None,
+            "ai_profile_status": "rejected",
+            "ai_profile_updated_at": datetime.now(timezone.utc),
+        },
+    )
+    return _ai_action_response(updated, "rejected")
 
 
 # ── Response helpers ──────────────────────────────────────────────────────
@@ -221,7 +277,56 @@ def _profile_response(profile: dict, config: MarketplaceConfig, tier: ViewerTier
         "status": profile["status"],
         "fields": filtered,
         "ai_profile": profile.get("ai_profile"),
+        "ai_profile_draft": profile.get("ai_profile_draft"),
+        "ai_profile_status": profile.get("ai_profile_status", "none"),
+        "ai_profile_updated_at": (
+            str(profile.get("ai_profile_updated_at", "")) if profile.get("ai_profile_updated_at") else None
+        ),
         "completeness": profile.get("completeness", 0),
         "created_at": str(profile.get("created_at", "")),
         "updated_at": str(profile.get("updated_at", "")),
     }
+
+
+def _ai_action_response(profile: dict | None, action_status: str) -> dict:
+    if not profile:
+        raise AppError("Profile update failed")
+    return {
+        "status": action_status,
+        "profile_id": str(profile["_id"]),
+        "ai_profile": profile.get("ai_profile"),
+        "ai_profile_draft": profile.get("ai_profile_draft"),
+        "ai_profile_status": profile.get("ai_profile_status", "none"),
+        "ai_profile_updated_at": (
+            str(profile.get("ai_profile_updated_at", "")) if profile.get("ai_profile_updated_at") else None
+        ),
+    }
+
+
+def _as_object_id(value: str | ObjectId) -> ObjectId:
+    if isinstance(value, ObjectId):
+        return value
+    return ObjectId(value)
+
+
+async def _queue_profile_index(profile_id: str) -> None:
+    await enqueue_job(
+        "app.workers.profile_indexing.index_profile_task",
+        profile_id,
+        required=False,
+    )
+
+
+async def _queue_welcome_email(to_email: str, marketplace_name: str) -> None:
+    subject = f"Welcome to {marketplace_name}"
+    html = (
+        "<p>Your profile has been approved and is now active.</p>"
+        "<p>You can start discovering participants and conversations immediately.</p>"
+    )
+    await enqueue_job(
+        "app.workers.email_sender.send_email_task",
+        to_email,
+        subject,
+        html,
+        required=False,
+    )

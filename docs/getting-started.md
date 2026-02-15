@@ -100,23 +100,34 @@ python -m cli validate marketplace.yaml
 uvicorn app.main:app --reload
 ```
 
-The API is available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
+The API is available at `http://localhost:18000`. Interactive docs at `http://localhost:18000/docs`.
+
+## Running Full Local Stack (API + Worker + Mongo + Redis)
+
+```bash
+docker compose up -d --build
+python scripts/wait_for_http.py --url http://localhost:18000/api/health --timeout 120
+```
+
+To stop and reset state:
+
+```bash
+docker compose down -v
+```
 
 ## Bootstrapping an Admin User
 
 Before using admin endpoints, create the first admin account:
 
 ```bash
-curl -X POST http://localhost:8000/api/auth/bootstrap \
+curl -X POST http://localhost:18000/api/auth/bootstrap \
   -H "Content-Type: application/json" \
   -d '{"email": "admin@example.com", "password": "your-password"}'
 ```
 
 This endpoint only works when no admin users exist yet.
 
-## Running Background Workers
-
-Background jobs (document indexing, email sending, profile indexing) use Arq with Redis:
+## Running Background Workers (Without Compose)
 
 ```bash
 arq app.workers.settings.WorkerSettings
@@ -125,5 +136,7 @@ arq app.workers.settings.WorkerSettings
 ## Running Tests
 
 ```bash
-pytest tests/unit/ -v
+pytest tests/unit -v
+RUN_INTEGRATION=1 INTEGRATION_BASE_URL=http://localhost:18000 pytest tests/integration -v
+RUN_E2E=1 E2E_BASE_URL=http://localhost:18000 pytest tests/e2e/test_local_full_stack.py -v
 ```

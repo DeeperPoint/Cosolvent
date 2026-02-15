@@ -31,7 +31,7 @@ def validate_config_file(path: str) -> bool:
     except ValidationError as exc:
         console.print("[bold red]Validation errors:[/]\n")
         for error in exc.errors():
-            loc = " -> ".join(str(l) for l in error["loc"])
+            loc = " -> ".join(str(item) for item in error["loc"])
             console.print(f"  [red]{loc}[/]: {error['msg']}")
         return False
     except Exception as exc:

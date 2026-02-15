@@ -29,6 +29,7 @@ async def create_user(
         "password_hash": password_hash,
         "participant_type": participant_type,
         "role": role,
+        "is_active": True,
         "has_onboarded": False,
         "created_at": datetime.now(timezone.utc),
     }

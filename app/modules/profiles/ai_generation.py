@@ -1,6 +1,12 @@
-"""AI profile content generation (stub for Phase 5)."""
+"""AI profile content generation."""
 
 from __future__ import annotations
+
+import json
+
+from app.core.config import settings
+from app.core.exceptions import ServiceUnavailableError
+from app.modules.ai.llm_client import generate
 
 
 async def generate_profile_content(
@@ -8,8 +14,27 @@ async def generate_profile_content(
     participant_type: str,
     marketplace_context: str,
 ) -> str:
-    """Generate AI-written profile content from raw field data.
+    """Generate AI-written profile content from raw field data."""
+    if not settings.openai_api_key:
+        raise ServiceUnavailableError("AI profile generation unavailable: OpenAI API key not configured")
 
-    Will be implemented in Phase 5 with LLM integration.
-    """
-    return ""
+    fields_json = json.dumps(fields, indent=2, ensure_ascii=True, sort_keys=True)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are an assistant that writes concise, factual marketplace profile summaries. "
+                "Do not invent facts. Use only provided fields. Keep it under 220 words."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Marketplace context: {marketplace_context}\n"
+                f"Participant type: {participant_type}\n"
+                f"Raw fields:\n{fields_json}\n\n"
+                "Write a polished profile summary suitable for marketplace discovery."
+            ),
+        },
+    ]
+    return (await generate(messages)).strip()

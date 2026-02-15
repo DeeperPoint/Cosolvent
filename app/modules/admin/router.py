@@ -8,6 +8,7 @@ from app.core.dependencies import get_config, require_admin
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.admin import service
 from app.modules.admin.schemas import (
+    ApplicationDecisionResponse,
     ApprovalAction,
     FAQCreate,
     FAQUpdate,
@@ -91,16 +92,15 @@ async def list_applications(
     return await service.list_applications(status)
 
 
-@router.post("/applications/{app_id}/approve")
+@router.post("/applications/{app_id}/approve", response_model=ApplicationDecisionResponse)
 async def approve_application(
     app_id: str,
     user: dict = Depends(require_admin),
-    config: MarketplaceConfig = Depends(get_config),
 ):
-    return await service.approve_application(app_id, config)
+    return await service.approve_application(app_id)
 
 
-@router.post("/applications/{app_id}/reject")
+@router.post("/applications/{app_id}/reject", response_model=ApplicationDecisionResponse)
 async def reject_application(
     app_id: str,
     body: ApprovalAction = ApprovalAction(),

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
 class RegisterRequest(BaseModel):
     """Minimal registration — creates user + empty draft."""
-    pass
+    ...
 
 
 class DraftUpdateRequest(BaseModel):
@@ -20,6 +22,9 @@ class ProfileResponse(BaseModel):
     status: str
     fields: dict
     ai_profile: str | None = None
+    ai_profile_draft: str | None = None
+    ai_profile_status: str = "none"
+    ai_profile_updated_at: str | None = None
     completeness: int = 0
     created_at: str | None = None
     updated_at: str | None = None
@@ -37,3 +42,12 @@ class ApplicationResponse(BaseModel):
 
 class AdminFeedbackRequest(BaseModel):
     feedback: str = ""
+
+
+class AIProfileActionResponse(BaseModel):
+    status: Literal["generated", "approved", "rejected"]
+    profile_id: str
+    ai_profile: str | None = None
+    ai_profile_draft: str | None = None
+    ai_profile_status: str = "none"
+    ai_profile_updated_at: str | None = None

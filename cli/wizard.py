@@ -97,7 +97,7 @@ def run_wizard(output_path: str = "marketplace.yaml", preset_name: str | None = 
         except ValidationError as exc:
             console.print("\n[bold red]Configuration validation failed:[/]\n")
             for error in exc.errors():
-                loc = " -> ".join(str(l) for l in error["loc"])
+                loc = " -> ".join(str(item) for item in error["loc"])
                 console.print(f"  [red]{loc}[/]: {error['msg']}")
             return
 

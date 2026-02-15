@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Path
 from app.core.dependencies import get_config, get_current_user, get_optional_user, require_admin
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.profiles import service
-from app.modules.profiles.schemas import AdminFeedbackRequest, DraftUpdateRequest
+from app.modules.profiles.schemas import AIProfileActionResponse, DraftUpdateRequest
 
 router = APIRouter()
 
@@ -91,7 +91,7 @@ async def update_profile(
     return await service.update_profile(profile_id, user, body.fields, config)
 
 
-@router.post("/{type_slug}/{profile_id}/ai-generate")
+@router.post("/{type_slug}/{profile_id}/ai-generate", response_model=AIProfileActionResponse)
 async def ai_generate(
     type_slug: str = Path(...),
     profile_id: str = Path(...),
@@ -102,7 +102,7 @@ async def ai_generate(
     return await service.ai_generate_profile(profile_id, user, config)
 
 
-@router.post("/{type_slug}/{profile_id}/ai-approve")
+@router.post("/{type_slug}/{profile_id}/ai-approve", response_model=AIProfileActionResponse)
 async def ai_approve(
     type_slug: str = Path(...),
     profile_id: str = Path(...),
@@ -111,7 +111,7 @@ async def ai_approve(
     return await service.ai_approve_profile(profile_id)
 
 
-@router.post("/{type_slug}/{profile_id}/ai-reject")
+@router.post("/{type_slug}/{profile_id}/ai-reject", response_model=AIProfileActionResponse)
 async def ai_reject(
     type_slug: str = Path(...),
     profile_id: str = Path(...),

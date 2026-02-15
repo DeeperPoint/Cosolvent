@@ -1,0 +1,119 @@
+"""Local full-stack end-to-end validation."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+import websockets
+
+from tests.e2e.helpers import (
+    bootstrap_or_login_admin,
+    get_base_url,
+    http_to_ws,
+    new_client,
+    random_email,
+    register_update_submit,
+    require_mode,
+    signup_user,
+)
+
+ADMIN_EMAIL = "admin@example.com"
+ADMIN_PASSWORD = "ChangeMe123!"
+USER_PASSWORD = "UserPass123!"
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_local_full_stack_flow():
+    require_mode("RUN_E2E")
+    base_url = get_base_url("E2E_BASE_URL")
+    ws_base = http_to_ws(base_url)
+
+    validate = subprocess.run(
+        [sys.executable, "-m", "cli", "validate", str(Path("marketplace.example.yaml"))],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert validate.returncode == 0, validate.stdout + validate.stderr
+
+    admin = new_client(base_url)
+    producer = new_client(base_url)
+    buyer = new_client(base_url)
+
+    try:
+        health = await admin.get("/api/health")
+        health.raise_for_status()
+
+        await bootstrap_or_login_admin(admin, ADMIN_EMAIL, ADMIN_PASSWORD)
+
+        producer_auth = await signup_user(
+            producer,
+            email=random_email("e2e-producer"),
+            password=USER_PASSWORD,
+            participant_type="producer",
+        )
+        await register_update_submit(
+            producer,
+            "producer",
+            {
+                "farm_name": "Valley Fields",
+                "country": "Canada",
+                "primary_crops": ["Wheat"],
+            },
+        )
+
+        apps = await admin.get("/api/admin/applications", params={"status": "pending"})
+        apps.raise_for_status()
+        app_id = apps.json()[0]["id"]
+        approve = await admin.post(f"/api/admin/applications/{app_id}/approve")
+        approve.raise_for_status()
+
+        buyer_auth = await signup_user(
+            buyer,
+            email=random_email("e2e-buyer"),
+            password=USER_PASSWORD,
+            participant_type="buyer",
+        )
+        await register_update_submit(
+            buyer,
+            "buyer",
+            {"org_name": "Global Flour Co", "country": "Canada", "business_type": "Mill"},
+        )
+
+        conv_resp = await buyer.post(
+            "/api/conversations",
+            json={
+                "receiver_user_id": producer_auth["user_id"],
+                "initial_message": "Can we discuss quantities?",
+            },
+        )
+        conv_resp.raise_for_status()
+        conv_id = conv_resp.json()["id"]
+
+        accept = await producer.post(f"/api/conversations/{conv_id}/accept")
+        accept.raise_for_status()
+
+        ws_url = f"{ws_base}/api/ws/{conv_id}"
+        async with websockets.connect(ws_url) as ws:
+            await ws.send(json.dumps({"type": "auth", "token": buyer_auth["session_token"]}))
+            connected_msg = json.loads(await ws.recv())
+            assert connected_msg["type"] == "connected"
+
+            await ws.send(json.dumps({"type": "ping"}))
+            pong = json.loads(await ws.recv())
+            assert pong["type"] == "pong"
+
+        dashboard = await admin.get("/api/admin/dashboard")
+        dashboard.raise_for_status()
+        users = await admin.get("/api/admin/users")
+        users.raise_for_status()
+        assert isinstance(users.json(), list)
+    finally:
+        await admin.aclose()
+        await producer.aclose()
+        await buyer.aclose()

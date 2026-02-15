@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.core.database import get_collection
@@ -29,12 +30,19 @@ async def search_profiles(
                 query[f"fields.{key}"] = value
 
     if text_query and searchable_fields:
-        # Simple regex-based text search across searchable fields
+        # Regex-based text search across searchable fields.
+        # Use full query and token-level terms so multi-word queries still match.
+        token_candidates = [text_query.strip()]
+        token_candidates.extend(part for part in re.split(r"\s+", text_query.strip()) if part)
+        tokens = list(dict.fromkeys(token_candidates))
+
         or_clauses = []
-        for field_name in searchable_fields:
-            or_clauses.append({
-                f"fields.{field_name}": {"$regex": text_query, "$options": "i"}
-            })
+        for token in tokens:
+            escaped = re.escape(token)
+            for field_name in searchable_fields:
+                or_clauses.append({
+                    f"fields.{field_name}": {"$regex": escaped, "$options": "i"}
+                })
         if or_clauses:
             query["$or"] = or_clauses
 

@@ -6,6 +6,9 @@ import json
 import uuid
 from typing import Any
 
+from app.core.config import settings
+from app.core.exceptions import AppError, ServiceUnavailableError
+from app.core.queue import enqueue_job
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.ai import repository as repo
 from app.modules.ai.llm_client import generate
@@ -21,6 +24,11 @@ async def query(
     config: MarketplaceConfig,
 ) -> dict[str, Any]:
     """RAG query: retrieve relevant context, generate answer."""
+    if not config.discovery.ai.rag_query_enabled:
+        raise AppError("RAG query is disabled for this marketplace", 400)
+    if not settings.openai_api_key or not settings.pinecone_api_key:
+        raise ServiceUnavailableError("AI retrieval unavailable: OpenAI/Pinecone not configured")
+
     if not thread_id:
         thread_id = str(uuid.uuid4())
 
@@ -28,6 +36,7 @@ async def query(
     context = ""
     try:
         from app.modules.discovery.indexer import _get_embedding
+
         embedding = await _get_embedding(query_text)
         vector_filter = {"source": "document"}
         if filters:
@@ -35,8 +44,8 @@ async def query(
         results = await search_vectors(embedding, top_k=5, filter_dict=vector_filter)
         context_parts = [r.get("metadata", {}).get("text", "") for r in results]
         context = "\n\n".join(context_parts)
-    except Exception:
-        pass
+    except Exception as exc:
+        raise ServiceUnavailableError("AI retrieval unavailable: vector search failed") from exc
 
     # Build prompt
     template = await get_prompt_template("rag_query", config)
@@ -67,6 +76,11 @@ async def follow_up(
     config: MarketplaceConfig,
 ) -> dict[str, Any]:
     """Generate follow-up question suggestions."""
+    if not config.discovery.ai.follow_up_suggestions:
+        raise AppError("Follow-up suggestions are disabled for this marketplace", 400)
+    if not settings.openai_api_key:
+        raise ServiceUnavailableError("AI service unavailable: OpenAI API key not configured")
+
     thread = await repo.get_chat_thread(thread_id)
     if not thread:
         return {"suggestions": []}
@@ -88,6 +102,16 @@ async def follow_up(
 
 async def upload_document(filename: str, content: str) -> dict[str, Any]:
     doc = await repo.create_document(filename, content)
+    doc_id = str(doc["_id"])
+    try:
+        await enqueue_job(
+            "app.workers.document_indexing.process_document_task",
+            doc_id,
+            required=True,
+        )
+    except ServiceUnavailableError:
+        await repo.update_document_status(doc_id, "FAILED")
+        raise
     return _serialize(doc)
 
 

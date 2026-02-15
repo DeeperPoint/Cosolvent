@@ -33,6 +33,11 @@ class ConflictError(AppError):
         super().__init__(message, 409)
 
 
+class ServiceUnavailableError(AppError):
+    def __init__(self, message: str = "Service unavailable"):
+        super().__init__(message, 503)
+
+
 class ConfigError(Exception):
     """Raised when marketplace config is invalid."""
 

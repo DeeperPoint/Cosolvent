@@ -36,8 +36,8 @@ async def list_applications(status: str | None = None) -> list[dict]:
     return [_serialize(a) for a in apps]
 
 
-async def approve_application(app_id: str, config: MarketplaceConfig) -> dict[str, Any]:
-    return await profiles_service.approve_application(app_id, config)
+async def approve_application(app_id: str) -> dict[str, Any]:
+    return await profiles_service.approve_application(app_id)
 
 
 async def reject_application(

@@ -44,6 +44,9 @@ async def create_profile(
     fields: dict,
     status: str = "active",
     ai_profile: str | None = None,
+    ai_profile_draft: str | None = None,
+    ai_profile_status: str = "none",
+    ai_profile_updated_at: datetime | None = None,
     completeness: int = 0,
 ) -> dict:
     now = datetime.now(timezone.utc)
@@ -53,6 +56,9 @@ async def create_profile(
         "status": status,
         "fields": fields,
         "ai_profile": ai_profile,
+        "ai_profile_draft": ai_profile_draft,
+        "ai_profile_status": ai_profile_status,
+        "ai_profile_updated_at": ai_profile_updated_at,
         "completeness": completeness,
         "created_at": now,
         "updated_at": now,

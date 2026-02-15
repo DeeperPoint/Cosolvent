@@ -25,7 +25,7 @@ async def get_current_user(session_token: str = Cookie(None)) -> dict[str, Any]:
     session = await sessions.find_one({"token": session_token})
     if not session:
         raise HTTPException(401, "Invalid session")
-    if session.get("expires_at") and session["expires_at"] < datetime.now(timezone.utc):
+    if _is_session_expired(session.get("expires_at")):
         raise HTTPException(401, "Session expired")
 
     users = get_collection("users")
@@ -38,6 +38,15 @@ async def get_current_user(session_token: str = Cookie(None)) -> dict[str, Any]:
 
     user["_id"] = str(user["_id"])
     return user
+
+
+def _is_session_expired(expires_at: Any) -> bool:
+    if not isinstance(expires_at, datetime):
+        return False
+    if expires_at.tzinfo is None:
+        now_naive_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        return expires_at < now_naive_utc
+    return expires_at.astimezone(timezone.utc) < datetime.now(timezone.utc)
 
 
 async def get_optional_user(session_token: str = Cookie(None)) -> dict[str, Any] | None:

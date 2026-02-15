@@ -62,54 +62,24 @@ def create_app() -> FastAPI:
 
 
 def _register_routers(application: FastAPI) -> None:
-    """Import and include module routers. Guarded so missing modules don't break startup."""
-    try:
-        from app.modules.auth.router import router as auth_router
-        application.include_router(auth_router, prefix="/api/auth", tags=["auth"])
-    except ImportError:
-        pass
+    """Import and include module routers."""
+    from app.modules.admin.router import router as admin_router
+    from app.modules.ai.router import router as ai_router
+    from app.modules.auth.router import router as auth_router
+    from app.modules.communication.router import router as comms_router
+    from app.modules.discovery.router import router as discovery_router
+    from app.modules.files.router import router as files_router
+    from app.modules.notifications.router import router as notif_router
+    from app.modules.profiles.router import router as profiles_router
 
-    try:
-        from app.modules.profiles.router import router as profiles_router
-        application.include_router(profiles_router, prefix="/api/profiles", tags=["profiles"])
-    except ImportError:
-        pass
-
-    try:
-        from app.modules.files.router import router as files_router
-        application.include_router(files_router, prefix="/api/files", tags=["files"])
-    except ImportError:
-        pass
-
-    try:
-        from app.modules.communication.router import router as comms_router
-        application.include_router(comms_router, prefix="/api", tags=["communication"])
-    except ImportError:
-        pass
-
-    try:
-        from app.modules.discovery.router import router as discovery_router
-        application.include_router(discovery_router, prefix="/api/search", tags=["discovery"])
-    except ImportError:
-        pass
-
-    try:
-        from app.modules.notifications.router import router as notif_router
-        application.include_router(notif_router, prefix="/api/notifications", tags=["notifications"])
-    except ImportError:
-        pass
-
-    try:
-        from app.modules.ai.router import router as ai_router
-        application.include_router(ai_router, prefix="/api/ai", tags=["ai"])
-    except ImportError:
-        pass
-
-    try:
-        from app.modules.admin.router import router as admin_router
-        application.include_router(admin_router, prefix="/api/admin", tags=["admin"])
-    except ImportError:
-        pass
+    application.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+    application.include_router(profiles_router, prefix="/api/profiles", tags=["profiles"])
+    application.include_router(files_router, prefix="/api/files", tags=["files"])
+    application.include_router(comms_router, prefix="/api", tags=["communication"])
+    application.include_router(discovery_router, prefix="/api/search", tags=["discovery"])
+    application.include_router(notif_router, prefix="/api/notifications", tags=["notifications"])
+    application.include_router(ai_router, prefix="/api/ai", tags=["ai"])
+    application.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 
 
 app = create_app()

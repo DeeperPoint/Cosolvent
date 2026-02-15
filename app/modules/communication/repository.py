@@ -42,6 +42,10 @@ async def update_conversation(conv_id: str, updates: dict) -> dict | None:
     )
 
 
+async def update_conversation_status(conv_id: str, status: str) -> dict | None:
+    return await update_conversation(conv_id, {"status": status})
+
+
 async def list_conversations_for_user(user_id: str) -> list[dict]:
     cursor = get_collection("conversations").find(
         {"participants.user_id": user_id}

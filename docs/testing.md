@@ -3,14 +3,20 @@
 ## Running Tests
 
 ```bash
-# All unit tests
-pytest tests/unit/ -v
+# Lint
+ruff check app cli tests scripts
 
-# Specific test file
-pytest tests/unit/test_admin_service.py -v
+# Unit tests
+pytest tests/unit -v
 
-# Specific test class
-pytest tests/unit/test_admin_service.py::TestGetUser -v
+# Integration tests (requires running stack)
+RUN_INTEGRATION=1 INTEGRATION_BASE_URL=http://localhost:18000 pytest tests/integration -v
+
+# Local full-stack E2E (requires running stack)
+RUN_E2E=1 E2E_BASE_URL=http://localhost:18000 pytest tests/e2e/test_local_full_stack.py -v
+
+# Live-provider E2E (requires provider keys + running stack)
+RUN_LIVE_E2E=1 E2E_BASE_URL=http://localhost:18000 pytest tests/e2e/test_live_providers.py -v -rs
 ```
 
 ## Test Structure
@@ -30,8 +36,8 @@ tests/
 │   ├── test_admin_service.py      # Admin service layer
 │   ├── test_cli_validate.py       # CLI validate command
 │   └── test_cli_review_generate.py # Wizard review step
-├── integration/                   # Integration tests (placeholder)
-└── e2e/                           # End-to-end tests (placeholder)
+├── integration/                   # Integration suites against running API
+└── e2e/                           # End-to-end suites (local + live-provider)
 ```
 
 ## Test Fixtures
@@ -106,6 +112,13 @@ Pattern: mock the repository with `AsyncMock`, verify service raises `NotFoundEr
 
 Pattern: mock `questionary.confirm` to control user input.
 
+### Queue / AI / Dependency Tests
+
+- `test_queue.py` validates deterministic queue enqueue behavior and failure modes.
+- `test_profiles_ai_service.py` validates AI profile draft generation, approval, and rejection lifecycle.
+- `test_dependencies.py` validates deactivated accounts are blocked by auth dependency.
+- `test_main_router_guards.py` ensures router imports are not silently suppressed.
+
 ## Writing New Tests
 
 ### Unit Test Pattern (Service Layer)
@@ -156,6 +169,11 @@ Test settings in `pyproject.toml`:
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+  "integration: integration tests against running infrastructure",
+  "e2e: end-to-end tests against full stack",
+  "live: tests requiring live external providers",
+]
 ```
 
 The `asyncio_mode = "auto"` setting means `@pytest.mark.asyncio` is optional but explicit marking is recommended for clarity.

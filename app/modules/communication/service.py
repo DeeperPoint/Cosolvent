@@ -57,7 +57,7 @@ async def create_conversation(
     from app.modules.notifications.service import create_notification
     await create_notification(
         user_id=receiver_id,
-        notif_type="chat_request",
+        notification_type="chat_request",
         data={"conversation_id": str(conv["_id"]), "initiator_id": initiator_id},
     )
 
@@ -78,7 +78,7 @@ async def accept_conversation(conv_id: str, user: dict) -> dict[str, Any]:
     from app.modules.notifications.service import create_notification
     await create_notification(
         user_id=conv["initiator_id"],
-        notif_type="chat_request_approved",
+        notification_type="chat_request_approved",
         data={"conversation_id": conv_id},
     )
     return _serialize(updated)
@@ -96,7 +96,7 @@ async def reject_conversation(conv_id: str, user: dict) -> dict[str, Any]:
     from app.modules.notifications.service import create_notification
     await create_notification(
         user_id=conv["initiator_id"],
-        notif_type="chat_request_declined",
+        notification_type="chat_request_declined",
         data={"conversation_id": conv_id},
     )
     return _serialize(updated)
@@ -140,7 +140,7 @@ async def send_message(
         if p["user_id"] != sender_id:
             await create_notification(
                 user_id=p["user_id"],
-                notif_type="new_message",
+                notification_type="new_message",
                 data={"conversation_id": conv_id, "sender_id": sender_id},
             )
 

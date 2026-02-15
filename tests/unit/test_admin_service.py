@@ -23,6 +23,12 @@ def mock_profiles_repo():
 
 
 @pytest.fixture
+def mock_profiles_service():
+    with patch("app.modules.admin.service.profiles_service") as mock:
+        yield mock
+
+
+@pytest.fixture
 def mock_ai_service():
     with patch("app.modules.admin.service.ai_service") as mock:
         yield mock
@@ -160,3 +166,14 @@ class TestConversationOversight:
         result = await service.list_all_conversations()
         assert len(result) == 2
         assert result[0]["id"] == "c1"
+
+
+class TestApplicationApproval:
+    @pytest.mark.asyncio
+    async def test_approve_passes_feedback_default(self, mock_profiles_service):
+        mock_profiles_service.approve_application = AsyncMock(
+            return_value={"status": "approved", "profile_id": "p1"}
+        )
+        result = await service.approve_application("app123")
+        assert result["status"] == "approved"
+        mock_profiles_service.approve_application.assert_awaited_once_with("app123")
