@@ -1,142 +1,163 @@
-# Getting Started
 
-## Prerequisites
+## Quick Start (Recommended: Docker)
 
-- Python 3.11+
-- MongoDB (running locally or remote)
-- Redis (running locally or remote)
-- AWS S3 bucket (for file uploads)
-- OpenAI API key (for AI features)
-- Pinecone account (for vector search)
-
-## Installation
+### 1. Clone
 
 ```bash
-# Clone and install
-git clone <repo-url>
+git clone https://github.com/DeeperPoint/cosolvent-beta.git
 cd cosolvent-beta
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
 ```
 
-## Environment Configuration
-
-Create a `.env` file in the project root:
-
-```env
-# Required
-MONGODB_URI=mongodb://localhost:27017
-MONGODB_DATABASE=cosolvent
-REDIS_URL=redis://localhost:6379
-SESSION_SECRET=your-secret-key-here
-
-# Optional — defaults shown
-SESSION_TTL_HOURS=72
-MARKETPLACE_CONFIG_PATH=marketplace.yaml
-CORS_ORIGINS=["http://localhost:3000"]
-DEBUG=false
-
-# S3 (required for file uploads)
-S3_BUCKET=cosolvent-files
-S3_REGION=us-east-1
-AWS_ACCESS_KEY_ID=
-AWS_SECRET_ACCESS_KEY=
-
-# AI services (required for AI features)
-OPENAI_API_KEY=
-PINECONE_API_KEY=
-PINECONE_INDEX=cosolvent
-COHERE_API_KEY=
-
-# Email (required for notifications)
-RESEND_API_KEY=
-EMAIL_FROM=noreply@example.com
-```
-
-## Creating a Marketplace Configuration
-
-### Option 1: CLI Wizard (Interactive)
+### 2. Start full stack
 
 ```bash
-python -m cli wizard -o marketplace.yaml
+API_HOST_PORT=18000 docker compose up -d --build
+python scripts/wait_for_http.py --url http://localhost:18000/api/health --timeout 180
 ```
 
-The wizard walks through 7 steps:
+The API is available at:
 
-1. **Marketplace Identity** — name, description, industry
-2. **Participant Types** — 2–3 types with roles and permissions
-3. **Profile Schemas** — field definitions per type
-4. **Onboarding Workflows** — approval settings per type
-5. **Communication Rules** — who can message whom
-6. **Discovery Config** — search and filter settings
-7. **Review & Generate** — confirm and write the file
+- API: `http://localhost:18000`
+- Swagger docs: `http://localhost:18000/docs`
 
-### Option 2: Start from a Preset
+### 3. Bootstrap first admin
 
 ```bash
-# Agriculture marketplace (GrainPlaza)
-python -m cli wizard --preset agriculture -o marketplace.yaml
-
-# Professional services marketplace (ProConnect)
-python -m cli wizard --preset professional_services -o marketplace.yaml
+curl -X POST http://localhost:18000/api/auth/bootstrap \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"ChangeMe123!"}'
 ```
 
-### Option 3: Copy the Example
+### 4. Optional config validation
 
 ```bash
-cp marketplace.example.yaml marketplace.yaml
+python -m cli validate marketplace.example.yaml
 ```
 
-### Validating a Config File
-
-```bash
-python -m cli validate marketplace.yaml
-```
-
-## Running the Server
-
-```bash
-uvicorn app.main:app --reload
-```
-
-The API is available at `http://localhost:18000`. Interactive docs at `http://localhost:18000/docs`.
-
-## Running Full Local Stack (API + Worker + Mongo + Redis)
-
-```bash
-docker compose up -d --build
-python scripts/wait_for_http.py --url http://localhost:18000/api/health --timeout 120
-```
-
-To stop and reset state:
+### 5. Stop stack
 
 ```bash
 docker compose down -v
 ```
 
-## Bootstrapping an Admin User
+## Local Development (Without Docker)
 
-Before using admin endpoints, create the first admin account:
+### 1. Prerequisites
+
+- Python `3.11+`
+- MongoDB running on `mongodb://localhost:27017` (or update `.env`)
+- Redis running on `redis://localhost:6379` (or update `.env`)
+
+### 2. Create virtual environment + install
 
 ```bash
-curl -X POST http://localhost:18000/api/auth/bootstrap \
-  -H "Content-Type: application/json" \
-  -d '{"email": "admin@example.com", "password": "your-password"}'
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
-This endpoint only works when no admin users exist yet.
+### 3. Configure environment
 
-## Running Background Workers (Without Compose)
+```bash
+cp .env.example .env
+```
+
+Minimum required values for core flows:
+
+- `MONGODB_URI`
+- `MONGODB_DATABASE`
+- `REDIS_URL`
+- `SESSION_SECRET`
+- `MARKETPLACE_CONFIG_PATH`
+
+### 4. Create marketplace config
+
+Wizard:
+
+```bash
+python -m cli wizard -o marketplace.yaml
+```
+
+Preset:
+
+```bash
+python -m cli wizard --preset agriculture -o marketplace.yaml
+# or
+python -m cli wizard --preset professional_services -o marketplace.yaml
+```
+
+From example:
+
+```bash
+cp marketplace.example.yaml marketplace.yaml
+```
+
+Validate:
+
+```bash
+python -m cli validate marketplace.yaml
+```
+
+### 5. Run API + worker
+
+API:
+
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Worker:
 
 ```bash
 arq app.workers.settings.WorkerSettings
 ```
 
+Local URLs:
+
+- API: `http://localhost:8000`
+- Swagger docs: `http://localhost:8000/docs`
+
 ## Running Tests
 
 ```bash
-pytest tests/unit -v
-RUN_INTEGRATION=1 INTEGRATION_BASE_URL=http://localhost:18000 pytest tests/integration -v
-RUN_E2E=1 E2E_BASE_URL=http://localhost:18000 pytest tests/e2e/test_local_full_stack.py -v
+# Lint
+ruff check app cli tests scripts
+
+# Unit
+pytest tests/unit -q
+
+# Integration (requires running stack)
+RUN_INTEGRATION=1 INTEGRATION_BASE_URL=http://localhost:18000 pytest tests/integration -q
+
+# Local full-stack E2E (requires running stack)
+RUN_E2E=1 E2E_BASE_URL=http://localhost:18000 pytest tests/e2e/test_local_full_stack.py -q
+
+# Live-provider E2E (only when provider keys are present)
+RUN_LIVE_E2E=1 E2E_BASE_URL=http://localhost:18000 pytest tests/e2e/test_live_providers.py -q -rs
 ```
+
+## Troubleshooting
+
+### Port already in use
+
+```bash
+API_HOST_PORT=19000 docker compose up -d --build
+```
+
+Then use `http://localhost:19000`.
+
+### Config load issues
+
+- Validate config:
+  - `python -m cli validate marketplace.yaml`
+- Ensure `MARKETPLACE_CONFIG_PATH` in `.env` points to the right file.
+
+### Worker not processing
+
+- `docker compose logs -f worker`
+- Verify Redis connectivity and that worker process is running.
+
+### AI endpoints return `503`
+
+Expected when provider keys are missing. Non-AI core flows still run.
+
