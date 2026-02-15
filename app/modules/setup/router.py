@@ -38,11 +38,12 @@ async def onboarding_panel() -> HTMLResponse:
 @router.get("/api/setup/config-template")
 async def get_config_template() -> dict[str, Any]:
     runtime_path = _runtime_config_path()
-    config = _current_config()
+    config, source_path, seeded_from_example = _current_config(runtime_path)
     return {
         "config": config.model_dump(),
-        "source_path": str(runtime_path),
+        "source_path": str(source_path),
         "runtime_path": str(runtime_path),
+        "seeded_from_example": seeded_from_example,
     }
 
 
@@ -80,17 +81,47 @@ async def save_config(payload: SavePayload) -> dict[str, Any]:
     }
 
 
-def _current_config() -> MarketplaceConfig:
+def _current_config(runtime_path: Path) -> tuple[MarketplaceConfig, Path, bool]:
     try:
-        return get_marketplace_config()
+        return get_marketplace_config(), runtime_path, False
     except RuntimeError:
-        runtime_path = _runtime_config_path()
-        return load_marketplace_config(runtime_path)
+        source_path, seeded_from_example = _ensure_runtime_config(runtime_path)
+        return load_marketplace_config(runtime_path), source_path, seeded_from_example
 
 
 def _runtime_config_path() -> Path:
     requested = Path(settings.marketplace_config_path)
     return requested.resolve() if requested.is_absolute() else (Path.cwd() / requested).resolve()
+
+
+def _example_config_path(runtime_path: Path) -> Path:
+    if runtime_path.suffix.lower() in {".yaml", ".yml"}:
+        return runtime_path.with_name(f"{runtime_path.stem}.example{runtime_path.suffix}")
+    return runtime_path.with_name("marketplace.example.yaml")
+
+
+def _ensure_runtime_config(runtime_path: Path) -> tuple[Path, bool]:
+    if runtime_path.exists():
+        if runtime_path.is_dir():
+            raise HTTPException(
+                status_code=500,
+                detail=f"Runtime config path is a directory, expected a file: {runtime_path}",
+            )
+        return runtime_path, False
+
+    example_path = _example_config_path(runtime_path)
+    if not example_path.exists() or not example_path.is_file():
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Runtime config missing at {runtime_path} and example config "
+                f"not found at {example_path}"
+            ),
+        )
+
+    runtime_path.parent.mkdir(parents=True, exist_ok=True)
+    runtime_path.write_text(example_path.read_text(encoding="utf-8"), encoding="utf-8")
+    return example_path, True
 
 
 def _parse_config(raw: dict[str, Any]) -> MarketplaceConfig:
@@ -119,5 +150,10 @@ def _resolve_output_path(output_path: str | None) -> Path:
 
     if target != base and base not in target.parents:
         raise HTTPException(status_code=400, detail="output_path must stay within project directory")
+
+    if target.exists() and target.is_dir():
+        raise HTTPException(status_code=400, detail=f"output_path points to a directory: {target}")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
 
     return target
