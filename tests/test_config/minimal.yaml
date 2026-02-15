@@ -1,0 +1,75 @@
+marketplace:
+  name: "MinimalMarket"
+  description: "Minimal test config"
+  industry: "Test"
+
+participant_types:
+  - name: "Seller"
+    slug: "seller"
+    role: "supply"
+    permissions:
+      can_list: true
+      can_search: false
+      can_initiate_conversation: false
+      can_receive_conversation: true
+      can_share_private_assets: false
+      requires_onboarding: true
+      requires_approval: false
+      visible_in_search: true
+  - name: "Buyer"
+    slug: "buyer"
+    role: "demand"
+    permissions:
+      can_list: false
+      can_search: true
+      can_initiate_conversation: true
+      can_receive_conversation: false
+      can_share_private_assets: false
+      requires_onboarding: false
+      requires_approval: false
+      visible_in_search: false
+
+profile_schemas:
+  seller:
+    sections:
+      - name: "Info"
+        fields:
+          - { name: name, label: "Name", type: text, required: true, visibility: public, searchable: true }
+  buyer:
+    sections:
+      - name: "Info"
+        fields:
+          - { name: name, label: "Name", type: text, required: true, visibility: public, searchable: true }
+
+onboarding:
+  seller:
+    requires_approval: false
+    approval_type: "auto"
+    document_upload_required: false
+    ai_extraction_enabled: false
+    ai_profile_generation: false
+    welcome_email_on_approval: false
+    profile_completeness_threshold: 100
+  buyer:
+    requires_approval: false
+    approval_type: "auto"
+    document_upload_required: false
+    ai_extraction_enabled: false
+    ai_profile_generation: false
+    welcome_email_on_approval: false
+    profile_completeness_threshold: 100
+
+communication:
+  conversation_rules:
+    - { initiator: buyer, receiver: seller, requires_approval: false }
+
+discovery:
+  searchable_types: ["seller"]
+  filter_fields: []
+  result_visibility:
+    anonymous: "public"
+    authenticated: "protected"
+  ai:
+    vector_search_enabled: false
+    rag_query_enabled: false
+    follow_up_suggestions: false

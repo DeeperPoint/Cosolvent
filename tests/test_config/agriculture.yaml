@@ -1,0 +1,81 @@
+marketplace:
+  name: "GrainPlaza"
+  description: "Specialty grain marketplace"
+  industry: "Agriculture"
+
+participant_types:
+  - name: "Producer"
+    slug: "producer"
+    role: "supply"
+    permissions:
+      can_list: true
+      can_search: false
+      can_initiate_conversation: false
+      can_receive_conversation: true
+      can_share_private_assets: true
+      requires_onboarding: true
+      requires_approval: true
+      visible_in_search: true
+  - name: "Buyer"
+    slug: "buyer"
+    role: "demand"
+    permissions:
+      can_list: false
+      can_search: true
+      can_initiate_conversation: true
+      can_receive_conversation: true
+      can_share_private_assets: false
+      requires_onboarding: true
+      requires_approval: false
+      visible_in_search: false
+
+profile_schemas:
+  producer:
+    sections:
+      - name: "Basic Information"
+        fields:
+          - { name: farm_name, label: "Farm Name", type: text, required: true, visibility: public, searchable: true }
+          - { name: country, label: "Country", type: select, required: true, options: ["Canada", "USA"], visibility: public, searchable: true }
+          - { name: primary_crops, label: "Crops", type: multi_select, required: true, options: ["Wheat", "Barley"], visibility: public, searchable: true }
+          - { name: description, label: "Description", type: rich_text, required: false, visibility: public, searchable: true }
+          - { name: annual_production, label: "Annual Production", type: number, required: false, visibility: protected, searchable: true }
+          - { name: financial_notes, label: "Financial Notes", type: text, required: false, visibility: private, searchable: false }
+  buyer:
+    sections:
+      - name: "Organization"
+        fields:
+          - { name: org_name, label: "Organization Name", type: text, required: true, visibility: public, searchable: true }
+          - { name: description, label: "Description", type: rich_text, required: false, visibility: public, searchable: true }
+
+onboarding:
+  producer:
+    requires_approval: true
+    approval_type: "manual"
+    document_upload_required: true
+    ai_extraction_enabled: true
+    ai_profile_generation: true
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 80
+  buyer:
+    requires_approval: false
+    approval_type: "auto"
+    document_upload_required: false
+    ai_extraction_enabled: false
+    ai_profile_generation: false
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 100
+
+communication:
+  conversation_rules:
+    - { initiator: buyer, receiver: producer, requires_approval: true }
+
+discovery:
+  searchable_types: ["producer"]
+  filter_fields: ["country", "primary_crops"]
+  result_visibility:
+    anonymous: "public"
+    authenticated: "protected"
+  ai:
+    vector_search_enabled: true
+    rag_query_enabled: true
+    follow_up_suggestions: true

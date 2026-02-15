@@ -1,0 +1,112 @@
+marketplace:
+  name: "TalentBridge"
+  description: "Professional talent marketplace"
+  industry: "Professional Services"
+
+participant_types:
+  - name: "Candidate"
+    slug: "candidate"
+    role: "supply"
+    permissions:
+      can_list: true
+      can_search: false
+      can_initiate_conversation: false
+      can_receive_conversation: true
+      can_share_private_assets: true
+      requires_onboarding: true
+      requires_approval: true
+      visible_in_search: true
+  - name: "Employer"
+    slug: "employer"
+    role: "demand"
+    permissions:
+      can_list: false
+      can_search: true
+      can_initiate_conversation: true
+      can_receive_conversation: true
+      can_share_private_assets: false
+      requires_onboarding: true
+      requires_approval: false
+      visible_in_search: false
+  - name: "Recruiter"
+    slug: "recruiter"
+    role: "facilitator"
+    permissions:
+      can_list: false
+      can_search: true
+      can_initiate_conversation: true
+      can_receive_conversation: true
+      can_share_private_assets: false
+      requires_onboarding: true
+      requires_approval: true
+      visible_in_search: false
+
+profile_schemas:
+  candidate:
+    sections:
+      - name: "Profile"
+        fields:
+          - { name: full_name, label: "Full Name", type: text, required: true, visibility: public, searchable: true }
+          - { name: title, label: "Professional Title", type: text, required: true, visibility: public, searchable: true }
+          - { name: skills, label: "Skills", type: multi_select, required: true, options: ["Python", "JavaScript", "React", "AWS", "DevOps", "Data Science", "ML", "Product Management"], visibility: public, searchable: true }
+          - { name: experience_years, label: "Years of Experience", type: number, required: true, visibility: public, searchable: true }
+          - { name: location, label: "Location", type: text, required: false, visibility: public, searchable: true }
+          - { name: bio, label: "Bio", type: rich_text, required: false, visibility: public, searchable: true }
+          - { name: salary_expectation, label: "Salary Expectation", type: number, required: false, visibility: private, searchable: false }
+  employer:
+    sections:
+      - name: "Company"
+        fields:
+          - { name: company_name, label: "Company Name", type: text, required: true, visibility: public, searchable: true }
+          - { name: industry, label: "Industry", type: select, required: true, options: ["Technology", "Finance", "Healthcare", "Education", "Other"], visibility: public, searchable: true }
+          - { name: description, label: "About", type: rich_text, required: false, visibility: public, searchable: true }
+  recruiter:
+    sections:
+      - name: "Agency"
+        fields:
+          - { name: agency_name, label: "Agency Name", type: text, required: true, visibility: public, searchable: true }
+          - { name: specializations, label: "Specializations", type: multi_select, required: false, options: ["Technology", "Finance", "Healthcare", "Executive"], visibility: public, searchable: true }
+          - { name: description, label: "About", type: rich_text, required: false, visibility: public, searchable: true }
+
+onboarding:
+  candidate:
+    requires_approval: true
+    approval_type: "manual"
+    document_upload_required: false
+    ai_extraction_enabled: false
+    ai_profile_generation: true
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 70
+  employer:
+    requires_approval: false
+    approval_type: "auto"
+    document_upload_required: false
+    ai_extraction_enabled: false
+    ai_profile_generation: false
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 100
+  recruiter:
+    requires_approval: true
+    approval_type: "manual"
+    document_upload_required: false
+    ai_extraction_enabled: false
+    ai_profile_generation: false
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 100
+
+communication:
+  conversation_rules:
+    - { initiator: employer, receiver: candidate, requires_approval: true }
+    - { initiator: recruiter, receiver: candidate, requires_approval: true }
+    - { initiator: recruiter, receiver: employer, requires_approval: false }
+
+discovery:
+  searchable_types: ["candidate"]
+  filter_fields: ["skills", "experience_years"]
+  result_visibility:
+    anonymous: "public"
+    authenticated: "protected"
+  ai:
+    vector_search_enabled: true
+    rag_query_enabled: true
+    follow_up_suggestions: true
