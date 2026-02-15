@@ -116,4 +116,5 @@ jobs:
     if: ${{ !(secrets.OPENAI_API_KEY != '' && secrets.RESEND_API_KEY != '') }}
     steps:
       - name: Explain live-provider skip
-        run: echo "Live-provider E2E skipped: one or more required secrets are not configured."
+        run: |
+          echo "Live-provider E2E skipped: one or more required secrets are not configured."
