@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 
 from app.core.config import settings
 from app.core.database import close_db, connect_db
@@ -89,7 +90,15 @@ def _register_routers(application: FastAPI) -> None:
         from app.generated.role_alias_router import router as generated_role_router
 
         application.include_router(generated_role_router)
+        _hide_generic_profile_routes_from_docs(application)
         logger.info("Loaded generated role aliases from %s", generated_alias_path)
+
+
+def _hide_generic_profile_routes_from_docs(application: FastAPI) -> None:
+    for route in application.routes:
+        if isinstance(route, APIRoute) and route.path.startswith("/api/profiles/{type_slug}"):
+            route.include_in_schema = False
+    application.openapi_schema = None
 
 
 app = create_app()

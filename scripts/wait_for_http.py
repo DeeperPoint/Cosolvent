@@ -23,7 +23,8 @@ def main() -> int:
                 if resp.status == 200:
                     print(f"Ready: {args.url}")
                     return 0
-        except URLError:
+        except (URLError, OSError):
+            # Service may briefly reset sockets during startup; keep polling.
             pass
         time.sleep(args.interval)
 

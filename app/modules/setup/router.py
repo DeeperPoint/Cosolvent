@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 import yaml
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, ValidationError
 
 from app.compiler import CompileOptions, check_compile_sync, compile_marketplace
@@ -16,10 +16,24 @@ from app.core.marketplace_config import (
     load_marketplace_config,
     set_marketplace_config,
 )
+from app.modules.setup.presets import list_presets
 
 router = APIRouter()
 
-_PANEL_HTML = (Path(__file__).with_name("panel.html")).read_text(encoding="utf-8")
+_SETUP_DIR = Path(__file__).parent
+_LEGACY_PANEL_HTML = (_SETUP_DIR / "panel.html").read_text(encoding="utf-8")
+_PANEL_V2_HTML = (_SETUP_DIR / "panel_v2.html").read_text(encoding="utf-8")
+_ASSET_DIR = _SETUP_DIR / "ui"
+_ALLOWED_ASSETS = {
+    "main.js",
+    "tokens.js",
+    "help-content.js",
+    "steps.js",
+    "validation-mapper.js",
+    "diff-renderer.js",
+    "state-utils.js",
+    "onboarding-v2.css",
+}
 
 
 class ConfigPayload(BaseModel):
@@ -47,7 +61,24 @@ class GenerateCheckPayload(BaseModel):
 
 @router.get("/onboarding", response_class=HTMLResponse)
 async def onboarding_panel() -> HTMLResponse:
-    return HTMLResponse(_PANEL_HTML)
+    return HTMLResponse(_PANEL_V2_HTML if _onboarding_v2_enabled() else _LEGACY_PANEL_HTML)
+
+
+@router.get("/api/setup/assets/{asset_name}")
+async def setup_asset(asset_name: str) -> FileResponse:
+    if asset_name not in _ALLOWED_ASSETS:
+        raise HTTPException(status_code=404, detail="Unknown setup asset")
+    path = (_ASSET_DIR / asset_name).resolve()
+    if _ASSET_DIR.resolve() not in path.parents:
+        raise HTTPException(status_code=404, detail="Unknown setup asset")
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Setup asset missing")
+    media_type = "text/plain; charset=utf-8"
+    if asset_name.endswith(".js"):
+        media_type = "application/javascript; charset=utf-8"
+    elif asset_name.endswith(".css"):
+        media_type = "text/css; charset=utf-8"
+    return FileResponse(path, media_type=media_type)
 
 
 @router.get("/api/setup/config-template")
@@ -60,6 +91,11 @@ async def get_config_template() -> dict[str, Any]:
         "runtime_path": str(runtime_path),
         "seeded_from_example": seeded_from_example,
     }
+
+
+@router.get("/api/setup/presets")
+async def get_setup_presets() -> dict[str, Any]:
+    return {"presets": list_presets()}
 
 
 @router.post("/api/setup/validate")
@@ -230,3 +266,7 @@ def _resolve_output_path(output_path: str | None) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
 
     return target
+
+
+def _onboarding_v2_enabled() -> bool:
+    return bool(settings.onboarding_v2_enabled)

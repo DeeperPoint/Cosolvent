@@ -20,7 +20,7 @@ DOCKER_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
 
 .PHONY: help venv install lint lint-fix unit integration e2e live test-all \
 	docker-cache setup-up setup-down up down reset ps logs logs-api logs-worker wait-api bootstrap-admin \
-	api worker validate-config wizard onboarding smoke-setup compile compile-check export
+	api worker validate-config wizard onboarding smoke-setup compile compile-check export regenerate-auto
 
 help: ## Show available commands
 	@echo "Cosolvent Make Targets"
@@ -46,7 +46,7 @@ integration: ## Run integration tests (requires running stack)
 	RUN_INTEGRATION=1 INTEGRATION_BASE_URL=$(INTEGRATION_BASE_URL) $(PYTEST) tests/integration -q
 
 e2e: ## Run local full-stack E2E (requires running stack)
-	RUN_E2E=1 E2E_BASE_URL=$(E2E_BASE_URL) $(PYTEST) tests/e2e/test_local_full_stack.py -q
+	RUN_E2E=1 E2E_BASE_URL=$(E2E_BASE_URL) $(PYTEST) tests/e2e/test_local_full_stack.py tests/e2e/test_onboarding_experience.py -q
 
 live: ## Run live-provider E2E (uses .env secrets if present)
 	set -a; [ -f .env ] && source .env; set +a; \
@@ -154,6 +154,15 @@ compile-check: ## Verify generated artifacts are in sync with marketplace.yaml
 
 export: ## Generate artifacts and export deployable package
 	$(PYTHON) -m cli export --config marketplace.yaml --mode mvp --export-dir exports
+
+regenerate-auto: ## Full reset + regenerate + health + core gates
+	$(MAKE) reset
+	$(MAKE) compile
+	$(MAKE) up
+	$(MAKE) wait-api
+	$(MAKE) compile-check
+	$(MAKE) integration
+	$(MAKE) e2e
 
 onboarding: ## Open web onboarding URL hint
 	@echo "Setup service onboarding: http://localhost:$(SETUP_HOST_PORT)/onboarding"

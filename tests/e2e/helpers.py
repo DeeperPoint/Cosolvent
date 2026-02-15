@@ -67,13 +67,88 @@ async def signup_user(
     return resp.json()
 
 
+def _default_field_value(field: dict) -> object:
+    field_type = field.get("type")
+    options = field.get("options") or []
+    if field_type == "number":
+        return 1
+    if field_type == "multi_select":
+        return [options[0]] if options else ["sample"]
+    if field_type == "select":
+        return options[0] if options else "sample"
+    if field_type == "date":
+        return "2026-01-01"
+    if field_type == "file":
+        return "sample-file"
+    if field_type == "location":
+        return {"text": "sample-location"}
+    return f"sample-{field.get('name', 'value')}"
+
+
+def _alias_candidates(name: str) -> list[str]:
+    aliases: dict[str, list[str]] = {
+        "organization_name": ["org_name"],
+        "org_name": ["organization_name"],
+    }
+    generated = []
+    if name.endswith("_name"):
+        generated.append(name.replace("_name", ""))
+    if name.startswith("org_"):
+        generated.append(name.replace("org_", "organization_", 1))
+    if name.startswith("organization_"):
+        generated.append(name.replace("organization_", "org_", 1))
+    return aliases.get(name, []) + generated
+
+
+async def _coerce_fields_to_current_schema(
+    client: httpx.AsyncClient, type_slug: str, supplied_fields: dict
+) -> dict:
+    template = await client.get("/api/setup/config-template")
+    template.raise_for_status()
+    config = template.json().get("config", {})
+    schema = (((config.get("profile_schemas") or {}).get(type_slug) or {}).get("sections") or [])
+    schema_fields: list[dict] = []
+    for section in schema:
+        schema_fields.extend(section.get("fields") or [])
+
+    if not schema_fields:
+        return supplied_fields
+
+    result: dict[str, object] = {}
+    for field in schema_fields:
+        name = str(field.get("name", ""))
+        if not name:
+            continue
+        if name in supplied_fields:
+            result[name] = supplied_fields[name]
+            continue
+        alias_used = False
+        for alias in _alias_candidates(name):
+            if alias in supplied_fields:
+                result[name] = supplied_fields[alias]
+                alias_used = True
+                break
+        if alias_used:
+            continue
+        if field.get("required"):
+            result[name] = _default_field_value(field)
+
+    # Keep explicitly supplied fields that still exist in schema.
+    valid_names = {str(field.get("name", "")) for field in schema_fields}
+    for key, value in supplied_fields.items():
+        if key in valid_names:
+            result[key] = value
+    return result
+
+
 async def register_update_submit(
     client: httpx.AsyncClient, type_slug: str, fields: dict
 ) -> dict:
     reg = await client.post(f"/api/profiles/{type_slug}/register")
     reg.raise_for_status()
 
-    upd = await client.put(f"/api/profiles/{type_slug}/draft", json={"fields": fields})
+    payload_fields = await _coerce_fields_to_current_schema(client, type_slug, fields)
+    upd = await client.put(f"/api/profiles/{type_slug}/draft", json={"fields": payload_fields})
     upd.raise_for_status()
 
     sub = await client.post(f"/api/profiles/{type_slug}/draft/submit")

@@ -5,7 +5,6 @@ dist/
 .venv/
 venv/
 .env
-marketplace.yaml
 *.pyc
 .pytest_cache/
 .ruff_cache/

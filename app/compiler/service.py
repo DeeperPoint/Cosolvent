@@ -38,6 +38,8 @@ def compile_marketplace(
     openapi_doc = _build_openapi_doc(
         MarketplaceConfig(**ir.config), include_generated_aliases=include_generated_aliases
     )
+    if include_generated_aliases:
+        _assert_generated_alias_contracts(openapi_doc, [role.slug for role in ir.roles])
     openapi_text = json.dumps(openapi_doc, indent=2, sort_keys=True)
     (root / openapi_rel).parent.mkdir(parents=True, exist_ok=True)
     (root / openapi_rel).write_text(openapi_text, encoding="utf-8")
@@ -90,6 +92,8 @@ def check_compile_sync(
         indent=2,
         sort_keys=True,
     )
+    if include_generated_aliases:
+        _assert_generated_alias_contracts(json.loads(expected_openapi), [role.slug for role in ir.roles])
     artifacts["openapi/generated_openapi.json"] = expected_openapi
 
     drift_files: list[str] = []
@@ -169,3 +173,61 @@ def _build_openapi_doc(
             # If generated aliases are not available yet we still emit base OpenAPI.
             pass
     return app.openapi()
+
+
+def _assert_generated_alias_contracts(openapi_doc: dict[str, Any], role_slugs: list[str]) -> None:
+    paths = openapi_doc.get("paths", {})
+    missing: list[str] = []
+
+    def _op(path: str, method: str) -> dict[str, Any] | None:
+        operation = paths.get(path, {}).get(method)
+        if operation is None:
+            missing.append(f"{method.upper()} {path}: operation missing")
+            return None
+        return operation
+
+    def _require_response_schema(path: str, method: str) -> None:
+        operation = _op(path, method)
+        if operation is None:
+            return
+        schema = (
+            operation.get("responses", {})
+            .get("200", {})
+            .get("content", {})
+            .get("application/json", {})
+            .get("schema")
+        )
+        if not schema:
+            missing.append(f"{method.upper()} {path}: 200 response schema missing")
+
+    def _require_request_schema(path: str, method: str) -> None:
+        operation = _op(path, method)
+        if operation is None:
+            return
+        schema = (
+            operation.get("requestBody", {})
+            .get("content", {})
+            .get("application/json", {})
+            .get("schema")
+        )
+        if not schema:
+            missing.append(f"{method.upper()} {path}: request body schema missing")
+
+    for role_slug in role_slugs:
+        base = f"/api/roles/{role_slug}"
+        _require_response_schema(f"{base}/register", "post")
+        _require_response_schema(f"{base}/draft", "get")
+        _require_request_schema(f"{base}/draft", "put")
+        _require_response_schema(f"{base}/draft", "put")
+        _require_response_schema(f"{base}/draft/submit", "post")
+        _require_response_schema(f"{base}/me", "get")
+        _require_response_schema(f"{base}/{{profile_id}}", "get")
+        _require_request_schema(f"{base}/{{profile_id}}", "put")
+        _require_response_schema(f"{base}/{{profile_id}}", "put")
+        _require_response_schema(f"{base}/{{profile_id}}/ai-generate", "post")
+        _require_response_schema(f"{base}/{{profile_id}}/ai-approve", "post")
+        _require_response_schema(f"{base}/{{profile_id}}/ai-reject", "post")
+
+    if missing:
+        formatted = "\n".join(f"- {item}" for item in missing)
+        raise ValueError(f"Generated role alias OpenAPI contract is incomplete:\n{formatted}")

@@ -92,5 +92,55 @@ def test_compile_marketplace_writes_managed_artifacts(tmp_path: Path):
     assert result["ok"] is True
     assert result["migration_revision"].startswith("mkt_")
     assert "app/generated/role_alias_router.py" in result["generated_files"]
+    assert "app/generated/enums.py" in result["generated_files"]
     assert (tmp_path / "generated" / "manifest.json").exists()
+    assert (tmp_path / "app" / "generated" / "enums.py").exists()
     assert (tmp_path / "openapi" / "generated_openapi.json").exists()
+
+
+def test_generated_role_alias_router_has_explicit_models(tmp_path: Path):
+    raw = yaml.safe_load((FIXTURES / "minimal.yaml").read_text(encoding="utf-8"))
+    compile_marketplace(
+        config=raw,
+        options=CompileOptions(mode="mvp", export_enabled=False),
+        project_root=tmp_path,
+    )
+
+    router_text = (tmp_path / "app" / "generated" / "role_alias_router.py").read_text(encoding="utf-8")
+
+    for role_slug in ("seller", "buyer"):
+        assert f'@router.post("/api/roles/{role_slug}/register", response_model=' in router_text
+        assert f'@router.get("/api/roles/{role_slug}/draft", response_model=' in router_text
+        assert f'@router.put("/api/roles/{role_slug}/draft", response_model=' in router_text
+        assert f'@router.post("/api/roles/{role_slug}/draft/submit", response_model=' in router_text
+        assert f'@router.get("/api/roles/{role_slug}/me", response_model=' in router_text
+        assert f'@router.get("/api/roles/{role_slug}/{{profile_id}}", response_model=' in router_text
+        assert f'@router.put("/api/roles/{role_slug}/{{profile_id}}", response_model=' in router_text
+        assert f'@router.post("/api/roles/{role_slug}/{{profile_id}}/ai-generate", response_model=' in router_text
+        assert f'@router.post("/api/roles/{role_slug}/{{profile_id}}/ai-approve", response_model=' in router_text
+        assert f'@router.post("/api/roles/{role_slug}/{{profile_id}}/ai-reject", response_model=' in router_text
+
+    assert "ParticipantTypeEnum" in router_text
+    assert "DraftStatusEnum" in router_text
+    assert "ProfileStatusEnum" in router_text
+    assert "AIProfileStatusEnum" in router_text
+
+
+def test_select_and_multi_select_generate_option_enums(tmp_path: Path):
+    raw = yaml.safe_load((FIXTURES / "agriculture.yaml").read_text(encoding="utf-8"))
+    compile_marketplace(
+        config=raw,
+        options=CompileOptions(mode="mvp", export_enabled=False),
+        project_root=tmp_path,
+    )
+
+    enums_text = (tmp_path / "app" / "generated" / "enums.py").read_text(encoding="utf-8")
+    router_text = (tmp_path / "app" / "generated" / "role_alias_router.py").read_text(encoding="utf-8")
+
+    assert "class ProducerCountryOption(StrEnum):" in enums_text
+    assert "class ProducerPrimaryCropsOption(StrEnum):" in enums_text
+    assert "CANADA = 'Canada'" in enums_text
+    assert "WHEAT = 'Wheat'" in enums_text
+
+    assert "country: ProducerCountryOption" in router_text
+    assert "primary_crops: list[ProducerPrimaryCropsOption]" in router_text

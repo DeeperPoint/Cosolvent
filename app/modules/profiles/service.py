@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from pydantic import ValidationError
 
 from app.core.database import get_collection
 from app.core.exceptions import AppError, ConflictError, ForbiddenError, NotFoundError
@@ -43,7 +44,18 @@ async def update_draft(user: dict, fields: dict, config: MarketplaceConfig) -> d
     pt = user.get("participant_type")
 
     # Validate fields against config schema
-    validated = validate_profile_fields(config, pt, fields)
+    try:
+        validated = validate_profile_fields(config, pt, fields)
+    except ValidationError as exc:
+        messages = []
+        for err in exc.errors():
+            loc = ".".join(str(part) for part in err.get("loc", []))
+            msg = str(err.get("msg", "invalid field value"))
+            messages.append(f"{loc}: {msg}" if loc else msg)
+        raise AppError(
+            "Profile draft fields are invalid: " + "; ".join(messages),
+            status_code=422,
+        ) from exc
 
     draft = await repo.upsert_draft(user_id, pt, validated)
     return _draft_response(draft)
@@ -134,7 +146,18 @@ async def update_profile(
         raise ForbiddenError("Not your profile")
 
     pt = profile["participant_type"]
-    validated = validate_profile_fields(config, pt, fields)
+    try:
+        validated = validate_profile_fields(config, pt, fields)
+    except ValidationError as exc:
+        messages = []
+        for err in exc.errors():
+            loc = ".".join(str(part) for part in err.get("loc", []))
+            msg = str(err.get("msg", "invalid field value"))
+            messages.append(f"{loc}: {msg}" if loc else msg)
+        raise AppError(
+            "Profile fields are invalid: " + "; ".join(messages),
+            status_code=422,
+        ) from exc
     completeness = compute_completeness(config, pt, validated)
 
     updated = await repo.update_profile(profile_id, {

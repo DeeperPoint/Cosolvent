@@ -25,6 +25,7 @@ Update `.env` as needed (minimum values that must be valid):
 - `SESSION_SECRET`
 - `MARKETPLACE_CONFIG_PATH` (default `marketplace.yaml`)
 - If running outside Docker: `POSTGRES_DSN` + `REDIS_URL`
+- Optional UI toggle: `ONBOARDING_V2_ENABLED=true|false` (default `true`).
 
 ### 2. Start onboarding service
 
@@ -39,10 +40,13 @@ Open `http://localhost:18080/onboarding`.
 
 In the onboarding panel:
 
-1. Configure marketplace identity, roles, onboarding rules, communication rules, and discovery rules.
-2. Click `Validate`.
-3. Click `Save`.
-4. Click `Generate Project` (mode `mvp` by default).
+1. Pick a preset template (or keep current config).
+2. Configure marketplace identity, roles, onboarding rules, communication rules, and discovery rules.
+3. Use in-context help tooltips and glossary for non-technical guidance.
+4. Optionally open `Advanced JSON` mode for live validation + impact diff.
+5. Click `Validate`.
+6. Click `Save`.
+7. Click `Generate Project` (mode `mvp` by default).
 
 Generation writes managed outputs to:
 
@@ -118,13 +122,11 @@ make unit
 make compile-check
 make integration
 make e2e
-make live
 ```
 
 Notes:
 
-- `make live` sources `.env` and runs live-provider E2E if secrets are present.
-- If secrets are missing, live tests skip with explicit reasons.
+- `make live` is optional for environments with live provider keys.
 
 ## Daily workflows
 

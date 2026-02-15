@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     marketplace_config_path: str = "marketplace.yaml"
     cors_origins: list[str] = ["http://localhost:3000"]
     debug: bool = False
+    onboarding_v2_enabled: bool = True
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

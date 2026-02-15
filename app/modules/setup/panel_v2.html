@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Marketplace Setup</title>
+  <link rel="stylesheet" href="/api/setup/assets/onboarding-v2.css" />
+</head>
+<body>
+  <a class="skip-link" href="#wizardMain">Skip to onboarding steps</a>
+  <div class="texture-layer" aria-hidden="true"></div>
+  <main class="page" id="wizardMain">
+    <header class="hero">
+      <p class="kicker">Marketplace Setup</p>
+      <h1 class="hero-title">Build Your Marketplace</h1>
+      <p class="hero-subtitle">
+        Guided onboarding for founders. Configure roles, approvals, discovery, and communication without technical setup knowledge.
+      </p>
+      <div class="hero-rule" aria-hidden="true">
+        <span></span>
+        <i></i>
+      </div>
+      <div class="hero-meta">
+        <p>Config source: <strong id="sourcePath">Loading...</strong></p>
+      </div>
+    </header>
+
+    <section class="status-strip" aria-live="polite">
+      <p id="statusLine">Loading setup experience...</p>
+      <button class="ghost-btn" id="openGlossaryBtn" type="button">Open Glossary</button>
+    </section>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-section">
+          <p class="sidebar-label">Progress</p>
+          <ol id="stepNav" class="step-list"></ol>
+        </div>
+        <div class="sidebar-section invert">
+          <p class="sidebar-label">Mode</p>
+          <div class="mode-switch" role="tablist" aria-label="Editor mode">
+            <button id="guidedModeBtn" class="mode-btn active" type="button" role="tab" aria-selected="true">Guided</button>
+            <button id="advancedModeBtn" class="mode-btn" type="button" role="tab" aria-selected="false">Advanced JSON</button>
+          </div>
+          <p class="sidebar-note">
+            Guided mode is recommended. Advanced mode includes JSON validation and impact preview before apply.
+          </p>
+        </div>
+        <div class="sidebar-section">
+          <p class="sidebar-label">Quick Actions</p>
+          <div class="stacked-actions">
+            <button class="outline-btn" id="loadConfigBtn" type="button">Reload Current Config</button>
+            <button class="outline-btn" id="validateBtn" type="button">Validate Setup</button>
+            <button class="outline-btn" id="renderYamlBtn" type="button">Preview YAML</button>
+          </div>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <div id="friendlyErrors" class="error-panel hidden" aria-live="polite"></div>
+
+        <section class="step-panel" data-step="0">
+          <p class="step-label">Step 1 of 7</p>
+          <h2>Choose a Starting Template</h2>
+          <p class="step-copy">
+            Pick the closest use case. You can edit everything later.
+          </p>
+          <div id="presetList" class="preset-grid"></div>
+          <div class="inline-grid">
+            <label class="field">
+              <span>Team readiness</span>
+              <select id="quickReadiness">
+                <option value="lean">Lean team (recommended defaults)</option>
+                <option value="review-heavy">Compliance-heavy (more approvals)</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Launch style</span>
+              <select id="quickLaunchStyle">
+                <option value="fast">Launch fast MVP</option>
+                <option value="curated">Curated onboarding quality first</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="step-panel hidden" data-step="1">
+          <p class="step-label">Step 2 of 7</p>
+          <h2>Marketplace Basics</h2>
+          <p class="step-copy">These are your brand-level details shown across setup and exports.</p>
+          <div class="grid-3">
+            <label class="field">
+              <span>Marketplace name</span>
+              <input id="marketplaceName" type="text" />
+            </label>
+            <label class="field">
+              <span>Industry</span>
+              <input id="marketplaceIndustry" type="text" />
+            </label>
+            <label class="field">
+              <span>Description</span>
+              <input id="marketplaceDescription" type="text" />
+            </label>
+          </div>
+        </section>
+
+        <section class="step-panel hidden" data-step="2">
+          <p class="step-label">Step 3 of 7</p>
+          <div class="section-head">
+            <div>
+              <h2>Roles and Capabilities</h2>
+              <p class="step-copy">Define who participates in the marketplace and what each role can do.</p>
+            </div>
+            <button class="outline-btn" id="addParticipantBtn" type="button">Add Role</button>
+          </div>
+          <div id="participantList"></div>
+        </section>
+
+        <section class="step-panel hidden" data-step="3">
+          <p class="step-label">Step 4 of 7</p>
+          <h2>Onboarding and Approval Rules</h2>
+          <p class="step-copy">Set trust and verification standards for each role.</p>
+          <div id="onboardingList"></div>
+        </section>
+
+        <section class="step-panel hidden" data-step="4">
+          <p class="step-label">Step 5 of 7</p>
+          <div class="section-head">
+            <div>
+              <h2>Communication Rules</h2>
+              <p class="step-copy">Control who can contact whom and whether approval is required.</p>
+            </div>
+            <button class="outline-btn" id="addRuleBtn" type="button">Add Communication Rule</button>
+          </div>
+          <div id="ruleList"></div>
+        </section>
+
+        <section class="step-panel hidden" data-step="5">
+          <p class="step-label">Step 6 of 7</p>
+          <h2>Profile Fields and Discovery</h2>
+          <p class="step-copy">Configure what users can publish and how others can find them.</p>
+          <div class="split">
+            <section class="split-panel">
+              <h3>Discovery</h3>
+              <div class="field">
+                <span>Searchable roles</span>
+                <div id="searchableTypes" class="tag-grid"></div>
+              </div>
+              <label class="field">
+                <span>Filter fields (comma separated)</span>
+                <input id="filterFieldsInput" type="text" />
+              </label>
+              <div class="grid-2">
+                <label class="field">
+                  <span>Visibility for visitors</span>
+                  <select id="anonymousVisibility">
+                    <option value="public">Public</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Visibility for signed-in users</span>
+                  <select id="authenticatedVisibility">
+                    <option value="public">Public</option>
+                    <option value="protected">Protected</option>
+                  </select>
+                </label>
+              </div>
+              <details class="advanced-block">
+                <summary>Advanced discovery AI options</summary>
+                <div class="checks">
+                  <label><input id="vectorSearchEnabled" type="checkbox" /> Enable vector search</label>
+                  <label><input id="ragQueryEnabled" type="checkbox" /> Enable retrieval-assisted answers</label>
+                  <label><input id="followUpSuggestions" type="checkbox" /> Suggest follow-up prompts</label>
+                </div>
+              </details>
+            </section>
+            <section class="split-panel">
+              <h3>Profile schema by role</h3>
+              <div id="schemaList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="step-panel hidden" data-step="6">
+          <p class="step-label">Step 7 of 7</p>
+          <h2>Review, Validate, and Generate</h2>
+          <p class="step-copy">
+            Final check before generating deployable marketplace artifacts.
+          </p>
+          <div id="riskList" class="risk-list"></div>
+
+          <section class="review-block">
+            <h3>Save options</h3>
+            <div class="grid-2">
+              <label class="field">
+                <span>Output path</span>
+                <input id="outputPathInput" type="text" value="marketplace.yaml" />
+              </label>
+              <label class="checkline">
+                <input id="applyRuntimeInput" type="checkbox" checked />
+                Apply runtime immediately
+              </label>
+            </div>
+          </section>
+
+          <section class="review-block">
+            <h3>Generation options</h3>
+            <div class="grid-3">
+              <label class="field">
+                <span>Compile mode</span>
+                <select id="compileModeInput">
+                  <option value="mvp">MVP</option>
+                  <option value="strict">Strict</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Export directory</span>
+                <input id="exportDirInput" type="text" value="exports" />
+              </label>
+              <label class="checkline">
+                <input id="exportEnabledInput" type="checkbox" checked />
+                Create export archive
+              </label>
+            </div>
+          </section>
+
+          <section class="review-block action-grid">
+            <button class="outline-btn" id="saveBtn" type="button">Save Config</button>
+            <button class="outline-btn" id="checkGeneratedBtn" type="button">Check Generated Sync</button>
+            <button class="solid-btn" id="generateBtn" type="button">Generate Project</button>
+          </section>
+
+          <section class="review-block">
+            <h3>YAML Preview</h3>
+            <pre id="yamlPreview">Run "Preview YAML" to inspect generated YAML.</pre>
+          </section>
+          <section class="review-block">
+            <h3>Generation Report</h3>
+            <pre id="generateReport">No generation run yet.</pre>
+          </section>
+        </section>
+
+        <nav class="wizard-nav" aria-label="Wizard step navigation">
+          <button class="outline-btn" id="prevStepBtn" type="button">Previous</button>
+          <button class="solid-btn" id="nextStepBtn" type="button">Next</button>
+        </nav>
+      </section>
+    </div>
+
+    <section id="advancedPanel" class="advanced-panel hidden" aria-live="polite">
+      <div class="advanced-head">
+        <h2>Advanced JSON Editor</h2>
+        <p>Live syntax + schema checks, with semantic impact preview before apply.</p>
+      </div>
+      <div class="advanced-grid">
+        <label class="field">
+          <span>Config JSON</span>
+          <textarea id="jsonEditor" spellcheck="false"></textarea>
+        </label>
+        <div class="advanced-results">
+          <div id="jsonStatus" class="json-status">JSON not validated yet.</div>
+          <div class="advanced-actions">
+            <button class="outline-btn" id="formatJsonBtn" type="button">Format JSON</button>
+            <button class="solid-btn" id="applyJsonBtn" type="button" disabled>Apply JSON to Guided Setup</button>
+          </div>
+          <h3>Impact Preview</h3>
+          <div id="jsonDiff" class="json-diff">No JSON impact preview yet.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <aside id="glossaryDrawer" class="glossary-drawer hidden" aria-label="Glossary drawer">
+    <div class="glossary-head">
+      <h2>Glossary</h2>
+      <button class="ghost-btn" id="closeGlossaryBtn" type="button">Close</button>
+    </div>
+    <label class="field">
+      <span>Search terms</span>
+      <input id="glossarySearchInput" type="text" placeholder="Search approval, discovery, visibility..." />
+    </label>
+    <div id="glossaryList"></div>
+  </aside>
+
+  <div id="helpPopover" class="help-popover hidden" role="dialog" aria-live="polite"></div>
+
+  <script type="module" src="/api/setup/assets/main.js"></script>
+</body>
+</html>
