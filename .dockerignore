@@ -9,3 +9,4 @@ docs
 OLD.md
 SYSTEM_SPEC.md
 WHITEPAPER.md
+.docker-cache

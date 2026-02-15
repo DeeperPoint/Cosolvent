@@ -1,3 +1,19 @@
+x-app-build-base: &app-build-base
+  context: .
+  cache_from:
+    - type=local,src=.docker-cache/api
+    - type=local,src=.docker-cache/worker
+
+x-api-build: &api-build
+  <<: *app-build-base
+  cache_to:
+    - type=local,dest=.docker-cache/api,mode=max
+
+x-worker-build: &worker-build
+  <<: *app-build-base
+  cache_to:
+    - type=local,dest=.docker-cache/worker,mode=max
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -21,13 +37,30 @@ services:
       timeout: 5s
       retries: 20
 
+  setup:
+    build: *api-build
+    command: uvicorn app.setup_app:app --host 0.0.0.0 --port 8080
+    environment:
+      MARKETPLACE_CONFIG_PATH: marketplace.yaml
+    volumes:
+      - ./:/app
+    ports:
+      - "${SETUP_HOST_PORT:-18080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
   api:
-    build: .
+    build: *api-build
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - ./marketplace.yaml:/app/marketplace.yaml
     environment:
       POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@postgres:5432/cosolvent
       REDIS_URL: redis://redis:6379
-      MARKETPLACE_CONFIG_PATH: /app/marketplace.example.yaml
+      MARKETPLACE_CONFIG_PATH: /app/marketplace.yaml
       SESSION_SECRET: test-secret
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -51,12 +84,14 @@ services:
       retries: 30
 
   worker:
-    build: .
+    build: *worker-build
     command: arq app.workers.settings.WorkerSettings
+    volumes:
+      - ./marketplace.yaml:/app/marketplace.yaml:ro
     environment:
       POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@postgres:5432/cosolvent
       REDIS_URL: redis://redis:6379
-      MARKETPLACE_CONFIG_PATH: /app/marketplace.example.yaml
+      MARKETPLACE_CONFIG_PATH: /app/marketplace.yaml
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-noreply@example.com}

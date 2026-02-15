@@ -71,6 +71,7 @@ def _register_routers(application: FastAPI) -> None:
     from app.modules.files.router import router as files_router
     from app.modules.notifications.router import router as notif_router
     from app.modules.profiles.router import router as profiles_router
+    from app.modules.setup.router import router as setup_router
 
     application.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     application.include_router(profiles_router, prefix="/api/profiles", tags=["profiles"])
@@ -80,6 +81,7 @@ def _register_routers(application: FastAPI) -> None:
     application.include_router(notif_router, prefix="/api/notifications", tags=["notifications"])
     application.include_router(ai_router, prefix="/api/ai", tags=["ai"])
     application.include_router(admin_router, prefix="/api/admin", tags=["admin"])
+    application.include_router(setup_router, tags=["setup"])
 
 
 app = create_app()
