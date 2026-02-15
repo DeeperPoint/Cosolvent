@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from bson import ObjectId
 
 from app.core.database import get_collection
 
@@ -30,13 +29,13 @@ async def create_conversation(
 
 
 async def get_conversation(conv_id: str) -> dict | None:
-    return await get_collection("conversations").find_one({"_id": ObjectId(conv_id)})
+    return await get_collection("conversations").find_one({"_id": conv_id})
 
 
 async def update_conversation(conv_id: str, updates: dict) -> dict | None:
     updates["updated_at"] = datetime.now(timezone.utc)
     return await get_collection("conversations").find_one_and_update(
-        {"_id": ObjectId(conv_id)},
+        {"_id": conv_id},
         {"$set": updates},
         return_document=True,
     )
@@ -87,19 +86,19 @@ async def create_message(
 
 
 async def get_message(msg_id: str) -> dict | None:
-    return await get_collection("messages").find_one({"_id": ObjectId(msg_id)})
+    return await get_collection("messages").find_one({"_id": msg_id})
 
 
 async def update_message(msg_id: str, content: str) -> dict | None:
     return await get_collection("messages").find_one_and_update(
-        {"_id": ObjectId(msg_id)},
+        {"_id": msg_id},
         {"$set": {"content": content, "edited": True, "updated_at": datetime.now(timezone.utc)}},
         return_document=True,
     )
 
 
 async def delete_message(msg_id: str) -> None:
-    await get_collection("messages").delete_one({"_id": ObjectId(msg_id)})
+    await get_collection("messages").delete_one({"_id": msg_id})
 
 
 async def list_messages(

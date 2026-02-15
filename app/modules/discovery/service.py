@@ -26,7 +26,7 @@ async def search(
     """Multi-phase search pipeline.
 
     Phase 1: Determine searchable type(s)
-    Phase 2: Attribute filtering via MongoDB
+    Phase 2: Attribute filtering via Postgres
     Phase 3: Optional vector search for semantic ranking
     Phase 4: Optional reranking
     Phase 5: Visibility filtering
@@ -47,7 +47,7 @@ async def search(
         searchable_field_names = [f.name for f in schema.all_fields if f.searchable]
         skip = (page - 1) * page_size
 
-        # Phase 2: MongoDB attribute search
+        # Phase 2: Postgres attribute search
         db_results = await repo.search_profiles(
             participant_type=type_slug,
             filters=filters,
@@ -63,10 +63,10 @@ async def search(
             try:
                 from app.modules.discovery.indexer import _get_embedding
                 embedding = await _get_embedding(query)
-                pinecone_filter = {"participant_type": type_slug}
+                vector_filter = {"participant_type": type_slug}
                 if filters:
-                    pinecone_filter.update(filters)
-                vector_results = await search_vectors(embedding, top_k=page_size, filter_dict=pinecone_filter)
+                    vector_filter.update(filters)
+                vector_results = await search_vectors(embedding, top_k=page_size, filter_dict=vector_filter)
                 vector_scores = {r["id"]: r["score"] for r in vector_results}
             except Exception:
                 logger.warning("Vector search failed, falling back to DB-only", exc_info=True)

@@ -1,26 +1,17 @@
-"""Pinecone vector search operations."""
+"""Postgres pgvector search operations."""
 
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
-from app.core.config import settings
+from sqlalchemy import Select, delete, insert, select, update
+
+from app.core.database import session_scope
+from app.core.db_schema import ai_document_chunks, profile_vectors
 
 logger = logging.getLogger("cosolvent.vector")
-
-_index = None
-
-
-def _get_index():
-    global _index
-    if _index is None:
-        if not settings.pinecone_api_key:
-            return None
-        from pinecone import Pinecone
-        pc = Pinecone(api_key=settings.pinecone_api_key)
-        _index = pc.Index(settings.pinecone_index)
-    return _index
 
 
 async def upsert_profile_vector(
@@ -28,11 +19,35 @@ async def upsert_profile_vector(
     embedding: list[float],
     metadata: dict[str, Any],
 ) -> None:
-    index = _get_index()
-    if not index:
-        logger.warning("Pinecone not configured, skipping upsert")
+    profile_uuid = _to_uuid(profile_id)
+    if profile_uuid is None:
+        logger.warning("Invalid profile id for vector upsert", extra={"profile_id": profile_id})
         return
-    index.upsert(vectors=[(profile_id, embedding, metadata)])
+
+    async with session_scope() as session:
+        existing = await session.execute(
+            select(profile_vectors.c.id).where(profile_vectors.c.profile_id == profile_uuid)
+        )
+        existing_row = existing.first()
+
+        if existing_row:
+            await session.execute(
+                update(profile_vectors)
+                .where(profile_vectors.c.profile_id == profile_uuid)
+                .values(
+                    embedding=embedding,
+                    vector_metadata=metadata,
+                )
+            )
+        else:
+            await session.execute(
+                insert(profile_vectors).values(
+                    profile_id=profile_uuid,
+                    embedding=embedding,
+                    vector_metadata=metadata,
+                )
+            )
+        await session.commit()
 
 
 async def search_vectors(
@@ -40,25 +55,97 @@ async def search_vectors(
     top_k: int = 20,
     filter_dict: dict | None = None,
 ) -> list[dict[str, Any]]:
-    index = _get_index()
-    if not index:
-        return []
-    kwargs: dict[str, Any] = {
-        "vector": query_embedding,
-        "top_k": top_k,
-        "include_metadata": True,
-    }
-    if filter_dict:
-        kwargs["filter"] = filter_dict
-    result = index.query(**kwargs)
-    return [
-        {"id": m.id, "score": m.score, "metadata": m.metadata}
-        for m in result.matches
-    ]
+    filters = dict(filter_dict or {})
+    source = filters.pop("source", None)
+
+    if source == "document":
+        return await _search_document_vectors(query_embedding, top_k, filters)
+    return await _search_profile_vectors(query_embedding, top_k, filters)
 
 
 async def delete_profile_vector(profile_id: str) -> None:
-    index = _get_index()
-    if not index:
+    profile_uuid = _to_uuid(profile_id)
+    if profile_uuid is None:
         return
-    index.delete(ids=[profile_id])
+    async with session_scope() as session:
+        await session.execute(delete(profile_vectors).where(profile_vectors.c.profile_id == profile_uuid))
+        await session.commit()
+
+
+async def _search_profile_vectors(
+    query_embedding: list[float],
+    top_k: int,
+    filters: dict[str, Any],
+) -> list[dict[str, Any]]:
+    distance = profile_vectors.c.embedding.cosine_distance(query_embedding)
+    score = (1 - distance).label("score")
+
+    stmt: Select[Any] = select(
+        profile_vectors.c.profile_id,
+        score,
+        profile_vectors.c.vector_metadata,
+    ).order_by(distance)
+
+    stmt = _apply_metadata_filters(stmt, profile_vectors.c.vector_metadata, filters)
+    stmt = stmt.limit(top_k)
+
+    async with session_scope() as session:
+        rows = (await session.execute(stmt)).all()
+
+    return [
+        {
+            "id": str(row.profile_id),
+            "score": float(row.score),
+            "metadata": row.vector_metadata or {},
+        }
+        for row in rows
+    ]
+
+
+async def _search_document_vectors(
+    query_embedding: list[float],
+    top_k: int,
+    filters: dict[str, Any],
+) -> list[dict[str, Any]]:
+    distance = ai_document_chunks.c.embedding.cosine_distance(query_embedding)
+    score = (1 - distance).label("score")
+
+    stmt: Select[Any] = select(
+        ai_document_chunks.c.id,
+        score,
+        ai_document_chunks.c.chunk_metadata,
+    ).order_by(distance)
+
+    stmt = _apply_metadata_filters(stmt, ai_document_chunks.c.chunk_metadata, filters)
+    stmt = stmt.limit(top_k)
+
+    async with session_scope() as session:
+        rows = (await session.execute(stmt)).all()
+
+    return [
+        {
+            "id": str(row.id),
+            "score": float(row.score),
+            "metadata": row.chunk_metadata or {},
+        }
+        for row in rows
+    ]
+
+
+def _apply_metadata_filters(stmt: Select[Any], metadata_column: Any, filters: dict[str, Any]) -> Select[Any]:
+    for key, value in filters.items():
+        if value is None:
+            continue
+        if isinstance(value, list):
+            text_values = [str(v) for v in value]
+            stmt = stmt.where(metadata_column[key].astext.in_(text_values))
+        else:
+            stmt = stmt.where(metadata_column[key].astext == str(value))
+    return stmt
+
+
+def _to_uuid(value: str) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(value))
+    except ValueError:
+        return None

@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from bson import ObjectId
 
 from app.core.database import get_collection
 
@@ -73,13 +72,13 @@ async def get_profile_by_user(user_id: str) -> dict | None:
 
 
 async def get_profile_by_id(profile_id: str) -> dict | None:
-    return await get_collection("profiles").find_one({"_id": ObjectId(profile_id)})
+    return await get_collection("profiles").find_one({"_id": profile_id})
 
 
 async def update_profile(profile_id: str, updates: dict) -> dict | None:
     updates["updated_at"] = datetime.now(timezone.utc)
     return await get_collection("profiles").find_one_and_update(
-        {"_id": ObjectId(profile_id)},
+        {"_id": profile_id},
         {"$set": updates},
         return_document=True,
     )
@@ -119,7 +118,7 @@ async def create_application(
 
 
 async def get_application(app_id: str) -> dict | None:
-    return await get_collection("applications").find_one({"_id": ObjectId(app_id)})
+    return await get_collection("applications").find_one({"_id": app_id})
 
 
 async def get_application_by_user(user_id: str) -> dict | None:
@@ -131,7 +130,7 @@ async def get_application_by_user(user_id: str) -> dict | None:
 
 async def update_application(app_id: str, updates: dict) -> dict | None:
     return await get_collection("applications").find_one_and_update(
-        {"_id": ObjectId(app_id)},
+        {"_id": app_id},
         {"$set": updates},
         return_document=True,
     )

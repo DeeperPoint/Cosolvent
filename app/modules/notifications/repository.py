@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from bson import ObjectId
 
 from app.core.database import get_collection
 
@@ -37,7 +36,7 @@ async def list_notifications(user_id: str, skip: int = 0, limit: int = 50) -> li
 
 async def mark_read(notification_id: str) -> dict | None:
     return await get_collection("notifications").find_one_and_update(
-        {"_id": ObjectId(notification_id)},
+        {"_id": notification_id},
         {"$set": {"is_read": True}},
         return_document=True,
     )

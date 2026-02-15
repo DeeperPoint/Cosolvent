@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from bson import ObjectId
 
 from app.core.database import get_collection
 
@@ -32,11 +31,11 @@ async def create_file(
 
 
 async def get_file(file_id: str) -> dict | None:
-    return await get_collection("files").find_one({"_id": ObjectId(file_id)})
+    return await get_collection("files").find_one({"_id": file_id})
 
 
 async def delete_file(file_id: str) -> None:
-    await get_collection("files").delete_one({"_id": ObjectId(file_id)})
+    await get_collection("files").delete_one({"_id": file_id})
 
 
 async def list_files_for_profile(profile_id: str) -> list[dict]:
@@ -69,11 +68,11 @@ async def create_private_asset(
 
 
 async def get_private_asset(asset_id: str) -> dict | None:
-    return await get_collection("private_assets").find_one({"_id": ObjectId(asset_id)})
+    return await get_collection("private_assets").find_one({"_id": asset_id})
 
 
 async def delete_private_asset(asset_id: str) -> None:
-    await get_collection("private_assets").delete_one({"_id": ObjectId(asset_id)})
+    await get_collection("private_assets").delete_one({"_id": asset_id})
 
 
 async def list_private_assets(profile_id: str) -> list[dict]:

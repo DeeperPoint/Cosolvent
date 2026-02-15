@@ -1,4 +1,4 @@
-"""Profile → vector indexing using OpenAI embeddings."""
+"""Profile → vector indexing using OpenAI embeddings + pgvector."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ async def index_profile(
     profile: dict[str, Any],
     config: MarketplaceConfig,
 ) -> None:
-    """Generate embedding for a profile and upsert to Pinecone."""
+    """Generate embedding for a profile and upsert to Postgres vectors."""
     if not settings.openai_api_key:
         logger.warning("OpenAI not configured, skipping profile indexing")
         return

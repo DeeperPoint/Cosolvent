@@ -1,4 +1,4 @@
-"""Live-provider E2E checks for OpenAI/Pinecone/Resend-backed flows."""
+"""Live-provider E2E checks for OpenAI/Resend-backed flows."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ USER_PASSWORD = "UserPass123!"
 def _require_live_env() -> None:
     if os.getenv("RUN_LIVE_E2E") != "1":
         pytest.skip("RUN_LIVE_E2E=1 required")
-    required = ["OPENAI_API_KEY", "PINECONE_API_KEY", "RESEND_API_KEY"]
+    required = ["OPENAI_API_KEY", "RESEND_API_KEY"]
     missing = [name for name in required if not os.getenv(name)]
     if missing:
         pytest.skip(f"Live-provider E2E skipped: missing env vars: {', '.join(missing)}")

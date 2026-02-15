@@ -1,4 +1,3 @@
-
 ## Quick Start (Recommended: Docker)
 
 ### 1. Clone
@@ -45,8 +44,8 @@ docker compose down -v
 ### 1. Prerequisites
 
 - Python `3.11+`
-- MongoDB running on `mongodb://localhost:27017` (or update `.env`)
-- Redis running on `redis://localhost:6379` (or update `.env`)
+- Postgres `15+` with `pgvector` enabled
+- Redis
 
 ### 2. Create virtual environment + install
 
@@ -64,8 +63,7 @@ cp .env.example .env
 
 Minimum required values for core flows:
 
-- `MONGODB_URI`
-- `MONGODB_DATABASE`
+- `POSTGRES_DSN` (or `POSTGRES_HOST/PORT/DB/USER/PASSWORD`)
 - `REDIS_URL`
 - `SESSION_SECRET`
 - `MARKETPLACE_CONFIG_PATH`
@@ -146,11 +144,13 @@ API_HOST_PORT=19000 docker compose up -d --build
 
 Then use `http://localhost:19000`.
 
-### Config load issues
+### DB extension error on startup
 
-- Validate config:
-  - `python -m cli validate marketplace.yaml`
-- Ensure `MARKETPLACE_CONFIG_PATH` in `.env` points to the right file.
+Confirm the target Postgres instance supports and allows:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
 
 ### Worker not processing
 
@@ -160,4 +160,3 @@ Then use `http://localhost:19000`.
 ### AI endpoints return `503`
 
 Expected when provider keys are missing. Non-AI core flows still run.
-

@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from bson import ObjectId
 
 from app.core.database import get_collection
 from app.core.config import settings
@@ -15,7 +14,7 @@ async def find_user_by_email(email: str) -> dict | None:
 
 
 async def find_user_by_id(user_id: str) -> dict | None:
-    return await get_collection("users").find_one({"_id": ObjectId(user_id)})
+    return await get_collection("users").find_one({"_id": user_id})
 
 
 async def create_user(
@@ -38,7 +37,7 @@ async def create_user(
     return doc
 
 
-async def create_session(user_id: ObjectId) -> str:
+async def create_session(user_id: str) -> str:
     token = generate_session_token()
     await get_collection("sessions").insert_one({
         "token": token,

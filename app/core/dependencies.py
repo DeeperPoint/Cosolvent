@@ -41,6 +41,11 @@ async def get_current_user(session_token: str = Cookie(None)) -> dict[str, Any]:
 
 
 def _is_session_expired(expires_at: Any) -> bool:
+    if isinstance(expires_at, str):
+        try:
+            expires_at = datetime.fromisoformat(expires_at)
+        except ValueError:
+            return False
     if not isinstance(expires_at, datetime):
         return False
     if expires_at.tzinfo is None:

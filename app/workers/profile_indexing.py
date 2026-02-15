@@ -1,4 +1,4 @@
-"""Background task: index profiles to Pinecone."""
+"""Background task: index profiles to Postgres vectors."""
 
 from __future__ import annotations
 

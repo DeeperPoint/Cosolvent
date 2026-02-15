@@ -131,9 +131,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
         user_id = str(session["user_id"])
 
         # Verify participant
-        conv = await get_collection("conversations").find_one(
-            {"_id": __import__("bson").ObjectId(conversation_id)}
-        )
+        conv = await get_collection("conversations").find_one({"_id": conversation_id})
         if not conv:
             await websocket.close(code=4004, reason="Conversation not found")
             return

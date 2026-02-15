@@ -1,4 +1,4 @@
-"""Search queries against MongoDB profiles collection."""
+"""Search queries against profiles collection."""
 
 from __future__ import annotations
 

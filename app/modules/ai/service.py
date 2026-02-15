@@ -6,7 +6,11 @@ import json
 import uuid
 from typing import Any
 
+from sqlalchemy import delete
+
 from app.core.config import settings
+from app.core.database import session_scope
+from app.core.db_schema import ai_document_chunks
 from app.core.exceptions import AppError, ServiceUnavailableError
 from app.core.queue import enqueue_job
 from app.core.marketplace_config import MarketplaceConfig
@@ -26,8 +30,8 @@ async def query(
     """RAG query: retrieve relevant context, generate answer."""
     if not config.discovery.ai.rag_query_enabled:
         raise AppError("RAG query is disabled for this marketplace", 400)
-    if not settings.openai_api_key or not settings.pinecone_api_key:
-        raise ServiceUnavailableError("AI retrieval unavailable: OpenAI/Pinecone not configured")
+    if not settings.openai_api_key:
+        raise ServiceUnavailableError("AI retrieval unavailable: OpenAI not configured")
 
     if not thread_id:
         thread_id = str(uuid.uuid4())
@@ -121,16 +125,11 @@ async def list_documents(skip: int = 0, limit: int = 50) -> list[dict]:
 
 
 async def delete_document(doc_id: str) -> None:
-    # Delete from Pinecone
+    # Delete vectors from Postgres vector table.
     try:
-        from app.modules.discovery.vector_service import _get_index
-        index = _get_index()
-        if index:
-            doc = await repo.get_document(doc_id)
-            if doc:
-                ids = [f"doc_{doc_id}_chunk_{i}" for i in range(doc.get("chunk_count", 0))]
-                if ids:
-                    index.delete(ids=ids)
+        async with session_scope() as session:
+            await session.execute(delete(ai_document_chunks).where(ai_document_chunks.c.document_id == uuid.UUID(doc_id)))
+            await session.commit()
     except Exception:
         pass
     await repo.delete_document(doc_id)

@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from bson import ObjectId
 
 from app.core.database import get_collection
 
@@ -24,7 +23,8 @@ async def get_dashboard_stats() -> dict[str, Any]:
         {"$match": {"status": "active"}},
         {"$group": {"_id": "$participant_type", "count": {"$sum": 1}}},
     ]
-    async for doc in db.profiles.aggregate(pipeline):
+    aggregate_cursor = await db.profiles.aggregate(pipeline)
+    async for doc in aggregate_cursor:
         type_counts[doc["_id"]] = doc["count"]
 
     return {
@@ -48,13 +48,13 @@ async def list_users(skip: int = 0, limit: int = 50) -> list[dict]:
 
 async def get_user(user_id: str) -> dict | None:
     return await get_collection("users").find_one(
-        {"_id": ObjectId(user_id)}, {"password_hash": 0}
+        {"_id": user_id}, {"password_hash": 0}
     )
 
 
 async def update_user_role(user_id: str, role: str) -> dict | None:
     return await get_collection("users").find_one_and_update(
-        {"_id": ObjectId(user_id)},
+        {"_id": user_id},
         {"$set": {"role": role, "updated_at": datetime.now(timezone.utc)}},
         projection={"password_hash": 0},
         return_document=True,
@@ -63,7 +63,7 @@ async def update_user_role(user_id: str, role: str) -> dict | None:
 
 async def deactivate_user(user_id: str) -> dict | None:
     return await get_collection("users").find_one_and_update(
-        {"_id": ObjectId(user_id)},
+        {"_id": user_id},
         {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}},
         projection={"password_hash": 0},
         return_document=True,
@@ -72,7 +72,7 @@ async def deactivate_user(user_id: str) -> dict | None:
 
 async def activate_user(user_id: str) -> dict | None:
     return await get_collection("users").find_one_and_update(
-        {"_id": ObjectId(user_id)},
+        {"_id": user_id},
         {"$set": {"is_active": True, "updated_at": datetime.now(timezone.utc)}},
         projection={"password_hash": 0},
         return_document=True,
@@ -116,20 +116,20 @@ async def create_faq(data: dict) -> dict:
 
 
 async def get_faq(faq_id: str) -> dict | None:
-    return await get_collection("faqs").find_one({"_id": ObjectId(faq_id)})
+    return await get_collection("faqs").find_one({"_id": faq_id})
 
 
 async def update_faq(faq_id: str, updates: dict) -> dict | None:
     updates["updated_at"] = datetime.now(timezone.utc)
     return await get_collection("faqs").find_one_and_update(
-        {"_id": ObjectId(faq_id)},
+        {"_id": faq_id},
         {"$set": updates},
         return_document=True,
     )
 
 
 async def delete_faq(faq_id: str) -> bool:
-    result = await get_collection("faqs").delete_one({"_id": ObjectId(faq_id)})
+    result = await get_collection("faqs").delete_one({"_id": faq_id})
     return result.deleted_count > 0
 
 

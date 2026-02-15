@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from bson import ObjectId
 
 from app.core.database import get_collection
 from app.core.exceptions import AppError, ConflictError, ForbiddenError, NotFoundError
@@ -85,7 +84,7 @@ async def submit_draft(user: dict, config: MarketplaceConfig) -> dict:
         )
         await repo.delete_draft(user_id)
         await get_collection("users").update_one(
-            {"_id": _as_object_id(user["_id"])},
+            {"_id": str(user["_id"])},
             {"$set": {"has_onboarded": True}},
         )
         await _queue_profile_index(str(profile["_id"]))
@@ -168,12 +167,12 @@ async def approve_application(app_id: str, feedback: str = "") -> dict:
     await repo.update_application(app_id, {"status": "approved", "admin_feedback": feedback})
 
     await get_collection("users").update_one(
-        {"_id": ObjectId(application["user_id"])},
+        {"_id": application["user_id"]},
         {"$set": {"has_onboarded": True}},
     )
     await _queue_profile_index(str(profile["_id"]))
 
-    user = await get_collection("users").find_one({"_id": ObjectId(application["user_id"])})
+    user = await get_collection("users").find_one({"_id": application["user_id"]})
     if user and user.get("email"):
         await _queue_welcome_email(user["email"], "Cosolvent Marketplace")
 
@@ -301,12 +300,6 @@ def _ai_action_response(profile: dict | None, action_status: str) -> dict:
             str(profile.get("ai_profile_updated_at", "")) if profile.get("ai_profile_updated_at") else None
         ),
     }
-
-
-def _as_object_id(value: str | ObjectId) -> ObjectId:
-    if isinstance(value, ObjectId):
-        return value
-    return ObjectId(value)
 
 
 async def _queue_profile_index(profile_id: str) -> None:

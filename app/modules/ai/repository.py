@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from bson import ObjectId
 
 from app.core.database import get_collection
 
@@ -24,7 +23,7 @@ async def create_document(filename: str, content: str) -> dict[str, Any]:
 
 
 async def get_document(doc_id: str) -> dict[str, Any] | None:
-    return await get_collection("ai_documents").find_one({"_id": ObjectId(doc_id)})
+    return await get_collection("ai_documents").find_one({"_id": doc_id})
 
 
 async def update_document_status(doc_id: str, status: str, chunk_count: int = 0) -> None:
@@ -32,7 +31,7 @@ async def update_document_status(doc_id: str, status: str, chunk_count: int = 0)
     if chunk_count:
         update["chunk_count"] = chunk_count
     await get_collection("ai_documents").update_one(
-        {"_id": ObjectId(doc_id)}, {"$set": update}
+        {"_id": doc_id}, {"$set": update}
     )
 
 
@@ -42,7 +41,7 @@ async def list_documents(skip: int = 0, limit: int = 50) -> list[dict]:
 
 
 async def delete_document(doc_id: str) -> None:
-    await get_collection("ai_documents").delete_one({"_id": ObjectId(doc_id)})
+    await get_collection("ai_documents").delete_one({"_id": doc_id})
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────

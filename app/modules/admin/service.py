@@ -43,7 +43,7 @@ async def approve_application(app_id: str) -> dict[str, Any]:
 async def reject_application(
     app_id: str, feedback: str | None = None
 ) -> dict[str, Any]:
-    return await profiles_service.reject_application(app_id, feedback)
+    return await profiles_service.reject_application(app_id, feedback or "")
 
 
 # ── Config Summary ───────────────────────────────────────────────────────

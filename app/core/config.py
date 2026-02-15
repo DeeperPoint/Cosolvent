@@ -4,9 +4,13 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # MongoDB
-    mongodb_uri: str = "mongodb://localhost:27017"
-    mongodb_database: str = "cosolvent"
+    # Postgres
+    postgres_dsn: str = ""
+    postgres_host: str = "localhost"
+    postgres_port: int = 5432
+    postgres_db: str = "cosolvent"
+    postgres_user: str = "postgres"
+    postgres_password: str = "postgres"
 
     # Redis
     redis_url: str = "redis://localhost:6379"
@@ -24,10 +28,6 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
 
-    # Pinecone
-    pinecone_api_key: str = ""
-    pinecone_index: str = "cosolvent"
-
     # Cohere
     cohere_api_key: str = ""
 
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000"]
     debug: bool = False
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()
