@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
 
@@ -82,6 +83,13 @@ def _register_routers(application: FastAPI) -> None:
     application.include_router(ai_router, prefix="/api/ai", tags=["ai"])
     application.include_router(admin_router, prefix="/api/admin", tags=["admin"])
     application.include_router(setup_router, tags=["setup"])
+
+    generated_alias_path = Path(__file__).parent / "generated" / "role_alias_router.py"
+    if generated_alias_path.exists():
+        from app.generated.role_alias_router import router as generated_role_router
+
+        application.include_router(generated_role_router)
+        logger.info("Loaded generated role aliases from %s", generated_alias_path)
 
 
 app = create_app()

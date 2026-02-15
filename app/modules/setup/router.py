@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ValidationError
 
+from app.compiler import CompileOptions, check_compile_sync, compile_marketplace
 from app.core.config import settings
 from app.core.marketplace_config import (
     MarketplaceConfig,
@@ -28,6 +29,20 @@ class ConfigPayload(BaseModel):
 class SavePayload(ConfigPayload):
     output_path: str | None = None
     apply_runtime: bool = True
+
+
+class GeneratePayload(BaseModel):
+    config: dict[str, Any] | None = None
+    mode: Literal["mvp", "strict"] = "mvp"
+    export_enabled: bool = True
+    export_dir: str = "exports"
+    overwrite_policy: Literal["managed"] = "managed"
+
+
+class GenerateCheckPayload(BaseModel):
+    config: dict[str, Any] | None = None
+    mode: Literal["mvp", "strict"] = "mvp"
+    overwrite_policy: Literal["managed"] = "managed"
 
 
 @router.get("/onboarding", response_class=HTMLResponse)
@@ -79,6 +94,56 @@ async def save_config(payload: SavePayload) -> dict[str, Any]:
         "bytes": len(yaml_text.encode("utf-8")),
         "applied_runtime": payload.apply_runtime,
     }
+
+
+@router.post("/api/setup/generate")
+async def generate_project(payload: GeneratePayload) -> dict[str, Any]:
+    try:
+        config = _resolve_generate_config(payload.config)
+        result = compile_marketplace(
+            config=config,
+            options=CompileOptions(
+                mode=payload.mode,
+                export_enabled=payload.export_enabled,
+                export_dir=payload.export_dir,
+                overwrite_policy=payload.overwrite_policy,
+            ),
+            project_root=Path.cwd(),
+        )
+        return result
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Config validation failed", "errors": exc.errors()},
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/api/setup/generate/check")
+async def check_generated_sync(payload: GenerateCheckPayload) -> dict[str, Any]:
+    try:
+        config = _resolve_generate_config(payload.config)
+        return check_compile_sync(
+            config=config,
+            options=CompileOptions(
+                mode=payload.mode,
+                export_enabled=False,
+                overwrite_policy=payload.overwrite_policy,
+            ),
+            project_root=Path.cwd(),
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Config validation failed", "errors": exc.errors()},
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 def _current_config(runtime_path: Path) -> tuple[MarketplaceConfig, Path, bool]:
@@ -135,6 +200,14 @@ def _parse_config(raw: dict[str, Any]) -> MarketplaceConfig:
                 "errors": exc.errors(),
             },
         ) from exc
+
+
+def _resolve_generate_config(raw: dict[str, Any] | None) -> MarketplaceConfig:
+    if raw is not None:
+        return _parse_config(raw)
+    runtime_path = _runtime_config_path()
+    config, _, _ = _current_config(runtime_path)
+    return config
 
 
 def _resolve_output_path(output_path: str | None) -> Path:

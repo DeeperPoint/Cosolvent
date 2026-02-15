@@ -1,0 +1,19 @@
+{
+  "export_path": "exports/marketplace-096ab1bd61cf.tar.gz",
+  "generated_at": "2026-02-15T19:37:01.577247+00:00",
+  "generated_files": [
+    "alembic/versions/auto_marketplace_mkt_096ab1bd61cf.py",
+    "app/generated/__init__.py",
+    "app/generated/marketplace_spec.py",
+    "app/generated/policy_matrix.py",
+    "app/generated/profile_models.py",
+    "app/generated/role_alias_router.py",
+    "app/generated/role_registry.py",
+    "generated/manifest.json",
+    "openapi/generated_openapi.json"
+  ],
+  "generator_version": "1.0.0",
+  "migration_revision": "mkt_096ab1bd61cf",
+  "mode": "mvp",
+  "spec_hash": "096ab1bd61cf63b4c1b6209f8d9845f43e0235b00edffc18669afbe7ce089525"
+}

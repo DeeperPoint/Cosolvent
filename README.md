@@ -1,59 +1,164 @@
 # cosolvent-beta
 
-Configurable marketplace backend platform (FastAPI + Postgres/pgvector + Redis + ARQ workers), with dynamic onboarding and marketplace behavior driven by YAML config.
+Configurable marketplace backend compiler and runtime:
+`FastAPI + Postgres (pgvector) + Redis (ARQ workers)`.
 
-Repository: `https://github.com/DeeperPoint/cosolvent-beta`
+Goal: clone the repo, configure your marketplace in onboarding UI, generate deterministic artifacts, and ship a deployable package.
 
-## What you get
+## Architecture in one line
 
-- Config-driven participant types, permissions, profile schemas, onboarding, communication, and discovery rules
-- Auth + sessions + admin workflows
-- Profile lifecycle (draft, submit, approve/reject)
-- Conversations, messages, notifications, websocket support
-- Search/discovery with optional AI/vector flows (pgvector)
-- Background workers for indexing and async tasks
+`marketplace.yaml` is the source of truth.  
+The compiler turns it into generated runtime code, migration artifacts, and an export package.
 
-## Quick Start (Docker)
+## Clone to running marketplace (recommended path)
 
-### 1. Clone
+### 1. Clone and prepare env
 
 ```bash
 git clone https://github.com/DeeperPoint/cosolvent-beta.git
 cd cosolvent-beta
+cp .env.example .env
 ```
 
-### 2. Start full stack
+Update `.env` as needed (minimum values that must be valid):
+
+- `SESSION_SECRET`
+- `MARKETPLACE_CONFIG_PATH` (default `marketplace.yaml`)
+- If running outside Docker: `POSTGRES_DSN` + `REDIS_URL`
+
+### 2. Start onboarding service
 
 ```bash
-API_HOST_PORT=18000 docker compose up -d --build
-python scripts/wait_for_http.py --url http://localhost:18000/api/health --timeout 180
+make setup-up
+make onboarding
 ```
 
-You get:
+Open `http://localhost:18080/onboarding`.
+
+### 3. Configure and generate
+
+In the onboarding panel:
+
+1. Configure marketplace identity, roles, onboarding rules, communication rules, and discovery rules.
+2. Click `Validate`.
+3. Click `Save`.
+4. Click `Generate Project` (mode `mvp` by default).
+
+Generation writes managed outputs to:
+
+- `app/generated/*`
+- `generated/manifest.json`
+- `openapi/generated_openapi.json`
+- `alembic/versions/auto_marketplace_*.py`
+- `exports/*.tar.gz` (if export enabled)
+
+### 4. Start full stack
+
+```bash
+make up
+make wait-api
+```
+
+Endpoints:
 
 - API: `http://localhost:18000`
 - Swagger: `http://localhost:18000/docs`
+- Health: `http://localhost:18000/api/health`
 
-### 3. Bootstrap first admin
-
-```bash
-curl -X POST http://localhost:18000/api/auth/bootstrap \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@example.com","password":"ChangeMe123!"}'
-```
-
-### 4. Stop stack
+### 5. Bootstrap admin
 
 ```bash
-docker compose down -v
+make bootstrap-admin
 ```
 
-## Local Development (No Docker)
+Default bootstrap credentials are controlled by Make vars:
 
-### 1. Prerequisites
+- `ADMIN_EMAIL` (default `admin@example.com`)
+- `ADMIN_PASSWORD` (default `ChangeMe123!`)
+
+Example override:
+
+```bash
+make bootstrap-admin ADMIN_EMAIL=owner@yourmarket.com ADMIN_PASSWORD='StrongPass123!'
+```
+
+### 6. Stop services
+
+```bash
+make down        # stop containers
+make reset       # stop + remove volumes
+```
+
+## Compiler workflow
+
+### Generate from CLI
+
+```bash
+python -m cli compile --config marketplace.yaml --mode mvp
+```
+
+### Check drift (used by CI)
+
+```bash
+python -m cli compile --check --config marketplace.yaml --mode mvp
+```
+
+### Export deployable package
+
+```bash
+python -m cli export --config marketplace.yaml --mode mvp --export-dir exports
+```
+
+## Testing gate (same order used in CI/local validation)
+
+```bash
+make wait-api
+make lint
+make unit
+make compile-check
+make integration
+make e2e
+make live
+```
+
+Notes:
+
+- `make live` sources `.env` and runs live-provider E2E if secrets are present.
+- If secrets are missing, live tests skip with explicit reasons.
+
+## Daily workflows
+
+### Change marketplace behavior safely
+
+1. Update config in onboarding UI (or edit `marketplace.yaml`).
+2. Run `make compile`.
+3. Run `make compile-check` to confirm deterministic sync.
+4. Run tests (`make unit`, `make integration`, `make e2e`).
+
+### Prepare a project handoff/export
+
+1. `make export`
+2. Take the generated `.tar.gz` in `exports/`.
+3. Unpack in a new repo/environment.
+4. Set environment values and run the same startup path (`make up`, `make wait-api`, `make bootstrap-admin`).
+
+## Make targets
+
+Run `make help` for full command list. Most-used targets:
+
+- `make setup-up`, `make setup-down`
+- `make up`, `make down`, `make reset`
+- `make logs`, `make logs-api`, `make logs-worker`
+- `make lint`, `make unit`, `make integration`, `make e2e`, `make live`, `make test-all`
+- `make compile`, `make compile-check`, `make export`
+- `make bootstrap-admin`, `make onboarding`
+
+## Local (non-Docker) development
+
+### 1. Prereqs
 
 - Python `3.11+`
-- Postgres `15+` with `pgvector` extension enabled
+- Postgres `15+` with `pgvector` extension
 - Redis
 
 ### 2. Install
@@ -64,70 +169,53 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-### 3. Configure env
+### 3. Configure and run
 
 ```bash
 cp .env.example .env
-```
-
-Minimum required values:
-
-- `POSTGRES_DSN` (or discrete `POSTGRES_*` vars)
-- `REDIS_URL`
-- `SESSION_SECRET`
-- `MARKETPLACE_CONFIG_PATH`
-
-### 4. Generate or choose marketplace config
-
-```bash
+python -m cli validate marketplace.example.yaml
 python -m cli wizard -o marketplace.yaml
-# or
-python -m cli wizard --preset agriculture -o marketplace.yaml
-# or
-cp marketplace.example.yaml marketplace.yaml
+python -m cli compile --config marketplace.yaml --mode mvp
 ```
 
-Validate config:
+Then run API and worker in separate terminals:
 
 ```bash
-python -m cli validate marketplace.yaml
-```
-
-### 5. Run API + worker
-
-```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+make api
 ```
 
 ```bash
-arq app.workers.settings.WorkerSettings
+make worker
 ```
 
-## Tests
+## Common issues
 
-```bash
-ruff check app cli tests scripts
-pytest tests/unit -q
-RUN_INTEGRATION=1 INTEGRATION_BASE_URL=http://localhost:18000 pytest tests/integration -q
-RUN_E2E=1 E2E_BASE_URL=http://localhost:18000 pytest tests/e2e/test_local_full_stack.py -q
-RUN_LIVE_E2E=1 E2E_BASE_URL=http://localhost:18000 pytest tests/e2e/test_live_providers.py -q -rs
-```
+### API fails on startup
 
-Live-provider E2E runs only when required secrets are present; otherwise it skips with an explicit reason.
+- Verify Postgres is reachable and credentials are correct.
+- Verify `pgvector` is available (`CREATE EXTENSION vector` supported).
+- Verify `marketplace.yaml` exists at `MARKETPLACE_CONFIG_PATH`.
 
-## Troubleshooting
+### Generated artifacts look stale
 
-### API won't start because of DB
+- Run `make compile`.
+- Run `make compile-check` and inspect drift output.
+- Ensure no manual edits were made inside managed generated zones.
 
-- Confirm Postgres is reachable.
-- Confirm `POSTGRES_DSN` is correct.
-- Confirm the DB allows `CREATE EXTENSION vector`.
+### Worker is not processing jobs
 
-### Worker not processing tasks
-
-- `docker compose logs -f worker`
-- Confirm Redis connectivity from API + worker.
+- Check `make logs-worker`.
+- Confirm `REDIS_URL` connectivity from API and worker containers.
 
 ### AI endpoints return `503`
 
-Expected when `OPENAI_API_KEY` is missing; core non-AI flows still work.
+Expected when AI provider credentials are missing/unavailable.  
+Core non-AI marketplace flows should still function.
+
+## Documentation
+
+- `docs/getting-started.md`
+- `docs/testing.md`
+- `docs/generation.md`
+- `docs/architecture.md`
+- `docs/data-models.md`

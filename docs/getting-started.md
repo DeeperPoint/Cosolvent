@@ -7,7 +7,19 @@ git clone https://github.com/DeeperPoint/cosolvent-beta.git
 cd cosolvent-beta
 ```
 
-### 2. Start full stack
+### 2. Run setup onboarding first
+
+```bash
+make setup-up
+```
+
+Open `http://localhost:18080/onboarding`, then:
+
+1. configure marketplace settings,
+2. save to `marketplace.yaml`,
+3. click `Generate Project`.
+
+### 3. Start full stack
 
 ```bash
 API_HOST_PORT=18000 docker compose up -d --build
@@ -19,7 +31,7 @@ The API is available at:
 - API: `http://localhost:18000`
 - Swagger docs: `http://localhost:18000/docs`
 
-### 3. Bootstrap first admin
+### 4. Bootstrap first admin
 
 ```bash
 curl -X POST http://localhost:18000/api/auth/bootstrap \
@@ -27,13 +39,14 @@ curl -X POST http://localhost:18000/api/auth/bootstrap \
   -d '{"email":"admin@example.com","password":"ChangeMe123!"}'
 ```
 
-### 4. Optional config validation
+### 5. Optional config validation / compile-check
 
 ```bash
 python -m cli validate marketplace.example.yaml
+python -m cli compile --check --config marketplace.yaml --mode mvp
 ```
 
-### 5. Stop stack
+### 6. Stop stack
 
 ```bash
 docker compose down -v
@@ -94,6 +107,7 @@ Validate:
 
 ```bash
 python -m cli validate marketplace.yaml
+python -m cli compile --config marketplace.yaml --mode mvp
 ```
 
 ### 5. Run API + worker

@@ -2,122 +2,92 @@
 
 ## Overview
 
-Cosolvent is a configurable, single-tenant marketplace platform. A single YAML configuration file (`marketplace.yaml`) drives all runtime behavior — participant types, profile schemas, permissions, communication rules, discovery settings, and onboarding workflows.
+Cosolvent is a configurable single-marketplace backend built on:
 
-The backend is a FastAPI application backed by MongoDB (via Motor for async operations), Redis (job queues), Pinecone (vector search), and S3 (file storage).
+- FastAPI
+- Postgres + pgvector
+- Redis + ARQ workers
+- S3-compatible storage
 
-## Project Structure
+`marketplace.yaml` remains the source of truth for marketplace behavior.  
+The onboarding/setup service can now compile that config into deterministic generated artifacts (role aliases, policy matrices, migration metadata seed, OpenAPI snapshot, export archive).
 
-```
-cosolvent-beta/
-├── app/                        # Backend application
-│   ├── main.py                 # FastAPI app factory, router registration
-│   ├── core/                   # Shared infrastructure
-│   │   ├── config.py           # Pydantic settings (env vars)
-│   │   ├── marketplace_config.py  # YAML config loader + validation models
-│   │   ├── database.py         # Motor MongoDB connection + indexes
-│   │   ├── redis.py            # Redis connection
-│   │   ├── security.py         # Password hashing
-│   │   ├── dependencies.py     # FastAPI DI (auth, permissions, config)
-│   │   ├── exceptions.py       # Custom exceptions + handlers
-│   │   └── middleware.py       # CORS, logging middleware
-│   ├── engine/                 # Config-driven runtime engines
-│   │   ├── schema_engine.py    # Dynamic Pydantic model generation
-│   │   ├── visibility_engine.py # Field visibility filtering
-│   │   └── permission_engine.py # Permission + conversation rule checks
-│   ├── modules/                # Feature modules (each: router/service/repo/schemas)
-│   │   ├── auth/               # Signup, login, sessions, admin bootstrap
-│   │   ├── profiles/           # Drafts, onboarding, profile CRUD, AI generation
-│   │   ├── files/              # S3 upload/download, privacy levels
-│   │   ├── communication/      # Conversations, messages, WebSocket
-│   │   ├── discovery/          # Search, vector search, indexing
-│   │   ├── notifications/      # User notifications
-│   │   ├── ai/                 # RAG queries, LLM settings, document KB
-│   │   └── admin/              # Dashboard, user mgmt, FAQ, oversight
-│   └── workers/                # Arq background tasks
-│       ├── settings.py         # Worker config + task registry
-│       ├── document_indexing.py
-│       ├── profile_indexing.py
-│       └── email_sender.py
-├── cli/                        # CLI wizard & validation
-│   ├── __main__.py             # Argparse entry point
-│   ├── wizard.py               # 7-step orchestrator
-│   ├── validate.py             # Config file validation
-│   ├── steps/                  # Individual wizard steps
-│   └── presets/                # Pre-built marketplace configs
-├── tests/
-│   ├── unit/                   # Unit tests
-│   ├── integration/            # Integration tests
-│   ├── e2e/                    # End-to-end tests
-│   └── test_config/            # YAML fixture configs
-└── pyproject.toml
-```
+## Runtime Shape
 
-## Module Pattern
+### Core runtime
 
-Every feature module follows the same layered pattern:
+- `app/main.py`: API app factory and router registration.
+- `app/core/`: shared infra (settings, DB proxy/session, redis, middleware, dependencies).
+- `app/modules/*`: feature modules (`router -> service -> repository -> storage`).
+- `app/engine/*`: config-driven runtime engines for schema validation, permissions, and visibility.
+- `app/workers/*`: async processing for indexing/email/document flows.
 
-```
-module/
-├── router.py       # FastAPI endpoints — input validation, dependency injection
-├── service.py      # Business logic — orchestrates repo calls, raises domain errors
-├── repository.py   # Database access — raw MongoDB queries
-└── schemas.py      # Pydantic request/response models
-```
+### Setup runtime
 
-**Flow:** Router → Service → Repository → MongoDB
+- `app/setup_app.py`: standalone setup app that does not require DB/API startup.
+- `app/modules/setup/router.py`: onboarding UI + setup APIs (`validate`, `render-yaml`, `save`, `generate`, `generate/check`).
 
-The router layer handles HTTP concerns (path params, query params, request bodies, auth dependencies). The service layer contains business logic and raises domain exceptions (`NotFoundError`, `ForbiddenError`). The repository layer executes MongoDB operations.
+## Compiler and Managed Zones
 
-## Engines
+Compiler package: `app/compiler/`
 
-Engines are stateless, config-driven components that interpret the marketplace YAML at runtime:
+- `normalize.py`: validates + canonicalizes config and computes stable `spec_hash`.
+- `ir.py`: compile IR + options.
+- `render.py`: deterministic file rendering.
+- `writer.py`: managed-zone writes and stale artifact pruning.
+- `manifest.py`: generation manifest and sync metadata.
+- `exporter.py`: `.tar.gz` export packaging.
+- `service.py`: orchestration for compile/check and OpenAPI snapshot.
 
-| Engine | Purpose |
-|--------|---------|
-| `schema_engine` | Generates Pydantic validation models from profile schema config. Caches models per type. |
-| `visibility_engine` | Filters profile fields by viewer tier (anonymous → public, authenticated → protected, owner/admin → all). |
-| `permission_engine` | Checks participant permissions and conversation initiation rules from config. |
+Managed output zones:
 
-## Authentication & Authorization
+- `app/generated/*`
+- `alembic/versions/auto_marketplace_*.py`
+- `openapi/generated_openapi.json`
+- `generated/manifest.json`
+- `exports/*.tar.gz` (optional)
 
-- **Sessions:** Token-based, stored in MongoDB with TTL index (default 72h). Delivered via HTTP-only cookies.
-- **User roles:** `user` or `admin`. Admins bypass all permission checks.
-- **Deactivation guard:** Users with `is_active: false` receive 403 on any authenticated request.
-- **Permission checks:** Config-driven via `ParticipantPermissions` on each type.
-- **Conversation rules:** Defined per initiator→receiver pair in `communication.conversation_rules`.
+Regeneration only mutates managed zones and never touches handwritten files outside those zones.
 
-## Data Flow
+## Endpoint Compatibility Strategy
 
-```
-marketplace.yaml  ──→  MarketplaceConfig (Pydantic)  ──→  Runtime singleton
-                                                            ↓
-                                          Engines read config to validate
-                                          schemas, filter fields, check
-                                          permissions at request time
-```
+Generic endpoints stay intact (example: `/api/profiles/{type_slug}/...`).
 
-## AI Integration
+Generated role aliases are additive, e.g.:
 
-```
-Documents  ──→  Chunking  ──→  Embeddings (OpenAI)  ──→  Pinecone
-                                                            ↓
-User Query  ──→  Embedding  ──→  Vector Search  ──→  Context
-                                                            ↓
-Context + Query  ──→  Prompt Template  ──→  LLM  ──→  Answer
-```
+- `/api/roles/producer/register`
+- `/api/roles/producer/draft`
+- `/api/roles/producer/me`
+- `/api/roles/producer/{profile_id}`
 
-- **RAG pipeline:** Retrieve relevant chunks from Pinecone, inject as context into LLM prompt.
-- **Prompt templates:** Stored in MongoDB, editable via admin API.
-- **AI profile generation:** LLM generates profile content from uploaded documents during onboarding.
-- **Model configuration:** Provider/model/temperature/max_tokens configurable via admin settings.
+`app/main.py` loads generated aliases when `app/generated/role_alias_router.py` exists.
 
-## Background Workers
+## Data Strategy
 
-Arq workers process async tasks via Redis queue:
+Operational data remains on shared document-style JSONB tables (`users`, `profiles`, `applications`, etc.) plus vector tables.
 
-| Task | Trigger |
-|------|---------|
-| `process_document_task` | Document uploaded to knowledge base |
-| `index_profile_task` | Profile created or updated |
-| `send_email_task` | Approval notifications, welcome emails |
+Generated migration adds marketplace metadata tables:
+
+- `marketplace_roles`
+- `marketplace_role_permissions`
+- `marketplace_onboarding_rules`
+- `marketplace_communication_rules`
+- `marketplace_profile_field_defs`
+- `marketplace_builds`
+
+This hybrid approach preserves existing runtime behavior while giving deterministic, queryable marketplace metadata.
+
+## Generation/CI Contract
+
+- Source input: `marketplace.yaml`
+- Determinism: canonical JSON + stable `spec_hash`
+- CI gate: `python -m cli compile --check --config marketplace.yaml --mode mvp`
+- Build fails if generated artifacts drift from config
+
+## High-Level Flow
+
+1. Clone repo.
+2. Run setup service and complete onboarding.
+3. Save config.
+4. Generate project artifacts.
+5. Start full stack and deploy or export package.

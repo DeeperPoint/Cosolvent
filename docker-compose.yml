@@ -56,7 +56,10 @@ services:
     build: *api-build
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
-      - ./marketplace.yaml:/app/marketplace.yaml
+      - type: bind
+        source: ./
+        target: /app
+        read_only: true
     environment:
       POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@postgres:5432/cosolvent
       REDIS_URL: redis://redis:6379
@@ -87,7 +90,10 @@ services:
     build: *worker-build
     command: arq app.workers.settings.WorkerSettings
     volumes:
-      - ./marketplace.yaml:/app/marketplace.yaml:ro
+      - type: bind
+        source: ./
+        target: /app
+        read_only: true
     environment:
       POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@postgres:5432/cosolvent
       REDIS_URL: redis://redis:6379

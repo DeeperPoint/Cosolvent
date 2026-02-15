@@ -45,6 +45,20 @@ All endpoints return JSON. Authentication is via `session_token` HTTP-only cooki
 
 **Visibility tiers:** Anonymous users see `public` fields only. Authenticated users see `public` + `protected`. Profile owners and admins see all fields including `private`.
 
+### Generated Role Alias Endpoints (`/api/roles`)
+
+When project artifacts are generated, additive role-specific aliases are exposed (example for role `producer`):
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/roles/producer/register` | Required | Role-specific alias for register |
+| GET | `/roles/producer/draft` | Required | Role-specific alias for draft |
+| PUT | `/roles/producer/draft` | Required | Role-specific alias for draft update |
+| POST | `/roles/producer/draft/submit` | Required | Role-specific alias for draft submit |
+| GET | `/roles/producer/me` | Required | Role-specific alias for own profile |
+| GET | `/roles/producer/{profile_id}` | Optional | Role-specific alias for profile view |
+| PUT | `/roles/producer/{profile_id}` | Required | Role-specific alias for profile update |
+
 ---
 
 ## Files (`/api/files`)
@@ -191,3 +205,16 @@ All admin endpoints require the `admin` role.
 | GET | `/admin/faqs/{faq_id}` | Get FAQ |
 | PUT | `/admin/faqs/{faq_id}` | Update FAQ. Body: `{question?, answer?, category?, sort_order?, is_active?}` |
 | DELETE | `/admin/faqs/{faq_id}` | Delete FAQ |
+
+---
+
+## Setup/Onboarding (`/api/setup`)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/setup/config-template` | None | Load current config template and source/runtime path metadata |
+| POST | `/setup/validate` | None | Validate config payload |
+| POST | `/setup/render-yaml` | None | Render validated YAML from config payload |
+| POST | `/setup/save` | None | Save config YAML to output path and optionally apply in memory |
+| POST | `/setup/generate` | None | Generate deterministic project artifacts + optional export archive |
+| POST | `/setup/generate/check` | None | Verify generated artifacts are in sync with current config |

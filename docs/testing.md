@@ -9,13 +9,16 @@ ruff check app cli tests scripts
 # 2) Unit
 pytest tests/unit -v
 
-# 3) Integration (requires running API/worker/redis/postgres stack)
+# 3) Generated artifacts sync gate
+python -m cli compile --check --config marketplace.yaml --mode mvp
+
+# 4) Integration (requires running API/worker/redis/postgres stack)
 RUN_INTEGRATION=1 INTEGRATION_BASE_URL=http://localhost:18000 pytest tests/integration -v
 
-# 4) Local full-stack E2E
+# 5) Local full-stack E2E
 RUN_E2E=1 E2E_BASE_URL=http://localhost:18000 pytest tests/e2e/test_local_full_stack.py -v
 
-# 5) Live-provider E2E (conditional)
+# 6) Live-provider E2E (conditional)
 RUN_LIVE_E2E=1 E2E_BASE_URL=http://localhost:18000 pytest tests/e2e/test_live_providers.py -v -rs
 ```
 

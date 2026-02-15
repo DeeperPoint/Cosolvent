@@ -10,3 +10,4 @@ marketplace.yaml
 .pytest_cache/
 .ruff_cache/
 .docker-cache/
+exports/

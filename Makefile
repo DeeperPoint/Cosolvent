@@ -20,7 +20,7 @@ DOCKER_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
 
 .PHONY: help venv install lint lint-fix unit integration e2e live test-all \
 	docker-cache setup-up setup-down up down reset ps logs logs-api logs-worker wait-api bootstrap-admin \
-	api worker validate-config wizard onboarding smoke-setup
+	api worker validate-config wizard onboarding smoke-setup compile compile-check export
 
 help: ## Show available commands
 	@echo "Cosolvent Make Targets"
@@ -145,6 +145,15 @@ validate-config: ## Validate marketplace config file (uses marketplace.example.y
 
 wizard: ## Launch CLI onboarding wizard
 	$(PYTHON) -m cli wizard -o marketplace.yaml
+
+compile: ## Generate marketplace artifacts from marketplace.yaml
+	$(PYTHON) -m cli compile --config marketplace.yaml --mode mvp
+
+compile-check: ## Verify generated artifacts are in sync with marketplace.yaml
+	$(PYTHON) -m cli compile --check --config marketplace.yaml --mode mvp
+
+export: ## Generate artifacts and export deployable package
+	$(PYTHON) -m cli export --config marketplace.yaml --mode mvp --export-dir exports
 
 onboarding: ## Open web onboarding URL hint
 	@echo "Setup service onboarding: http://localhost:$(SETUP_HOST_PORT)/onboarding"

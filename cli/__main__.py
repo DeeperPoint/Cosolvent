@@ -35,6 +35,54 @@ def main() -> None:
         help="Config file to validate (default: marketplace.yaml)",
     )
 
+    # compile subcommand
+    compile_parser = subparsers.add_parser("compile", help="Generate marketplace artifacts")
+    compile_parser.add_argument(
+        "--config",
+        default="marketplace.yaml",
+        help="Config file path (default: marketplace.yaml)",
+    )
+    compile_parser.add_argument(
+        "--mode",
+        choices=["mvp", "strict"],
+        default="mvp",
+        help="Generation mode (default: mvp)",
+    )
+    compile_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check generated artifacts are in sync without modifying files",
+    )
+    compile_parser.add_argument(
+        "--export",
+        action="store_true",
+        help="Also create export archive",
+    )
+    compile_parser.add_argument(
+        "--export-dir",
+        default="exports",
+        help="Export directory (default: exports)",
+    )
+
+    # export subcommand
+    export_parser = subparsers.add_parser("export", help="Generate artifacts and create export archive")
+    export_parser.add_argument(
+        "--config",
+        default="marketplace.yaml",
+        help="Config file path (default: marketplace.yaml)",
+    )
+    export_parser.add_argument(
+        "--mode",
+        choices=["mvp", "strict"],
+        default="mvp",
+        help="Generation mode (default: mvp)",
+    )
+    export_parser.add_argument(
+        "--export-dir",
+        default="exports",
+        help="Export directory (default: exports)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "validate":
@@ -42,6 +90,28 @@ def main() -> None:
 
         valid = validate_config_file(args.file)
         sys.exit(0 if valid else 1)
+    if args.command == "compile":
+        from cli.compile import run_compile
+
+        ok = run_compile(
+            config_path=args.config,
+            mode=args.mode,
+            export_enabled=bool(args.export),
+            export_dir=args.export_dir,
+            check=bool(args.check),
+        )
+        sys.exit(0 if ok else 1)
+    if args.command == "export":
+        from cli.compile import run_compile
+
+        ok = run_compile(
+            config_path=args.config,
+            mode=args.mode,
+            export_enabled=True,
+            export_dir=args.export_dir,
+            check=False,
+        )
+        sys.exit(0 if ok else 1)
     else:
         # Default to wizard (no subcommand or explicit "wizard")
         from cli.wizard import run_wizard

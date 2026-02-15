@@ -629,6 +629,8 @@
         <button class="btn" id="validateBtn" type="button">Validate</button>
         <button class="btn" id="renderYamlBtn" type="button">Render YAML</button>
         <button class="btn primary" id="saveBtn" type="button">Save Config</button>
+        <button class="btn" id="checkGeneratedBtn" type="button">Check Generated Sync</button>
+        <button class="btn primary" id="generateBtn" type="button">Generate Project</button>
       </div>
 
       <div id="statusBox" class="status">Ready. Load a config to begin.</div>
@@ -778,6 +780,29 @@
           </label>
         </div>
       </section>
+
+      <section class="panel">
+        <h2 class="section-title">Generation Options</h2>
+        <div class="grid-3">
+          <div class="field">
+            <label for="compileModeInput">Compile Mode</label>
+            <select id="compileModeInput">
+              <option value="mvp">mvp</option>
+              <option value="strict">strict</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="exportDirInput">Export Directory</label>
+            <input id="exportDirInput" type="text" value="exports" />
+          </div>
+          <label class="check">
+            <input id="exportEnabledInput" type="checkbox" checked />
+            Create export archive
+          </label>
+        </div>
+        <p class="muted">Generation writes managed artifacts only and keeps existing hand-written code untouched.</p>
+        <pre id="generateReport">No generation run yet.</pre>
+      </section>
     </section>
   </main>
 
@@ -833,6 +858,7 @@
     const jsonEditor = document.getElementById("jsonEditor");
     const jsonStatus = document.getElementById("jsonStatus");
     const yamlPreview = document.getElementById("yamlPreview");
+    const generateReport = document.getElementById("generateReport");
     const wizardStepTitle = document.getElementById("wizardStepTitle");
     const wizardStepHint = document.getElementById("wizardStepHint");
     const wizardCounter = document.getElementById("wizardCounter");
@@ -1612,6 +1638,66 @@
       setStatus("ok", `Saved to ${data.path} (${data.bytes} bytes).`);
     }
 
+    async function checkGeneratedSync() {
+      const validCfg = await validateCurrentConfig();
+      if (!validCfg) {
+        return;
+      }
+      const mode = document.getElementById("compileModeInput").value;
+      const response = await fetch("/api/setup/generate/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: validCfg,
+          mode,
+          overwrite_policy: "managed",
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.detail?.message || data?.detail || "Failed to check generated sync");
+      }
+      generateReport.textContent = JSON.stringify(data, null, 2);
+      if (data.in_sync) {
+        setStatus("ok", "Generated artifacts are in sync with current config.");
+      } else {
+        setStatus("warn", "Generated artifacts are out of sync. Run Generate Project.");
+      }
+    }
+
+    async function generateProject() {
+      const validCfg = await validateCurrentConfig();
+      if (!validCfg) {
+        return;
+      }
+      const mode = document.getElementById("compileModeInput").value;
+      const exportEnabled = document.getElementById("exportEnabledInput").checked;
+      const exportDir = document.getElementById("exportDirInput").value.trim() || "exports";
+
+      const response = await fetch("/api/setup/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: validCfg,
+          mode,
+          export_enabled: exportEnabled,
+          export_dir: exportDir,
+          overwrite_policy: "managed",
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.detail?.message || data?.detail || "Failed to generate project");
+      }
+      generateReport.textContent = JSON.stringify(data, null, 2);
+      setStatus(
+        "ok",
+        data.export_path
+          ? `Generation complete. Export created at ${data.export_path}`
+          : "Generation complete."
+      );
+    }
+
     function addParticipant() {
       const idx = configState.participant_types.length + 1;
       const slug = `type_${idx}`;
@@ -1723,6 +1809,22 @@
         await saveConfig();
       } catch (error) {
         setStatus("error", error.message || "Save failed.");
+      }
+    });
+
+    document.getElementById("checkGeneratedBtn").addEventListener("click", async () => {
+      try {
+        await checkGeneratedSync();
+      } catch (error) {
+        setStatus("error", error.message || "Generated sync check failed.");
+      }
+    });
+
+    document.getElementById("generateBtn").addEventListener("click", async () => {
+      try {
+        await generateProject();
+      } catch (error) {
+        setStatus("error", error.message || "Generation failed.");
       }
     });
 

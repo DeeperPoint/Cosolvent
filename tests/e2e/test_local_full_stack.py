@@ -73,6 +73,10 @@ async def test_local_full_stack_flow():
         approve = await admin.post(f"/api/admin/applications/{app_id}/approve")
         approve.raise_for_status()
 
+        producer_alias = await producer.get("/api/roles/producer/me")
+        producer_alias.raise_for_status()
+        assert producer_alias.json().get("participant_type") == "producer"
+
         buyer_auth = await signup_user(
             buyer,
             email=random_email("e2e-buyer"),
@@ -84,6 +88,10 @@ async def test_local_full_stack_flow():
             "buyer",
             {"org_name": "Global Flour Co", "country": "Canada", "business_type": "Mill"},
         )
+
+        buyer_alias = await buyer.get("/api/roles/buyer/me")
+        buyer_alias.raise_for_status()
+        assert buyer_alias.json().get("participant_type") == "buyer"
 
         conv_resp = await buyer.post(
             "/api/conversations",
