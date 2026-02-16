@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Select, select, text, update
+from sqlalchemy import Select, String, and_, cast, func, not_, or_, select, text, update
+from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.types import Integer
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
@@ -144,29 +146,26 @@ class CollectionProxy:
         return_document: bool = True,
         projection: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
+        current = await self.find_one(query)
+        if current is None:
+            if not upsert:
+                return None
+            base_doc = _doc_from_filter(query)
+            base_doc.update(update_doc.get("$setOnInsert", {}))
+            base_doc.update(update_doc.get("$set", {}))
+            insert_result = await self.insert_one(base_doc)
+            if not return_document:
+                return None
+            return await self.find_one({"_id": insert_result.inserted_id}, projection=projection)
+
+        updated = _apply_update(current, update_doc, is_insert=False)
+        payload = _serialize_json({k: v for k, v in updated.items() if k != "_id"})
+        doc_id = _coerce_uuid(current["_id"])
+
         async with session_scope() as session:
-            rows = await self._load_rows(session)
-            match_row = next((row for row in rows if _matches(_row_to_doc(row), query)), None)
-
-            if match_row is None:
-                if not upsert:
-                    return None
-
-                base_doc = _doc_from_filter(query)
-                base_doc.update(update_doc.get("$setOnInsert", {}))
-                base_doc.update(update_doc.get("$set", {}))
-                insert_result = await self.insert_one(base_doc)
-                if not return_document:
-                    return None
-                return await self.find_one({"_id": insert_result.inserted_id}, projection=projection)
-
-            current = _row_to_doc(match_row)
-            updated = _apply_update(current, update_doc, is_insert=False)
-            payload = _serialize_json({k: v for k, v in updated.items() if k != "_id"})
-
             await session.execute(
                 update(self.table)
-                .where(self.table.c.id == match_row.id)
+                .where(self.table.c.id == doc_id)
                 .values(
                     data=payload,
                     updated_at=datetime.now(timezone.utc),
@@ -179,58 +178,89 @@ class CollectionProxy:
         return _apply_projection(updated, projection)
 
     async def update_one(self, query: dict[str, Any], update_doc: dict[str, Any]) -> UpdateResult:
-        async with session_scope() as session:
-            rows = await self._load_rows(session)
-            match_row = next((row for row in rows if _matches(_row_to_doc(row), query)), None)
-            if not match_row:
-                return UpdateResult(matched_count=0, modified_count=0)
+        current = await self.find_one(query)
+        if not current:
+            return UpdateResult(matched_count=0, modified_count=0)
 
-            current = _row_to_doc(match_row)
-            updated = _apply_update(current, update_doc, is_insert=False)
-            payload = _serialize_json({k: v for k, v in updated.items() if k != "_id"})
+        updated = _apply_update(current, update_doc, is_insert=False)
+        payload = _serialize_json({k: v for k, v in updated.items() if k != "_id"})
+        doc_id = _coerce_uuid(current["_id"])
+
+        async with session_scope() as session:
             await session.execute(
                 update(self.table)
-                .where(self.table.c.id == match_row.id)
+                .where(self.table.c.id == doc_id)
                 .values(
                     data=payload,
                     updated_at=datetime.now(timezone.utc),
                 )
             )
             await session.commit()
-            return UpdateResult(matched_count=1, modified_count=1)
+        return UpdateResult(matched_count=1, modified_count=1)
 
     async def delete_one(self, query: dict[str, Any]) -> DeleteResult:
-        async with session_scope() as session:
-            rows = await self._load_rows(session)
-            match_row = next((row for row in rows if _matches(_row_to_doc(row), query)), None)
-            if not match_row:
-                return DeleteResult(deleted_count=0)
+        current = await self.find_one(query, projection={"_id": 1})
+        if not current:
+            return DeleteResult(deleted_count=0)
 
-            await session.execute(self.table.delete().where(self.table.c.id == match_row.id))
+        async with session_scope() as session:
+            await session.execute(self.table.delete().where(self.table.c.id == _coerce_uuid(current["_id"])))
             await session.commit()
-            return DeleteResult(deleted_count=1)
+        return DeleteResult(deleted_count=1)
 
     async def count_documents(self, query: dict[str, Any] | None = None) -> int:
+        predicate, fully_supported = self._compile_query(query or {})
+        if fully_supported:
+            statement = select(func.count()).select_from(self.table)
+            if predicate is not None:
+                statement = statement.where(predicate)
+            async with session_scope() as session:
+                return int((await session.execute(statement)).scalar_one())
+
         docs = await self._find_docs(query or {}, None, [], 0, None)
         return len(docs)
 
     async def aggregate(self, pipeline: list[dict[str, Any]]) -> AggregateCursor:
-        docs = await self._find_docs({}, None, [], 0, None)
+        match_stage = {}
+        group_stage = {}
+        for stage in pipeline:
+            if "$match" in stage:
+                match_stage = stage["$match"]
+            elif "$group" in stage:
+                group_stage = stage["$group"]
 
+        field = str(group_stage.get("_id", "")).lstrip("$")
+        if field and group_stage.get("count") == {"$sum": 1}:
+            predicate, fully_supported = self._compile_query(match_stage)
+            group_expr = self._json_text_expr(field)
+            if fully_supported and group_expr is not None:
+                statement: Select[Any] = select(group_expr.label("group_key"), func.count().label("count"))
+                if predicate is not None:
+                    statement = statement.where(predicate)
+                statement = statement.group_by(group_expr)
+                async with session_scope() as session:
+                    rows = await self._load_rows(session, statement)
+                docs = [
+                    {"_id": row.group_key, "count": int(row.count)}
+                    for row in rows
+                    if row.group_key is not None
+                ]
+                return AggregateCursor(docs)
+
+        docs = await self._find_docs({}, None, [], 0, None)
         for stage in pipeline:
             if "$match" in stage:
                 docs = [doc for doc in docs if _matches(doc, stage["$match"])]
             elif "$group" in stage:
                 group_spec = stage["$group"]
-                field = str(group_spec.get("_id", "")).lstrip("$")
+                group_field = str(group_spec.get("_id", "")).lstrip("$")
                 groups: dict[str, int] = {}
                 for doc in docs:
-                    key = _first_value(doc, field)
+                    key = _first_value(doc, group_field)
                     if key is None:
                         continue
                     groups[str(key)] = groups.get(str(key), 0) + 1
                 docs = [{"_id": key, "count": count} for key, count in groups.items()]
-
         return AggregateCursor(docs)
 
     async def _find_docs(
@@ -241,30 +271,182 @@ class CollectionProxy:
         skip: int,
         limit: int | None,
     ) -> list[dict[str, Any]]:
+        predicate, fully_supported = self._compile_query(query)
+        unsupported_sort = any(self._sort_expression(field) is None for field, _ in sort_fields)
+
+        statement: Select[Any] = select(self.table.c.id, self.table.c.data)
+        if fully_supported and predicate is not None:
+            statement = statement.where(predicate)
+
+        if not unsupported_sort:
+            for field, direction in sort_fields:
+                sort_expr = self._sort_expression(field)
+                if sort_expr is None:
+                    continue
+                statement = statement.order_by(sort_expr.desc() if direction < 0 else sort_expr.asc())
+
+        apply_window_in_sql = fully_supported and not unsupported_sort
+        if apply_window_in_sql:
+            if skip:
+                statement = statement.offset(skip)
+            if limit is not None:
+                statement = statement.limit(limit)
+
         async with session_scope() as session:
-            rows = await self._load_rows(session)
+            rows = await self._load_rows(session, statement)
 
         docs = [_row_to_doc(row) for row in rows]
-        docs = [doc for doc in docs if _matches(doc, query)]
+        if not fully_supported:
+            docs = [doc for doc in docs if _matches(doc, query)]
 
-        if sort_fields:
+        if unsupported_sort or not fully_supported:
             for field, direction in reversed(sort_fields):
                 docs.sort(
                     key=lambda doc, k=field: _sort_value(_first_value(doc, k)),
                     reverse=direction < 0,
                 )
 
-        if skip:
-            docs = docs[skip:]
-        if limit is not None:
-            docs = docs[:limit]
+        if not apply_window_in_sql:
+            if skip:
+                docs = docs[skip:]
+            if limit is not None:
+                docs = docs[:limit]
 
         return [_apply_projection(doc, projection) for doc in docs]
 
-    async def _load_rows(self, session: AsyncSession):
-        statement: Select[Any] = select(self.table.c.id, self.table.c.data)
+    async def _load_rows(self, session: AsyncSession, statement: Select[Any]) -> list[Any]:
         result = await session.execute(statement)
         return list(result)
+
+    def _compile_query(self, query: dict[str, Any]) -> tuple[ColumnElement[bool] | None, bool]:
+        if not query:
+            return None, True
+
+        expressions: list[ColumnElement[bool]] = []
+        fully_supported = True
+
+        for key, expected in query.items():
+            if key == "$and":
+                if not isinstance(expected, list):
+                    fully_supported = False
+                    continue
+                and_expressions: list[ColumnElement[bool]] = []
+                for item in expected:
+                    if not isinstance(item, dict):
+                        fully_supported = False
+                        continue
+                    sub_expr, sub_supported = self._compile_query(item)
+                    fully_supported = fully_supported and sub_supported
+                    if sub_expr is not None:
+                        and_expressions.append(sub_expr)
+                if and_expressions:
+                    expressions.append(and_(*and_expressions))
+                elif expected:
+                    fully_supported = False
+                continue
+
+            if key == "$or":
+                if not isinstance(expected, list):
+                    fully_supported = False
+                    continue
+                or_expressions: list[ColumnElement[bool]] = []
+                for item in expected:
+                    if not isinstance(item, dict):
+                        fully_supported = False
+                        continue
+                    sub_expr, sub_supported = self._compile_query(item)
+                    fully_supported = fully_supported and sub_supported
+                    if sub_expr is not None:
+                        or_expressions.append(sub_expr)
+                if or_expressions:
+                    expressions.append(or_(*or_expressions))
+                elif expected:
+                    fully_supported = False
+                continue
+
+            condition, condition_supported = self._compile_condition(key, expected)
+            fully_supported = fully_supported and condition_supported
+            if condition is not None:
+                expressions.append(condition)
+
+        if not expressions:
+            return None, fully_supported
+        return and_(*expressions), fully_supported
+
+    def _compile_condition(
+        self,
+        key: str,
+        expected: Any,
+    ) -> tuple[ColumnElement[bool] | None, bool]:
+        if isinstance(expected, dict):
+            if "$in" in expected:
+                options = expected.get("$in")
+                if not isinstance(options, list):
+                    return None, False
+                if not options:
+                    return text("false"), True
+                conditions: list[ColumnElement[bool]] = []
+                fully_supported = True
+                for value in options:
+                    cond, supported = self._compile_equality(key, value)
+                    fully_supported = fully_supported and supported
+                    if cond is not None:
+                        conditions.append(cond)
+                if not conditions:
+                    return None, False
+                return or_(*conditions), fully_supported
+
+            if "$ne" in expected:
+                condition, supported = self._compile_equality(key, expected.get("$ne"))
+                if condition is None:
+                    return None, False
+                return not_(condition), supported
+
+            if "$regex" in expected:
+                pattern = str(expected.get("$regex", ""))
+                flags = str(expected.get("$options", ""))
+                op = "~*" if "i" in flags else "~"
+                if key == "_id":
+                    return cast(self.table.c.id, String()).op(op)(pattern), True
+                text_expr = self._json_text_expr(key)
+                if text_expr is None:
+                    return None, False
+                return text_expr.op(op)(pattern), True
+
+            return None, False
+
+        return self._compile_equality(key, expected)
+
+    def _compile_equality(self, key: str, value: Any) -> tuple[ColumnElement[bool] | None, bool]:
+        if key == "_id":
+            return self.table.c.id == _coerce_uuid(value), True
+
+        payload = _build_contains_payload(key, value)
+        if payload is None:
+            return None, False
+        return self.table.c.data.contains(_serialize_json(payload)), True
+
+    def _json_text_expr(self, dotted_path: str):
+        parts = [part for part in dotted_path.split(".") if part]
+        if not parts:
+            return None
+        expr = self.table.c.data
+        for part in parts:
+            expr = expr[part]
+        return expr.astext
+
+    def _sort_expression(self, dotted_path: str):
+        if dotted_path == "_id":
+            return self.table.c.id
+
+        text_expr = self._json_text_expr(dotted_path)
+        if text_expr is None:
+            return None
+
+        if dotted_path.endswith("sort_order"):
+            return cast(text_expr, Integer)
+
+        return text_expr
 
 
 async def connect_db() -> None:
@@ -370,7 +552,12 @@ def _postgres_dsn() -> str:
 def _coerce_uuid(raw: Any) -> uuid.UUID:
     if isinstance(raw, uuid.UUID):
         return raw
-    return uuid.UUID(str(raw))
+    raw_text = str(raw)
+    try:
+        return uuid.UUID(raw_text)
+    except (ValueError, TypeError, AttributeError):
+        # Stable fallback allows non-UUID identifiers (for Mongo-style caller compatibility).
+        return uuid.uuid5(uuid.NAMESPACE_URL, raw_text)
 
 
 def _row_to_doc(row: Any) -> dict[str, Any]:
@@ -408,6 +595,26 @@ def _doc_from_filter(query: dict[str, Any]) -> dict[str, Any]:
             continue
         _set_path(doc, key, value)
     return doc
+
+
+def _build_contains_payload(dotted_path: str, value: Any) -> dict[str, Any] | None:
+    parts = [part for part in dotted_path.split(".") if part]
+    if not parts:
+        return None
+
+    normalized_value = _normalize_scalar(value)
+    if parts[0] == "participants" and len(parts) > 1:
+        return {
+            "participants": [_nested_payload(parts[1:], normalized_value)],
+        }
+    return _nested_payload(parts, normalized_value)
+
+
+def _nested_payload(parts: list[str], value: Any) -> dict[str, Any]:
+    current: Any = value
+    for key in reversed(parts):
+        current = {key: current}
+    return current
 
 
 def _apply_update(doc: dict[str, Any], update_doc: dict[str, Any], is_insert: bool) -> dict[str, Any]:
