@@ -21,7 +21,6 @@ from app.modules.setup.presets import list_presets
 router = APIRouter()
 
 _SETUP_DIR = Path(__file__).parent
-_LEGACY_PANEL_HTML = (_SETUP_DIR / "panel.html").read_text(encoding="utf-8")
 _PANEL_V2_HTML = (_SETUP_DIR / "panel_v2.html").read_text(encoding="utf-8")
 _ASSET_DIR = _SETUP_DIR / "ui"
 _ALLOWED_ASSETS = {
@@ -61,7 +60,7 @@ class GenerateCheckPayload(BaseModel):
 
 @router.get("/onboarding", response_class=HTMLResponse)
 async def onboarding_panel() -> HTMLResponse:
-    return HTMLResponse(_PANEL_V2_HTML if _onboarding_v2_enabled() else _LEGACY_PANEL_HTML)
+    return HTMLResponse(_PANEL_V2_HTML)
 
 
 @router.get("/api/setup/assets/{asset_name}")
@@ -266,7 +265,3 @@ def _resolve_output_path(output_path: str | None) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
 
     return target
-
-
-def _onboarding_v2_enabled() -> bool:
-    return bool(settings.onboarding_v2_enabled)

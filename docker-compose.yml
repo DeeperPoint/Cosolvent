@@ -27,7 +27,6 @@ services:
     command: uvicorn app.setup_app:app --host 0.0.0.0 --port 8080
     environment:
       MARKETPLACE_CONFIG_PATH: marketplace.yaml
-      ONBOARDING_V2_ENABLED: ${ONBOARDING_V2_ENABLED:-true}
     volumes:
       - ./:/app
     ports:
@@ -60,7 +59,6 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       CORS_ORIGINS: '["http://localhost:3000"]'
-      ONBOARDING_V2_ENABLED: ${ONBOARDING_V2_ENABLED:-true}
     depends_on:
       postgres:
         condition: service_healthy
