@@ -66,9 +66,13 @@ jobs:
           INTEGRATION_BASE_URL: "http://localhost:18000"
         run: |
           pytest tests/unit tests/integration \
-            --cov=app.core \
+            --cov=app.compiler.normalize \
+            --cov=app.compiler.render \
+            --cov=app.compiler.manifest \
+            --cov=app.compiler.writer \
             --cov=app.engine \
-            --cov=cli \
+            --cov=app.core.marketplace_config \
+            --cov=app.modules.setup.presets \
             --cov-report=term-missing \
             --cov-fail-under=80 -q
       - name: Shutdown stack
