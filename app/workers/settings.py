@@ -7,15 +7,11 @@ from arq.connections import RedisSettings
 from app.core.config import settings
 from app.core.database import close_db, connect_db
 from app.core.marketplace_config import load_marketplace_config, set_marketplace_config
+from app.core.redis import parse_redis_settings
 
 
 def _parse_redis_settings() -> RedisSettings:
-    url = settings.redis_url
-    if url.startswith("redis://"):
-        url = url[len("redis://"):]
-    host, _, port_str = url.partition(":")
-    port = int(port_str) if port_str else 6379
-    return RedisSettings(host=host or "localhost", port=port)
+    return parse_redis_settings(settings.redis_url)
 
 
 async def _worker_startup(ctx: dict) -> None:
