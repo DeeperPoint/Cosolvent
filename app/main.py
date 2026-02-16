@@ -18,6 +18,33 @@ from app.core.redis import close_redis, connect_redis
 logger = logging.getLogger("cosolvent")
 
 
+def _runtime_config_path() -> Path:
+    requested = Path(settings.marketplace_config_path)
+    return requested.resolve() if requested.is_absolute() else (Path.cwd() / requested).resolve()
+
+
+def _example_config_path(runtime_path: Path) -> Path:
+    if runtime_path.suffix.lower() in {".yaml", ".yml"}:
+        return runtime_path.with_name(f"{runtime_path.stem}.example{runtime_path.suffix}")
+    return runtime_path.with_name("marketplace.example.yaml")
+
+
+def _load_startup_marketplace_config():
+    runtime_path = _runtime_config_path()
+    try:
+        return load_marketplace_config(runtime_path)
+    except FileNotFoundError:
+        example_path = _example_config_path(runtime_path)
+        if not example_path.exists():
+            raise
+        logger.warning(
+            "Marketplace config missing at %s; falling back to example config at %s",
+            runtime_path,
+            example_path,
+        )
+        return load_marketplace_config(example_path)
+
+
 def create_app() -> FastAPI:
     logging.basicConfig(
         level=logging.DEBUG if settings.debug else logging.INFO,
@@ -25,7 +52,7 @@ def create_app() -> FastAPI:
     )
 
     # Load marketplace config early — fail fast on bad config
-    mc = load_marketplace_config(settings.marketplace_config_path)
+    mc = _load_startup_marketplace_config()
     set_marketplace_config(mc)
     logger.info("Loaded marketplace config: %s", mc.marketplace.name)
 

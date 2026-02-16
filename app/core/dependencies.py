@@ -16,8 +16,8 @@ def get_config() -> MarketplaceConfig:
     return get_marketplace_config()
 
 
-async def get_current_user(session_token: str = Cookie(None)) -> dict[str, Any]:
-    """Resolve the current user from session cookie. Raises 401 if invalid."""
+async def get_current_user_from_token(session_token: str | None) -> dict[str, Any]:
+    """Resolve the current user from an explicit session token."""
     if not session_token:
         raise HTTPException(401, "Not authenticated")
 
@@ -41,6 +41,11 @@ async def get_current_user(session_token: str = Cookie(None)) -> dict[str, Any]:
 
     user["_id"] = str(user["_id"])
     return user
+
+
+async def get_current_user(session_token: str = Cookie(None)) -> dict[str, Any]:
+    """Resolve the current user from session cookie. Raises 401 if invalid."""
+    return await get_current_user_from_token(session_token)
 
 
 def _is_session_expired(expires_at: Any) -> bool:

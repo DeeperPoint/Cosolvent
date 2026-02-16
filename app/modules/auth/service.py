@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from sqlalchemy.exc import IntegrityError
+
 from app.core.exceptions import ConflictError, NotFoundError, UnauthorizedError
 from app.core.marketplace_config import MarketplaceConfig
 from app.core.security import hash_password, verify_password
 from app.modules.auth import repository as repo
+
+_BOOTSTRAP_MARKER = "primary-admin"
 
 
 async def signup(
@@ -20,11 +24,17 @@ async def signup(
     if existing:
         raise ConflictError("Email already registered")
 
-    user = await repo.create_user(
-        email=email,
-        password_hash=hash_password(password),
-        participant_type=participant_type,
-    )
+    try:
+        user = await repo.create_user(
+            email=email,
+            password_hash=hash_password(password),
+            participant_type=participant_type,
+        )
+    except IntegrityError as exc:
+        if _is_unique_violation(exc, "uq_users_email"):
+            raise ConflictError("Email already registered") from exc
+        raise
+
     token = await repo.create_session(user["_id"])
     return _auth_response(user, token)
 
@@ -57,12 +67,21 @@ async def bootstrap_admin(email: str, password: str) -> dict:
     if count > 0:
         raise ConflictError("Admin already exists")
 
-    user = await repo.create_user(
-        email=email,
-        password_hash=hash_password(password),
-        participant_type=None,
-        role="admin",
-    )
+    try:
+        user = await repo.create_user(
+            email=email,
+            password_hash=hash_password(password),
+            participant_type=None,
+            role="admin",
+            bootstrap_marker=_BOOTSTRAP_MARKER,
+        )
+    except IntegrityError as exc:
+        if _is_unique_violation(exc, "uq_users_bootstrap_marker"):
+            raise ConflictError("Admin already exists") from exc
+        if _is_unique_violation(exc, "uq_users_email"):
+            raise ConflictError("Email already registered") from exc
+        raise
+
     user["has_onboarded"] = True
     token = await repo.create_session(user["_id"])
     return _auth_response(user, token)
@@ -77,3 +96,8 @@ def _auth_response(user: dict, token: str) -> dict:
         "has_onboarded": user.get("has_onboarded", False),
         "session_token": token,
     }
+
+
+def _is_unique_violation(exc: IntegrityError, constraint_name: str) -> bool:
+    message = str(getattr(exc, "orig", exc))
+    return constraint_name in message

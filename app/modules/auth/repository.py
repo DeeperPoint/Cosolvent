@@ -22,6 +22,7 @@ async def create_user(
     password_hash: str,
     participant_type: str | None,
     role: str = "user",
+    bootstrap_marker: str | None = None,
 ) -> dict[str, Any]:
     doc = {
         "email": email,
@@ -32,6 +33,8 @@ async def create_user(
         "has_onboarded": False,
         "created_at": datetime.now(timezone.utc),
     }
+    if bootstrap_marker is not None:
+        doc["bootstrap_marker"] = bootstrap_marker
     result = await get_collection("users").insert_one(doc)
     doc["_id"] = result.inserted_id
     return doc

@@ -523,6 +523,13 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 async def _ensure_indexes(conn) -> None:
     # Core uniqueness constraints
     await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email ON users ((data->>'email'))"))
+    await conn.execute(
+        text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_bootstrap_marker "
+            "ON users ((data->>'bootstrap_marker')) "
+            "WHERE data ? 'bootstrap_marker'"
+        )
+    )
     await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_sessions_token ON sessions ((data->>'token'))"))
     await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_drafts_user_id ON drafts ((data->>'user_id'))"))
     await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_prompts_intent ON ai_prompts ((data->>'intent'))"))

@@ -4,7 +4,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, WebSocket, WebSocketDisconnect
 
-from app.core.dependencies import get_config, get_current_user
+from app.core.dependencies import get_config, get_current_user, get_current_user_from_token
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.communication import service
@@ -140,7 +140,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
             await websocket.close(code=WS_CLOSE_AUTH, reason="Auth required")
             return
 
-        user = await get_current_user(session_token)
+        user = await get_current_user_from_token(session_token)
         user_id = user["_id"]
 
         await service.get_conversation(conversation_id, user)
@@ -158,11 +158,12 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                 await websocket.close(code=WS_CLOSE_BAD_REQUEST, reason="Invalid payload")
                 break
 
+            if not session_token:
+                await websocket.close(code=WS_CLOSE_AUTH, reason="Auth required")
+                break
+
+            user = await get_current_user_from_token(session_token)
             if data.get("type") == "message":
-                if not session_token:
-                    await websocket.close(code=WS_CLOSE_AUTH, reason="Auth required")
-                    break
-                user = await get_current_user(session_token)
                 msg = await service.send_message(
                     conversation_id,
                     user,

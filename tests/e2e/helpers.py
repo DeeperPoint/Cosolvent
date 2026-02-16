@@ -43,11 +43,19 @@ async def bootstrap_or_login_admin(
         json={"email": email, "password": password},
     )
     if resp.status_code == 200:
-        return resp.json()
+        body = resp.json()
+        token = client.cookies.get("session_token")
+        if token:
+            body["session_token"] = token
+        return body
     if resp.status_code == 409:
         login = await client.post("/api/auth/login", json={"email": email, "password": password})
         login.raise_for_status()
-        return login.json()
+        body = login.json()
+        token = client.cookies.get("session_token")
+        if token:
+            body["session_token"] = token
+        return body
     resp.raise_for_status()
     return {}
 
@@ -64,7 +72,11 @@ async def signup_user(
         },
     )
     resp.raise_for_status()
-    return resp.json()
+    body = resp.json()
+    token = client.cookies.get("session_token")
+    if token:
+        body["session_token"] = token
+    return body
 
 
 def _default_field_value(field: dict) -> object:

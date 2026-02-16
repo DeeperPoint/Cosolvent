@@ -25,7 +25,6 @@ class AuthResponse(BaseModel):
     participant_type: str | None = None
     role: str
     has_onboarded: bool
-    session_token: str
 
 
 class UserResponse(BaseModel):
