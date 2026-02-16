@@ -18,7 +18,9 @@ import {
 
 let configState = fallbackConfig();
 let activeStep = 0;
-let advancedMode = false;
+let previousStep = 0;
+let activeScene = "intro";
+let advancedDrawerOpen = false;
 let sourcePath = "";
 let presets = [];
 let lastValidatedConfig = null;
@@ -30,7 +32,15 @@ let helpHideTimer = null;
 
 const dom = {
   sourcePath: document.getElementById("sourcePath"),
+  sourcePathWizard: document.getElementById("sourcePathWizard"),
   statusLine: document.getElementById("statusLine"),
+  introScene: document.getElementById("introScene"),
+  wizardScene: document.getElementById("wizardScene"),
+  startSetupBtn: document.getElementById("startSetupBtn"),
+  wizardShell: document.getElementById("wizardShell"),
+  stepScrollRegion: document.getElementById("stepScrollRegion"),
+  activeStepTitle: document.getElementById("activeStepTitle"),
+  activeStepHint: document.getElementById("activeStepHint"),
   stepNav: document.getElementById("stepNav"),
   stepPanels: Array.from(document.querySelectorAll(".step-panel")),
   prevStepBtn: document.getElementById("prevStepBtn"),
@@ -68,8 +78,8 @@ const dom = {
   exportDirInput: document.getElementById("exportDirInput"),
   exportEnabledInput: document.getElementById("exportEnabledInput"),
   advancedPanel: document.getElementById("advancedPanel"),
-  guidedModeBtn: document.getElementById("guidedModeBtn"),
-  advancedModeBtn: document.getElementById("advancedModeBtn"),
+  openAdvancedDrawerBtn: document.getElementById("openAdvancedDrawerBtn"),
+  closeAdvancedDrawerBtn: document.getElementById("closeAdvancedDrawerBtn"),
   jsonEditor: document.getElementById("jsonEditor"),
   jsonStatus: document.getElementById("jsonStatus"),
   formatJsonBtn: document.getElementById("formatJsonBtn"),
@@ -79,6 +89,7 @@ const dom = {
   glossaryList: document.getElementById("glossaryList"),
   glossarySearchInput: document.getElementById("glossarySearchInput"),
   openGlossaryBtn: document.getElementById("openGlossaryBtn"),
+  floatingGlossaryBtn: document.getElementById("floatingGlossaryBtn"),
   closeGlossaryBtn: document.getElementById("closeGlossaryBtn"),
   helpPopover: document.getElementById("helpPopover"),
   loadConfigBtn: document.getElementById("loadConfigBtn"),
@@ -99,8 +110,10 @@ function setStatus(kind, message) {
 function maybeReduceMotion() {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     document.documentElement.style.setProperty("--motion-fast", "0ms");
+    document.documentElement.style.setProperty("--motion-medium", "0ms");
   } else {
     document.documentElement.style.setProperty("--motion-fast", `${DESIGN_TOKENS.motion.fast}ms`);
+    document.documentElement.style.setProperty("--motion-medium", "220ms");
   }
 }
 
@@ -119,13 +132,99 @@ function renderStepNav() {
     if (completion[idx].done) {
       cls.push("done");
     }
-    return `<li><button type="button" class="${cls.join(" ")}" data-step-nav="${idx}">${idx + 1}. ${htmlEscape(step.title)}</button></li>`;
+    return `<li><button type="button" class="${cls.join(" ")}" data-step-nav="${idx}" aria-current="${idx === activeStep ? "step" : "false"}">${idx + 1}. ${htmlEscape(step.title)}</button></li>`;
   }).join("");
 }
 
+function animateSceneTransition(nextScene) {
+  const entering = nextScene === "wizard" ? dom.wizardScene : dom.introScene;
+  const exiting = nextScene === "wizard" ? dom.introScene : dom.wizardScene;
+  exiting.classList.add("scene-exit");
+  entering.classList.remove("hidden");
+  entering.classList.add("scene-enter");
+  window.setTimeout(() => {
+    exiting.classList.remove("scene-exit");
+    exiting.classList.add("hidden");
+    entering.classList.remove("scene-enter");
+  }, 260);
+}
+
+function focusActiveStepHeading() {
+  const panel = dom.stepPanels[activeStep];
+  if (!panel) {
+    return;
+  }
+  const target = panel.querySelector("h2, h3, input, select, textarea, button");
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  if (!target.hasAttribute("tabindex")) {
+    target.setAttribute("tabindex", "-1");
+  }
+  target.focus({ preventScroll: true });
+}
+
+function setScene(scene) {
+  const nextScene = scene === "wizard" ? "wizard" : "intro";
+  if (nextScene === activeScene) {
+    return;
+  }
+  activeScene = nextScene;
+  animateSceneTransition(activeScene);
+  const wizardActive = activeScene === "wizard";
+  document.body.classList.toggle("wizard-active", wizardActive);
+  document.documentElement.classList.toggle("wizard-lock", wizardActive);
+  if (wizardActive && dom.stepScrollRegion) {
+    dom.stepScrollRegion.scrollTop = 0;
+  }
+  if (!wizardActive) {
+    setAdvancedDrawerOpen(false);
+  }
+}
+
+function startSetup() {
+  setScene("wizard");
+  renderAll();
+  window.setTimeout(() => {
+    focusActiveStepHeading();
+  }, 40);
+}
+
+function setAdvancedDrawerOpen(open) {
+  const nextState = Boolean(open);
+  if (advancedDrawerOpen === nextState) {
+    return;
+  }
+  advancedDrawerOpen = nextState;
+  dom.advancedPanel.classList.toggle("hidden", !advancedDrawerOpen);
+  dom.openAdvancedDrawerBtn?.setAttribute("aria-expanded", String(advancedDrawerOpen));
+  if (advancedDrawerOpen) {
+    dom.jsonEditor.value = JSON.stringify(configState, null, 2);
+    validateJsonDraftNow();
+    window.setTimeout(() => {
+      dom.jsonEditor.focus();
+    }, 20);
+  } else if (activeScene === "wizard") {
+    window.setTimeout(() => {
+      focusActiveStepHeading();
+    }, 20);
+  }
+}
+
 function renderStepPanels() {
+  const directionClass = activeStep < previousStep ? "step-enter-back" : "step-enter-forward";
+  const step = STEPS[activeStep];
+  dom.activeStepTitle.textContent = `${activeStep + 1}. ${step.title}`;
+  dom.activeStepHint.textContent = step.hint;
   dom.stepPanels.forEach((panel, idx) => {
-    panel.classList.toggle("hidden", idx !== activeStep);
+    const isActive = idx === activeStep;
+    panel.classList.toggle("hidden", !isActive);
+    panel.classList.remove("step-enter-forward", "step-enter-back");
+    if (isActive) {
+      // Trigger directional transition when the active step changes.
+      panel.offsetHeight;
+      panel.classList.add(directionClass);
+    }
   });
   dom.prevStepBtn.disabled = activeStep === 0;
   dom.nextStepBtn.textContent = activeStep === STEPS.length - 1 ? "Stay on Review" : "Next";
@@ -166,8 +265,12 @@ function computeStepCompletion() {
 }
 
 function setActiveStep(stepIndex) {
+  previousStep = activeStep;
   activeStep = Math.max(0, Math.min(STEPS.length - 1, stepIndex));
   renderAll();
+  if (dom.stepScrollRegion) {
+    dom.stepScrollRegion.scrollTop = 0;
+  }
 }
 
 function renderPresetList() {
@@ -477,7 +580,13 @@ function renderRisks() {
 }
 
 function renderAll() {
-  dom.sourcePath.textContent = sourcePath || "runtime config";
+  const displaySourcePath = sourcePath || "runtime config";
+  if (dom.sourcePath) {
+    dom.sourcePath.textContent = displaySourcePath;
+  }
+  if (dom.sourcePathWizard) {
+    dom.sourcePathWizard.textContent = displaySourcePath;
+  }
   renderStepNav();
   renderStepPanels();
   renderPresetList();
@@ -553,6 +662,8 @@ function showHelpPopover(path, anchorEl) {
   const rect = anchorEl.getBoundingClientRect();
   const viewportPadding = 8;
   const gap = 8;
+  const maxAllowedHeight = Math.max(120, window.innerHeight - viewportPadding * 2);
+  dom.helpPopover.style.maxHeight = `${maxAllowedHeight}px`;
 
   // Temporarily render for measurement before final placement.
   dom.helpPopover.style.top = "0px";
@@ -566,7 +677,7 @@ function showHelpPopover(path, anchorEl) {
 
   let left = rect.left - 12;
   const minLeft = viewportPadding;
-  const maxLeft = window.innerWidth - popWidth - viewportPadding;
+  const maxLeft = Math.max(minLeft, window.innerWidth - popWidth - viewportPadding);
   left = Math.max(minLeft, Math.min(left, maxLeft));
 
   const spaceBelow = window.innerHeight - rect.bottom - gap - viewportPadding;
@@ -578,7 +689,7 @@ function showHelpPopover(path, anchorEl) {
     top = rect.top - popHeight - gap;
   }
   const minTop = viewportPadding;
-  const maxTop = window.innerHeight - popHeight - viewportPadding;
+  const maxTop = Math.max(minTop, window.innerHeight - popHeight - viewportPadding);
   top = Math.max(minTop, Math.min(top, maxTop));
 
   dom.helpPopover.style.top = `${top}px`;
@@ -758,17 +869,19 @@ async function generateProject() {
   }
 }
 
-function setMode(nextAdvanced) {
-  advancedMode = nextAdvanced;
-  dom.guidedModeBtn.classList.toggle("active", !advancedMode);
-  dom.advancedModeBtn.classList.toggle("active", advancedMode);
-  dom.guidedModeBtn.setAttribute("aria-selected", String(!advancedMode));
-  dom.advancedModeBtn.setAttribute("aria-selected", String(advancedMode));
-  dom.advancedPanel.classList.toggle("hidden", !advancedMode);
-  if (advancedMode) {
-    dom.jsonEditor.value = JSON.stringify(configState, null, 2);
-    validateJsonDraftNow();
-  }
+function openGlossaryDrawer() {
+  dom.glossaryDrawer.classList.remove("hidden");
+  dom.openGlossaryBtn?.setAttribute("aria-expanded", "true");
+  dom.floatingGlossaryBtn?.setAttribute("aria-expanded", "true");
+  window.setTimeout(() => {
+    dom.glossarySearchInput.focus();
+  }, 20);
+}
+
+function closeGlossaryDrawer() {
+  dom.glossaryDrawer.classList.add("hidden");
+  dom.openGlossaryBtn?.setAttribute("aria-expanded", "false");
+  dom.floatingGlossaryBtn?.setAttribute("aria-expanded", "false");
 }
 
 function setJsonStatus(kind, message) {
@@ -921,6 +1034,7 @@ function removeField(slug, sectionIndex, fieldIndex) {
 }
 
 function bindEvents() {
+  dom.startSetupBtn.addEventListener("click", startSetup);
   dom.prevStepBtn.addEventListener("click", () => setActiveStep(activeStep - 1));
   dom.nextStepBtn.addEventListener("click", () => {
     if (activeStep < STEPS.length - 1) {
@@ -928,10 +1042,12 @@ function bindEvents() {
     }
   });
 
-  dom.guidedModeBtn.addEventListener("click", () => setMode(false));
-  dom.advancedModeBtn.addEventListener("click", () => setMode(true));
-  dom.openGlossaryBtn.addEventListener("click", () => dom.glossaryDrawer.classList.remove("hidden"));
-  dom.closeGlossaryBtn.addEventListener("click", () => dom.glossaryDrawer.classList.add("hidden"));
+  dom.openAdvancedDrawerBtn.addEventListener("click", () => setAdvancedDrawerOpen(true));
+  dom.closeAdvancedDrawerBtn.addEventListener("click", () => setAdvancedDrawerOpen(false));
+
+  dom.openGlossaryBtn.addEventListener("click", openGlossaryDrawer);
+  dom.floatingGlossaryBtn.addEventListener("click", openGlossaryDrawer);
+  dom.closeGlossaryBtn.addEventListener("click", closeGlossaryDrawer);
   dom.glossarySearchInput.addEventListener("input", renderGlossaryList);
 
   dom.quickReadiness.addEventListener("change", () => {
@@ -1147,6 +1263,8 @@ function bindEvents() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       hideHelpPopover();
+      closeGlossaryDrawer();
+      setAdvancedDrawerOpen(false);
     }
   });
 
@@ -1164,9 +1282,18 @@ function bindEvents() {
     if (!target.closest("#helpPopover")) {
       hideHelpPopover();
     }
+    if (!target.closest("#advancedPanel") && !target.closest("#openAdvancedDrawerBtn")) {
+      setAdvancedDrawerOpen(false);
+    }
+    if (!target.closest("#glossaryDrawer") && !target.closest("#openGlossaryBtn") && !target.closest("#floatingGlossaryBtn")) {
+      closeGlossaryDrawer();
+    }
 
     const stepBtn = target.closest("[data-step-nav]");
     if (stepBtn) {
+      if (activeScene !== "wizard") {
+        startSetup();
+      }
       setActiveStep(Number(stepBtn.dataset.stepNav));
       return;
     }
@@ -1181,6 +1308,9 @@ function bindEvents() {
       if (preset) {
         configState = normalizeConfig(preset.config);
         applyQuickAnswers();
+        if (activeScene !== "wizard") {
+          startSetup();
+        }
         setActiveStep(1);
         setStatus("ok", `${preset.title} template applied.`);
       }
@@ -1212,6 +1342,9 @@ function bindEvents() {
       return;
     }
     if (action === "jump-error-step") {
+      if (activeScene !== "wizard") {
+        startSetup();
+      }
       setActiveStep(Number(actionBtn.dataset.step));
     }
   });
@@ -1220,10 +1353,11 @@ function bindEvents() {
 async function bootstrap() {
   maybeReduceMotion();
   bindEvents();
+  setScene("intro");
   setStatus("warn", "Loading onboarding setup...");
   try {
     await Promise.all([loadTemplateConfig(), loadPresets()]);
-    setStatus("ok", "Setup ready. Start at Step 1 and apply a template.");
+    setStatus("ok", "Setup ready. Start setup when you are ready.");
   } catch (error) {
     setStatus("error", "Failed to load setup data.");
     dom.generateReport.textContent = JSON.stringify(error, null, 2);

@@ -22,8 +22,13 @@ async def test_onboarding_surface_is_guided_and_human_friendly():
         page = await client.get("/onboarding")
         page.raise_for_status()
         html = page.text
-        if "Build Your Marketplace" in html:
+        if 'id="introScene"' in html:
+            assert "Build your marketplace for a thin market with AI." in html
+            assert 'id="startSetupBtn"' in html
+            assert 'id="wizardScene"' in html
             assert "Advanced JSON Editor" in html
+            assert 'id="floatingGlossaryBtn"' in html
+            assert 'id="openAdvancedDrawerBtn"' in html
             assert "Configure Marketplace Onboarding" not in html
             assert "requires_approval" not in html
             assert 'data-help-path="' in html
@@ -43,6 +48,9 @@ async def test_onboarding_surface_is_guided_and_human_friendly():
         main_js = await client.get("/api/setup/assets/main.js")
         main_js.raise_for_status()
         assert "application/javascript" in main_js.headers.get("content-type", "")
+        assert "startSetup" in main_js.text
+        assert "setScene" in main_js.text
+        assert "setAdvancedDrawerOpen" in main_js.text
         assert "showHelpPopover" in main_js.text
         assert "document.addEventListener(\"mouseover\"" in main_js.text
         assert "document.addEventListener(\"focusin\"" in main_js.text
