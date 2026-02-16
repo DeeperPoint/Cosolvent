@@ -10,3 +10,9 @@ venv/
 .ruff_cache/
 .docker-cache/
 exports/
+
+# Local workspace artifacts
+marketplace.yaml
+OLD.md
+SYSTEM_SPEC.md
+uv.lock
