@@ -77,14 +77,44 @@ def stale_managed_files(root: Path, new_files: set[str]) -> list[str]:
     if not old:
         return []
     stale: list[str] = []
+    normalized_new_files = {_normalize_manifest_path(path) or path for path in new_files}
     for rel in old.get("generated_files", []):
-        if rel in new_files:
+        raw = str(rel)
+        normalized = _normalize_manifest_path(raw)
+        if normalized is None:
             continue
-        if is_managed_path(rel):
-            stale.append(rel)
-    return sorted(stale)
+        if normalized in normalized_new_files:
+            continue
+        if is_managed_path(normalized):
+            stale.append(normalized)
+    return sorted(set(stale))
+
+
+def invalid_managed_manifest_entries(root: Path) -> list[str]:
+    old = load_manifest(root)
+    if not old:
+        return []
+    invalid: list[str] = []
+    for rel in old.get("generated_files", []):
+        raw = str(rel)
+        if not is_managed_path(raw):
+            continue
+        if _normalize_manifest_path(raw) is None:
+            invalid.append(raw)
+    return sorted(set(invalid))
 
 
 def is_managed_path(relative_path: str) -> bool:
     return any(relative_path.startswith(prefix) for prefix in MANAGED_PREFIXES)
 
+
+def _normalize_manifest_path(relative_path: str) -> str | None:
+    candidate = str(relative_path).strip()
+    if not candidate:
+        return None
+    path = Path(candidate)
+    if path.is_absolute():
+        return None
+    if ".." in path.parts:
+        return None
+    return path.as_posix()

@@ -42,3 +42,18 @@ def test_setup_generate_and_check_sync(tmp_path: Path, monkeypatch):
     assert check.status_code == 200, check.text
     check_body = check.json()
     assert check_body["in_sync"] is True
+
+
+def test_setup_validate_rejects_unknown_keys(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cfg = yaml.safe_load((FIXTURES / "minimal.yaml").read_text(encoding="utf-8"))
+    cfg["onboarding"]["seller"]["unexpected_flag"] = True
+
+    app = create_setup_app()
+    client = TestClient(app)
+
+    response = client.post("/api/setup/validate", json={"config": cfg})
+    assert response.status_code == 400, response.text
+    detail = response.json()["detail"]
+    assert detail["message"] == "Config validation failed"
+    assert any("unexpected_flag" in str(error["loc"]) for error in detail["errors"])

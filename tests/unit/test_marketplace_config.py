@@ -200,6 +200,81 @@ class TestCrossValidation:
         with pytest.raises(Exception):
             MarketplaceConfig(**raw)
 
+    def test_duplicate_participant_slug_is_rejected(self):
+        raw = self._make_raw()
+        primary_slug = raw["participant_types"][0]["slug"]
+        secondary_slug = raw["participant_types"][1]["slug"]
+
+        raw["participant_types"][1]["slug"] = primary_slug
+        raw["profile_schemas"].pop(secondary_slug)
+        raw["onboarding"].pop(secondary_slug)
+        raw["communication"]["conversation_rules"] = [
+            {"initiator": primary_slug, "receiver": primary_slug, "requires_approval": True}
+        ]
+        raw["discovery"]["searchable_types"] = [primary_slug]
+
+        with pytest.raises(Exception, match="Duplicate participant slug"):
+            MarketplaceConfig(**raw)
+
+    def test_invalid_slug_pattern_is_rejected(self):
+        raw = self._make_raw()
+        old_slug = raw["participant_types"][0]["slug"]
+        bad_slug = "Bad-Slug"
+
+        raw["participant_types"][0]["slug"] = bad_slug
+        raw["profile_schemas"][bad_slug] = raw["profile_schemas"].pop(old_slug)
+        raw["onboarding"][bad_slug] = raw["onboarding"].pop(old_slug)
+        raw["discovery"]["searchable_types"] = [
+            bad_slug if slug == old_slug else slug
+            for slug in raw["discovery"]["searchable_types"]
+        ]
+        for rule in raw["communication"]["conversation_rules"]:
+            if rule["initiator"] == old_slug:
+                rule["initiator"] = bad_slug
+            if rule["receiver"] == old_slug:
+                rule["receiver"] = bad_slug
+
+        with pytest.raises(Exception, match="Invalid participant slug"):
+            MarketplaceConfig(**raw)
+
+    def test_reserved_slug_is_rejected(self):
+        raw = self._make_raw()
+        old_slug = raw["participant_types"][0]["slug"]
+        reserved_slug = "admin"
+
+        raw["participant_types"][0]["slug"] = reserved_slug
+        raw["profile_schemas"][reserved_slug] = raw["profile_schemas"].pop(old_slug)
+        raw["onboarding"][reserved_slug] = raw["onboarding"].pop(old_slug)
+        raw["discovery"]["searchable_types"] = [
+            reserved_slug if slug == old_slug else slug
+            for slug in raw["discovery"]["searchable_types"]
+        ]
+        for rule in raw["communication"]["conversation_rules"]:
+            if rule["initiator"] == old_slug:
+                rule["initiator"] = reserved_slug
+            if rule["receiver"] == old_slug:
+                rule["receiver"] = reserved_slug
+
+        with pytest.raises(Exception, match="is reserved"):
+            MarketplaceConfig(**raw)
+
+    def test_unknown_nested_field_is_rejected(self):
+        raw = self._make_raw()
+        raw["onboarding"]["producer"]["new_flag"] = True
+        with pytest.raises(Exception):
+            MarketplaceConfig(**raw)
+
+    def test_onboarding_threshold_must_be_between_zero_and_hundred(self):
+        raw = self._make_raw()
+        raw["onboarding"]["producer"]["profile_completeness_threshold"] = 101
+        with pytest.raises(Exception, match="between 0 and 100"):
+            MarketplaceConfig(**raw)
+
+        raw = self._make_raw()
+        raw["onboarding"]["producer"]["profile_completeness_threshold"] = -1
+        with pytest.raises(Exception, match="between 0 and 100"):
+            MarketplaceConfig(**raw)
+
     def test_file_not_found(self):
         with pytest.raises(FileNotFoundError):
             load_marketplace_config("/nonexistent/path.yaml")

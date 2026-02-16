@@ -26,6 +26,7 @@ let latestJsonDiff = null;
 let jsonDraftConfig = null;
 let jsonDraftValid = false;
 let jsonValidationTimer = null;
+let helpHideTimer = null;
 
 const dom = {
   sourcePath: document.getElementById("sourcePath"),
@@ -104,7 +105,8 @@ function maybeReduceMotion() {
 }
 
 function helpButton(path) {
-  return `<button type="button" class="help-dot" data-help-path="${htmlEscape(path)}" aria-label="Help for ${htmlEscape(path)}">?</button>`;
+  const escapedPath = htmlEscape(path);
+  return `<button type="button" class="help-dot" data-help-path="${escapedPath}" aria-label="Help for ${escapedPath}" aria-describedby="helpPopover">?</button>`;
 }
 
 function renderStepNav() {
@@ -273,10 +275,10 @@ function renderOnboarding() {
         <details class="advanced-block">
           <summary>Advanced onboarding options</summary>
           <div class="checks">
-            <label><input data-bind="onboarding.${pt.slug}.document_upload_required" type="checkbox" ${ob.document_upload_required ? "checked" : ""} /> Require documents on onboarding</label>
-            <label><input data-bind="onboarding.${pt.slug}.ai_extraction_enabled" type="checkbox" ${ob.ai_extraction_enabled ? "checked" : ""} /> Enable AI extraction from documents</label>
-            <label><input data-bind="onboarding.${pt.slug}.ai_profile_generation" type="checkbox" ${ob.ai_profile_generation ? "checked" : ""} /> Enable AI profile drafts</label>
-            <label><input data-bind="onboarding.${pt.slug}.welcome_email_on_approval" type="checkbox" ${ob.welcome_email_on_approval ? "checked" : ""} /> Send welcome email when approved</label>
+            <label><input data-bind="onboarding.${pt.slug}.document_upload_required" type="checkbox" ${ob.document_upload_required ? "checked" : ""} /> Require documents on onboarding ${helpButton(`onboarding.${pt.slug}.document_upload_required`)}</label>
+            <label><input data-bind="onboarding.${pt.slug}.ai_extraction_enabled" type="checkbox" ${ob.ai_extraction_enabled ? "checked" : ""} /> Enable AI extraction from documents ${helpButton(`onboarding.${pt.slug}.ai_extraction_enabled`)}</label>
+            <label><input data-bind="onboarding.${pt.slug}.ai_profile_generation" type="checkbox" ${ob.ai_profile_generation ? "checked" : ""} /> Enable AI profile drafts ${helpButton(`onboarding.${pt.slug}.ai_profile_generation`)}</label>
+            <label><input data-bind="onboarding.${pt.slug}.welcome_email_on_approval" type="checkbox" ${ob.welcome_email_on_approval ? "checked" : ""} /> Send welcome email when approved ${helpButton(`onboarding.${pt.slug}.welcome_email_on_approval`)}</label>
           </div>
         </details>
       </article>
@@ -297,20 +299,20 @@ function renderCommunication() {
         </div>
         <div class="grid-3">
           <label class="field">
-            <span>Who can initiate</span>
+            <span class="field-help">Who can initiate ${helpButton(`communication.conversation_rules.${idx}.initiator`)}</span>
             <select data-bind="communication.conversation_rules.${idx}.initiator">
               ${slugs.map((slug) => `<option value="${htmlEscape(slug)}" ${slug === rule.initiator ? "selected" : ""}>${htmlEscape(slug)}</option>`).join("")}
             </select>
           </label>
           <label class="field">
-            <span>Who receives requests</span>
+            <span class="field-help">Who receives requests ${helpButton(`communication.conversation_rules.${idx}.receiver`)}</span>
             <select data-bind="communication.conversation_rules.${idx}.receiver">
               ${slugs.map((slug) => `<option value="${htmlEscape(slug)}" ${slug === rule.receiver ? "selected" : ""}>${htmlEscape(slug)}</option>`).join("")}
             </select>
           </label>
           <label class="checkline">
             <input data-bind="communication.conversation_rules.${idx}.requires_approval" type="checkbox" ${rule.requires_approval ? "checked" : ""} />
-            Request requires approval
+            Request requires approval ${helpButton(`communication.conversation_rules.${idx}.requires_approval`)}
           </label>
         </div>
       </article>
@@ -377,7 +379,7 @@ function renderSchemas() {
             </div>
             <div class="grid-2">
               <label class="field">
-                <span>Section name</span>
+                <span class="field-help">Section name ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.name`)}</span>
                 <input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.name" type="text" value="${htmlEscape(section.name)}" />
               </label>
               <div class="field">
@@ -400,30 +402,30 @@ function renderSchemas() {
                   </div>
                   <div class="grid-3">
                     <label class="field">
-                      <span>Field key</span>
+                      <span class="field-help">Field key ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.name`)}</span>
                       <input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.name" type="text" value="${htmlEscape(field.name)}" />
                     </label>
                     <label class="field">
-                      <span>Label shown to users</span>
+                      <span class="field-help">Label shown to users ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.label`)}</span>
                       <input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.label" type="text" value="${htmlEscape(field.label)}" />
                     </label>
                     <label class="field">
-                      <span>Field type</span>
+                      <span class="field-help">Field type ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.type`)}</span>
                       <select data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.type">${fieldTypeOptions(field.type)}</select>
                     </label>
                   </div>
                   <div class="grid-3">
                     <label class="field">
-                      <span>Visibility</span>
+                      <span class="field-help">Visibility ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.visibility`)}</span>
                       <select data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.visibility">${fieldVisibilityOptions(field.visibility)}</select>
                     </label>
                     <label class="field">
-                      <span>Options (comma separated)</span>
+                      <span class="field-help">Options (comma separated) ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.options`)}</span>
                       <input data-options-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.options" type="text" value="${htmlEscape(optionsValue)}" />
                     </label>
                     <div class="checks">
-                      <label><input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.required" type="checkbox" ${field.required ? "checked" : ""} /> Required</label>
-                      <label><input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.searchable" type="checkbox" ${field.searchable ? "checked" : ""} /> Searchable</label>
+                      <label><input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.required" type="checkbox" ${field.required ? "checked" : ""} /> Required ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.required`)}</label>
+                      <label><input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.searchable" type="checkbox" ${field.searchable ? "checked" : ""} /> Searchable ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.searchable`)}</label>
                     </div>
                   </div>
                 </div>
@@ -535,6 +537,10 @@ function renderGlossaryList() {
 }
 
 function showHelpPopover(path, anchorEl) {
+  if (helpHideTimer) {
+    window.clearTimeout(helpHideTimer);
+    helpHideTimer = null;
+  }
   const help = getFieldHelp(path);
   dom.helpPopover.innerHTML = `
     <h4>${htmlEscape(help.label)}</h4>
@@ -545,13 +551,65 @@ function showHelpPopover(path, anchorEl) {
     <p><strong>Risk level:</strong> ${htmlEscape(help.riskLevel)}</p>
   `;
   const rect = anchorEl.getBoundingClientRect();
-  dom.helpPopover.style.top = `${Math.max(8, rect.bottom + window.scrollY + 8)}px`;
-  dom.helpPopover.style.left = `${Math.max(8, rect.left + window.scrollX - 12)}px`;
+  const viewportPadding = 8;
+  const gap = 8;
+
+  // Temporarily render for measurement before final placement.
+  dom.helpPopover.style.top = "0px";
+  dom.helpPopover.style.left = "0px";
   dom.helpPopover.classList.remove("hidden");
+  dom.helpPopover.setAttribute("aria-hidden", "false");
+
+  const popRect = dom.helpPopover.getBoundingClientRect();
+  const popWidth = Math.ceil(popRect.width);
+  const popHeight = Math.ceil(popRect.height);
+
+  let left = rect.left - 12;
+  const minLeft = viewportPadding;
+  const maxLeft = window.innerWidth - popWidth - viewportPadding;
+  left = Math.max(minLeft, Math.min(left, maxLeft));
+
+  const spaceBelow = window.innerHeight - rect.bottom - gap - viewportPadding;
+  const spaceAbove = rect.top - gap - viewportPadding;
+  let top;
+  if (spaceBelow >= popHeight || spaceBelow >= spaceAbove) {
+    top = rect.bottom + gap;
+  } else {
+    top = rect.top - popHeight - gap;
+  }
+  const minTop = viewportPadding;
+  const maxTop = window.innerHeight - popHeight - viewportPadding;
+  top = Math.max(minTop, Math.min(top, maxTop));
+
+  dom.helpPopover.style.top = `${top}px`;
+  dom.helpPopover.style.left = `${left}px`;
+  dom.helpPopover.classList.remove("hidden");
+  dom.helpPopover.setAttribute("aria-hidden", "false");
 }
 
 function hideHelpPopover() {
+  if (helpHideTimer) {
+    window.clearTimeout(helpHideTimer);
+    helpHideTimer = null;
+  }
   dom.helpPopover.classList.add("hidden");
+  dom.helpPopover.setAttribute("aria-hidden", "true");
+}
+
+function scheduleHideHelpPopover() {
+  if (helpHideTimer) {
+    window.clearTimeout(helpHideTimer);
+  }
+  helpHideTimer = window.setTimeout(() => {
+    hideHelpPopover();
+  }, 140);
+}
+
+function isHelpElement(node) {
+  if (!(node instanceof HTMLElement)) {
+    return false;
+  }
+  return Boolean(node.closest("[data-help-path]") || node.closest("#helpPopover"));
 }
 
 async function apiJson(url, payload) {
@@ -1022,6 +1080,74 @@ function bindEvents() {
       configState.marketplace.industry = dom.marketplaceIndustry.value;
     }
     renderStepNav();
+  });
+
+  dom.helpPopover.addEventListener("mouseenter", () => {
+    if (helpHideTimer) {
+      window.clearTimeout(helpHideTimer);
+      helpHideTimer = null;
+    }
+  });
+  dom.helpPopover.addEventListener("mouseleave", () => {
+    scheduleHideHelpPopover();
+  });
+
+  document.addEventListener("mouseover", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const help = target.closest("[data-help-path]");
+    if (!help) {
+      return;
+    }
+    showHelpPopover(help.dataset.helpPath, help);
+  });
+
+  document.addEventListener("focusin", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const help = target.closest("[data-help-path]");
+    if (!help) {
+      return;
+    }
+    showHelpPopover(help.dataset.helpPath, help);
+  });
+
+  document.addEventListener("mouseout", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    if (!target.closest("[data-help-path]")) {
+      return;
+    }
+    if (isHelpElement(event.relatedTarget)) {
+      return;
+    }
+    scheduleHideHelpPopover();
+  });
+
+  document.addEventListener("focusout", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    if (!target.closest("[data-help-path]")) {
+      return;
+    }
+    if (isHelpElement(event.relatedTarget)) {
+      return;
+    }
+    scheduleHideHelpPopover();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      hideHelpPopover();
+    }
   });
 
   document.addEventListener("click", (event) => {

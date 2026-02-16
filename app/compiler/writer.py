@@ -27,9 +27,15 @@ def write_artifacts(
     stale = stale_managed_files(root, set(generated_files) | keep_paths)
     removed_files: list[str] = []
     for rel in stale:
+        try:
+            _validate_relative_path(rel)
+        except ValueError:
+            continue
         if not is_managed_path(rel):
             continue
         target = (root / rel).resolve()
+        if root not in target.parents and target != root:
+            continue
         if target.exists() and target.is_file():
             target.unlink()
             removed_files.append(rel)

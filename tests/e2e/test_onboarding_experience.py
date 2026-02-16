@@ -26,6 +26,10 @@ async def test_onboarding_surface_is_guided_and_human_friendly():
             assert "Advanced JSON Editor" in html
             assert "Configure Marketplace Onboarding" not in html
             assert "requires_approval" not in html
+            assert 'data-help-path="' in html
+            assert 'class="help-dot"' in html
+            assert 'id="helpPopover"' in html
+            assert 'role="tooltip"' in html
         else:
             assert "Configure Marketplace Onboarding" in html
             pytest.skip("Onboarding v2 disabled in runtime configuration")
@@ -39,3 +43,6 @@ async def test_onboarding_surface_is_guided_and_human_friendly():
         main_js = await client.get("/api/setup/assets/main.js")
         main_js.raise_for_status()
         assert "application/javascript" in main_js.headers.get("content-type", "")
+        assert "showHelpPopover" in main_js.text
+        assert "document.addEventListener(\"mouseover\"" in main_js.text
+        assert "document.addEventListener(\"focusin\"" in main_js.text

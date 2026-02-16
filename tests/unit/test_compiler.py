@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 import yaml
 
-from app.compiler import CompileOptions, compile_marketplace
+from app.compiler import CompileOptions, check_compile_sync, compile_marketplace
 from app.compiler.manifest import write_manifest
 from app.compiler.normalize import normalize_to_ir
 from app.compiler.writer import write_artifacts
+from app.core.marketplace_config import MarketplaceConfig, get_marketplace_config, set_marketplace_config
 
 FIXTURES = Path(__file__).resolve().parents[1] / "test_config"
 
@@ -144,3 +146,92 @@ def test_select_and_multi_select_generate_option_enums(tmp_path: Path):
 
     assert "country: ProducerCountryOption" in router_text
     assert "primary_crops: list[ProducerPrimaryCropsOption]" in router_text
+
+
+def test_writer_does_not_delete_outside_project_root(tmp_path: Path):
+    outside_file = tmp_path.parent / "manifest_outside_guard.txt"
+    outside_file.write_text("safe\n", encoding="utf-8")
+
+    write_manifest(
+        tmp_path,
+        spec_hash="oldhash",
+        mode="mvp",
+        generated_files=["app/generated/../../../manifest_outside_guard.txt", "generated/manifest.json"],
+        migration_revision="mkt_old",
+        export_path=None,
+    )
+
+    _generated, removed = write_artifacts(tmp_path, {}, keep_paths={"generated/manifest.json"})
+
+    assert "app/generated/../../../manifest_outside_guard.txt" not in removed
+    assert outside_file.exists()
+    outside_file.unlink()
+
+
+def test_check_compile_sync_detects_manifest_metadata_drift(tmp_path: Path):
+    raw = yaml.safe_load((FIXTURES / "minimal.yaml").read_text(encoding="utf-8"))
+    compile_marketplace(
+        config=raw,
+        options=CompileOptions(mode="mvp", export_enabled=False),
+        project_root=tmp_path,
+    )
+
+    manifest_path = tmp_path / "generated" / "manifest.json"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["mode"] = "strict"
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+
+    check = check_compile_sync(
+        config=raw,
+        options=CompileOptions(mode="mvp", export_enabled=False),
+        project_root=tmp_path,
+    )
+
+    assert check["in_sync"] is False
+    assert "generated/manifest.json" in check["drift_files"]
+
+
+def test_compile_and_check_are_idempotent(tmp_path: Path):
+    raw = yaml.safe_load((FIXTURES / "minimal.yaml").read_text(encoding="utf-8"))
+    compile_marketplace(
+        config=raw,
+        options=CompileOptions(mode="mvp", export_enabled=False),
+        project_root=tmp_path,
+    )
+
+    check = check_compile_sync(
+        config=raw,
+        options=CompileOptions(mode="mvp", export_enabled=False),
+        project_root=tmp_path,
+    )
+
+    assert check["in_sync"] is True
+    assert check["drift_files"] == []
+
+
+def test_openapi_generation_does_not_mutate_runtime_config(tmp_path: Path):
+    raw = yaml.safe_load((FIXTURES / "minimal.yaml").read_text(encoding="utf-8"))
+    previous = None
+    try:
+        previous = get_marketplace_config()
+    except RuntimeError:
+        previous = None
+
+    baseline = MarketplaceConfig(**raw)
+    try:
+        set_marketplace_config(baseline)
+
+        changed = yaml.safe_load((FIXTURES / "minimal.yaml").read_text(encoding="utf-8"))
+        changed["marketplace"]["name"] = "Temporary Name For Compile"
+        changed_config = MarketplaceConfig(**changed)
+
+        check_compile_sync(
+            config=changed_config,
+            options=CompileOptions(mode="mvp", export_enabled=False),
+            project_root=tmp_path,
+        )
+
+        assert get_marketplace_config().marketplace.name == baseline.marketplace.name
+    finally:
+        if previous is not None:
+            set_marketplace_config(previous)

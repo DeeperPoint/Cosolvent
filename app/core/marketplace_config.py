@@ -7,15 +7,34 @@ This module loads it, validates it, and exposes typed models for the rest of the
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
+_ROLE_SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
+_RESERVED_ROLE_SLUGS = {
+    "admin",
+    "auth",
+    "search",
+    "files",
+    "notifications",
+    "setup",
+    "docs",
+    "openapi",
+    "roles",
+    "ws",
+}
+
+
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 # ── Field definition inside a profile schema section ──────────────────────
 
-class FieldDefinition(BaseModel):
+class FieldDefinition(StrictModel):
     name: str
     label: str
     type: Literal["text", "number", "select", "multi_select", "date", "file", "rich_text", "location"]
@@ -32,12 +51,12 @@ class FieldDefinition(BaseModel):
         return v
 
 
-class ProfileSection(BaseModel):
+class ProfileSection(StrictModel):
     name: str
     fields: list[FieldDefinition]
 
 
-class ProfileSchema(BaseModel):
+class ProfileSchema(StrictModel):
     sections: list[ProfileSection]
 
     @property
@@ -53,7 +72,7 @@ class ProfileSchema(BaseModel):
 
 # ── Participant type permissions ──────────────────────────────────────────
 
-class ParticipantPermissions(BaseModel):
+class ParticipantPermissions(StrictModel):
     can_list: bool = False
     can_search: bool = False
     can_initiate_conversation: bool = False
@@ -64,7 +83,7 @@ class ParticipantPermissions(BaseModel):
     visible_in_search: bool = False
 
 
-class ParticipantType(BaseModel):
+class ParticipantType(StrictModel):
     name: str
     slug: str
     role: Literal["supply", "demand", "facilitator"]
@@ -73,7 +92,7 @@ class ParticipantType(BaseModel):
 
 # ── Onboarding settings per type ─────────────────────────────────────────
 
-class OnboardingConfig(BaseModel):
+class OnboardingConfig(StrictModel):
     requires_approval: bool = True
     approval_type: Literal["manual", "auto"] = "manual"
     document_upload_required: bool = False
@@ -82,27 +101,34 @@ class OnboardingConfig(BaseModel):
     welcome_email_on_approval: bool = True
     profile_completeness_threshold: int = 100
 
+    @field_validator("profile_completeness_threshold")
+    @classmethod
+    def validate_completeness_threshold(cls, v: int) -> int:
+        if v < 0 or v > 100:
+            raise ValueError("profile_completeness_threshold must be between 0 and 100")
+        return v
+
 
 # ── Communication rules ──────────────────────────────────────────────────
 
-class ConversationRule(BaseModel):
+class ConversationRule(StrictModel):
     initiator: str
     receiver: str
     requires_approval: bool = True
 
 
-class CommunicationConfig(BaseModel):
+class CommunicationConfig(StrictModel):
     conversation_rules: list[ConversationRule]
 
 
 # ── Discovery / AI settings ──────────────────────────────────────────────
 
-class ResultVisibility(BaseModel):
+class ResultVisibility(StrictModel):
     anonymous: Literal["public"] = "public"
     authenticated: Literal["public", "protected"] = "protected"
 
 
-class AIDiscoveryConfig(BaseModel):
+class AIDiscoveryConfig(StrictModel):
     vector_search_enabled: bool = True
     rag_query_enabled: bool = True
     follow_up_suggestions: bool = True
@@ -126,12 +152,12 @@ class AIDiscoveryConfig(BaseModel):
         return v
 
 
-class DiscoveryAccessConfig(BaseModel):
+class DiscoveryAccessConfig(StrictModel):
     anonymous_search_enabled: bool = False
     anonymous_filter_mode: Literal["public_only", "none", "all"] = "public_only"
 
 
-class DiscoveryConfig(BaseModel):
+class DiscoveryConfig(StrictModel):
     searchable_types: list[str]
     filter_fields: list[str] = []
     result_visibility: ResultVisibility = ResultVisibility()
@@ -141,7 +167,7 @@ class DiscoveryConfig(BaseModel):
 
 # ── Marketplace identity ─────────────────────────────────────────────────
 
-class MarketplaceIdentity(BaseModel):
+class MarketplaceIdentity(StrictModel):
     name: str
     description: str = ""
     industry: str = ""
@@ -149,7 +175,7 @@ class MarketplaceIdentity(BaseModel):
 
 # ── Root config ──────────────────────────────────────────────────────────
 
-class MarketplaceConfig(BaseModel):
+class MarketplaceConfig(StrictModel):
     marketplace: MarketplaceIdentity
     participant_types: list[ParticipantType]
     profile_schemas: dict[str, ProfileSchema]
@@ -170,13 +196,29 @@ class MarketplaceConfig(BaseModel):
     # ── cross-validation ─────────────────────────────────────────────
     @model_validator(mode="after")
     def cross_validate(self) -> "MarketplaceConfig":
-        slugs = {pt.slug for pt in self.participant_types}
+        slug_list = self.type_slugs()
+        slugs = set(slug_list)
 
         # Need at least 2 participant types
         if len(self.participant_types) < 2:
             raise ValueError("At least 2 participant types required")
         if len(self.participant_types) > 3:
             raise ValueError("Maximum 3 participant types for MVP")
+
+        if len(slugs) != len(slug_list):
+            duplicate_slugs = sorted({slug for slug in slug_list if slug_list.count(slug) > 1})
+            duplicates = ", ".join(duplicate_slugs)
+            raise ValueError(f"Duplicate participant slug(s) are not allowed: {duplicates}")
+
+        for slug in slug_list:
+            if not _ROLE_SLUG_RE.match(slug):
+                raise ValueError(
+                    f"Invalid participant slug '{slug}'. Use lowercase letters, numbers, '_' or '-', 2-64 chars."
+                )
+            if slug in _RESERVED_ROLE_SLUGS:
+                raise ValueError(
+                    f"Participant slug '{slug}' is reserved and cannot be used for generated role aliases."
+                )
 
         # Profile schemas must exist for every participant type
         for slug in slugs:

@@ -68,14 +68,14 @@
           <div id="presetList" class="preset-grid"></div>
           <div class="inline-grid">
             <label class="field">
-              <span>Team readiness</span>
+              <span class="field-help">Team readiness <button type="button" class="help-dot" data-help-path="quick_answers.readiness" aria-label="Help for quick_answers.readiness" aria-describedby="helpPopover">?</button></span>
               <select id="quickReadiness">
                 <option value="lean">Lean team (recommended defaults)</option>
                 <option value="review-heavy">Compliance-heavy (more approvals)</option>
               </select>
             </label>
             <label class="field">
-              <span>Launch style</span>
+              <span class="field-help">Launch style <button type="button" class="help-dot" data-help-path="quick_answers.launch_style" aria-label="Help for quick_answers.launch_style" aria-describedby="helpPopover">?</button></span>
               <select id="quickLaunchStyle">
                 <option value="fast">Launch fast MVP</option>
                 <option value="curated">Curated onboarding quality first</option>
@@ -90,15 +90,15 @@
           <p class="step-copy">These are your brand-level details shown across setup and exports.</p>
           <div class="grid-3">
             <label class="field">
-              <span>Marketplace name</span>
+              <span class="field-help">Marketplace name <button type="button" class="help-dot" data-help-path="marketplace.name" aria-label="Help for marketplace.name" aria-describedby="helpPopover">?</button></span>
               <input id="marketplaceName" type="text" />
             </label>
             <label class="field">
-              <span>Industry</span>
+              <span class="field-help">Industry <button type="button" class="help-dot" data-help-path="marketplace.industry" aria-label="Help for marketplace.industry" aria-describedby="helpPopover">?</button></span>
               <input id="marketplaceIndustry" type="text" />
             </label>
             <label class="field">
-              <span>Description</span>
+              <span class="field-help">Description <button type="button" class="help-dot" data-help-path="marketplace.description" aria-label="Help for marketplace.description" aria-describedby="helpPopover">?</button></span>
               <input id="marketplaceDescription" type="text" />
             </label>
           </div>
@@ -143,22 +143,22 @@
             <section class="split-panel">
               <h3>Discovery</h3>
               <div class="field">
-                <span>Searchable roles</span>
+                <span class="field-help">Searchable roles <button type="button" class="help-dot" data-help-path="discovery.searchable_types" aria-label="Help for discovery.searchable_types" aria-describedby="helpPopover">?</button></span>
                 <div id="searchableTypes" class="tag-grid"></div>
               </div>
               <label class="field">
-                <span>Filter fields (comma separated)</span>
+                <span class="field-help">Filter fields (comma separated) <button type="button" class="help-dot" data-help-path="discovery.filter_fields" aria-label="Help for discovery.filter_fields" aria-describedby="helpPopover">?</button></span>
                 <input id="filterFieldsInput" type="text" />
               </label>
               <div class="grid-2">
                 <label class="field">
-                  <span>Visibility for visitors</span>
+                  <span class="field-help">Visibility for visitors <button type="button" class="help-dot" data-help-path="discovery.result_visibility.anonymous" aria-label="Help for discovery.result_visibility.anonymous" aria-describedby="helpPopover">?</button></span>
                   <select id="anonymousVisibility">
                     <option value="public">Public</option>
                   </select>
                 </label>
                 <label class="field">
-                  <span>Visibility for signed-in users</span>
+                  <span class="field-help">Visibility for signed-in users <button type="button" class="help-dot" data-help-path="discovery.result_visibility.authenticated" aria-label="Help for discovery.result_visibility.authenticated" aria-describedby="helpPopover">?</button></span>
                   <select id="authenticatedVisibility">
                     <option value="public">Public</option>
                     <option value="protected">Protected</option>
@@ -168,11 +168,11 @@
               <details class="advanced-block">
                 <summary>Anonymous search access policy</summary>
                 <div class="checks">
-                  <label><input id="anonymousSearchEnabled" type="checkbox" /> Allow anonymous users to search</label>
+                  <label><input id="anonymousSearchEnabled" type="checkbox" /> Allow anonymous users to search <button type="button" class="help-dot" data-help-path="discovery.access.anonymous_search_enabled" aria-label="Help for discovery.access.anonymous_search_enabled" aria-describedby="helpPopover">?</button></label>
                 </div>
                 <div class="grid-2">
                   <label class="field">
-                    <span>Anonymous filter policy</span>
+                    <span class="field-help">Anonymous filter policy <button type="button" class="help-dot" data-help-path="discovery.access.anonymous_filter_mode" aria-label="Help for discovery.access.anonymous_filter_mode" aria-describedby="helpPopover">?</button></span>
                     <select id="anonymousFilterMode">
                       <option value="public_only">Public fields only (recommended)</option>
                       <option value="none">No anonymous filters</option>
@@ -186,14 +186,14 @@
                 <summary>Advanced discovery AI options</summary>
                 <div class="grid-2">
                   <label class="field">
-                    <span>Profile retrieval mode</span>
+                    <span class="field-help">Profile retrieval mode <button type="button" class="help-dot" data-help-path="discovery.ai.profile_retrieval_mode" aria-label="Help for discovery.ai.profile_retrieval_mode" aria-describedby="helpPopover">?</button></span>
                     <select id="profileRetrievalMode">
                       <option value="hybrid">Hybrid (keyword + vector)</option>
                       <option value="rag_strict">RAG strict (vector primary)</option>
                     </select>
                   </label>
                   <label class="field">
-                    <span>Strict mode failure behavior</span>
+                    <span class="field-help">Strict mode failure behavior <button type="button" class="help-dot" data-help-path="discovery.ai.rag_failure_behavior" aria-label="Help for discovery.ai.rag_failure_behavior" aria-describedby="helpPopover">?</button></span>
                     <select id="ragFailureBehavior">
                       <option value="service_unavailable">Return 503</option>
                       <option value="empty">Return empty results</option>
@@ -202,18 +202,18 @@
                 </div>
                 <div class="grid-2">
                   <label class="field">
-                    <span>Similarity threshold (0..1)</span>
+                    <span class="field-help">Similarity threshold (0..1) <button type="button" class="help-dot" data-help-path="discovery.ai.profile_similarity_threshold" aria-label="Help for discovery.ai.profile_similarity_threshold" aria-describedby="helpPopover">?</button></span>
                     <input id="profileSimilarityThreshold" type="number" min="0" max="1" step="0.01" />
                   </label>
                   <label class="field">
-                    <span>Max vector candidates</span>
+                    <span class="field-help">Max vector candidates <button type="button" class="help-dot" data-help-path="discovery.ai.max_vector_candidates" aria-label="Help for discovery.ai.max_vector_candidates" aria-describedby="helpPopover">?</button></span>
                     <input id="maxVectorCandidates" type="number" min="1" step="1" />
                   </label>
                 </div>
                 <div class="checks">
-                  <label><input id="vectorSearchEnabled" type="checkbox" /> Enable vector search</label>
-                  <label><input id="ragQueryEnabled" type="checkbox" /> Enable retrieval-assisted answers</label>
-                  <label><input id="followUpSuggestions" type="checkbox" /> Suggest follow-up prompts</label>
+                  <label><input id="vectorSearchEnabled" type="checkbox" /> Enable vector search <button type="button" class="help-dot" data-help-path="discovery.ai.vector_search_enabled" aria-label="Help for discovery.ai.vector_search_enabled" aria-describedby="helpPopover">?</button></label>
+                  <label><input id="ragQueryEnabled" type="checkbox" /> Enable retrieval-assisted answers <button type="button" class="help-dot" data-help-path="discovery.ai.rag_query_enabled" aria-label="Help for discovery.ai.rag_query_enabled" aria-describedby="helpPopover">?</button></label>
+                  <label><input id="followUpSuggestions" type="checkbox" /> Suggest follow-up prompts <button type="button" class="help-dot" data-help-path="discovery.ai.follow_up_suggestions" aria-label="Help for discovery.ai.follow_up_suggestions" aria-describedby="helpPopover">?</button></label>
                 </div>
               </details>
             </section>
@@ -236,12 +236,12 @@
             <h3>Save options</h3>
             <div class="grid-2">
               <label class="field">
-                <span>Output path</span>
+                <span class="field-help">Output path <button type="button" class="help-dot" data-help-path="output_path" aria-label="Help for output_path" aria-describedby="helpPopover">?</button></span>
                 <input id="outputPathInput" type="text" value="marketplace.yaml" />
               </label>
               <label class="checkline">
                 <input id="applyRuntimeInput" type="checkbox" checked />
-                Apply runtime immediately
+                Apply runtime immediately <button type="button" class="help-dot" data-help-path="apply_runtime" aria-label="Help for apply_runtime" aria-describedby="helpPopover">?</button>
               </label>
             </div>
           </section>
@@ -250,19 +250,19 @@
             <h3>Generation options</h3>
             <div class="grid-3">
               <label class="field">
-                <span>Compile mode</span>
+                <span class="field-help">Compile mode <button type="button" class="help-dot" data-help-path="compile_mode" aria-label="Help for compile_mode" aria-describedby="helpPopover">?</button></span>
                 <select id="compileModeInput">
                   <option value="mvp">MVP</option>
                   <option value="strict">Strict</option>
                 </select>
               </label>
               <label class="field">
-                <span>Export directory</span>
+                <span class="field-help">Export directory <button type="button" class="help-dot" data-help-path="export_dir" aria-label="Help for export_dir" aria-describedby="helpPopover">?</button></span>
                 <input id="exportDirInput" type="text" value="exports" />
               </label>
               <label class="checkline">
                 <input id="exportEnabledInput" type="checkbox" checked />
-                Create export archive
+                Create export archive <button type="button" class="help-dot" data-help-path="export_enabled" aria-label="Help for export_enabled" aria-describedby="helpPopover">?</button>
               </label>
             </div>
           </section>
@@ -325,7 +325,7 @@
     <div id="glossaryList"></div>
   </aside>
 
-  <div id="helpPopover" class="help-popover hidden" role="dialog" aria-live="polite"></div>
+  <div id="helpPopover" class="help-popover hidden" role="tooltip" aria-hidden="true" aria-live="polite"></div>
 
   <script type="module" src="/api/setup/assets/main.js"></script>
 </body>

@@ -1,18 +1,25 @@
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
 
-from app.core.marketplace_config import MarketplaceConfig, load_marketplace_config, set_marketplace_config
+from app.core.marketplace_config import MarketplaceConfig, load_marketplace_config
 
 from .exporter import create_export_archive
 from .ir import CompileOptions
-from .manifest import MANIFEST_PATH, load_manifest, stale_managed_files, write_manifest
+from .manifest import (
+    MANIFEST_PATH,
+    invalid_managed_manifest_entries,
+    load_manifest,
+    stale_managed_files,
+    write_manifest,
+)
 from .normalize import normalize_to_ir
-from .render import render_artifacts
+from .render import GENERATOR_VERSION, render_artifacts
 from .writer import write_artifacts
 
 _CODEBASE_ROOT = Path(__file__).resolve().parents[2]
@@ -87,7 +94,7 @@ def check_compile_sync(
     _validate_compile_options(options)
 
     ir = normalize_to_ir(config, project_root=root, mode=options.mode)
-    artifacts, _migration_revision, _migration_path = render_artifacts(ir)
+    artifacts, migration_revision, _migration_path = render_artifacts(ir)
     include_generated_aliases = _can_include_generated_aliases(root)
     expected_openapi = json.dumps(
         _build_openapi_doc(MarketplaceConfig(**ir.config), include_generated_aliases=include_generated_aliases),
@@ -113,8 +120,25 @@ def check_compile_sync(
 
     manifest = load_manifest(root)
     current_manifest_hash = manifest.get("spec_hash") if manifest else None
-    if current_manifest_hash != ir.spec_hash:
+    expected_generated_files = sorted(set(artifacts.keys()) | {str(MANIFEST_PATH)})
+    invalid_manifest_entries = invalid_managed_manifest_entries(root)
+
+    if manifest is None:
         drift_files.append(str(MANIFEST_PATH))
+    else:
+        manifest_generated_files = sorted(set(manifest.get("generated_files", [])))
+        if manifest.get("spec_hash") != ir.spec_hash:
+            drift_files.append(str(MANIFEST_PATH))
+        if manifest.get("mode") != options.mode:
+            drift_files.append(str(MANIFEST_PATH))
+        if manifest.get("migration_revision") != migration_revision:
+            drift_files.append(str(MANIFEST_PATH))
+        if manifest.get("generator_version") != GENERATOR_VERSION:
+            drift_files.append(str(MANIFEST_PATH))
+        if manifest_generated_files != expected_generated_files:
+            drift_files.append(str(MANIFEST_PATH))
+        if invalid_manifest_entries:
+            drift_files.append(str(MANIFEST_PATH))
 
     deduped = sorted(set(drift_files))
     return {
@@ -149,7 +173,8 @@ def _can_include_generated_aliases(root: Path) -> bool:
 def _build_openapi_doc(
     config: MarketplaceConfig, *, include_generated_aliases: bool = True
 ) -> dict[str, Any]:
-    set_marketplace_config(config)
+    from app.core.dependencies import get_config
+
     app = FastAPI(
         title=config.marketplace.name,
         description=config.marketplace.description,
@@ -166,6 +191,7 @@ def _build_openapi_doc(
     from app.modules.profiles.router import router as profiles_router
     from app.modules.setup.router import router as setup_router
 
+    app.dependency_overrides[get_config] = lambda: config
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(profiles_router, prefix="/api/profiles", tags=["profiles"])
     app.include_router(files_router, prefix="/api/files", tags=["files"])
@@ -178,13 +204,20 @@ def _build_openapi_doc(
 
     if include_generated_aliases:
         try:
-            from app.generated.role_alias_router import router as generated_role_router
+            generated_role_router = _load_generated_role_router()
 
             app.include_router(generated_role_router)
         except Exception:
             # If generated aliases are not available yet we still emit base OpenAPI.
             pass
     return app.openapi()
+
+
+def _load_generated_role_router():
+    importlib.invalidate_caches()
+    module = importlib.import_module("app.generated.role_alias_router")
+    module = importlib.reload(module)
+    return module.router
 
 
 def _assert_generated_alias_contracts(openapi_doc: dict[str, Any], role_slugs: list[str]) -> None:
