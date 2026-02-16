@@ -45,6 +45,16 @@ async def update_conversation_status(conv_id: str, status: str) -> dict | None:
     return await update_conversation(conv_id, {"status": status})
 
 
+async def update_conversation_status_if_current(
+    conv_id: str, expected_status: str, next_status: str
+) -> dict | None:
+    return await get_collection("conversations").find_one_and_update(
+        {"_id": conv_id, "status": expected_status},
+        {"$set": {"status": next_status, "updated_at": datetime.now(timezone.utc)}},
+        return_document=True,
+    )
+
+
 async def list_conversations_for_user(user_id: str) -> list[dict]:
     cursor = get_collection("conversations").find(
         {"participants.user_id": user_id}
@@ -97,8 +107,27 @@ async def update_message(msg_id: str, content: str) -> dict | None:
     )
 
 
+async def update_message_for_sender_in_conversation(
+    msg_id: str, conversation_id: str, sender_id: str, content: str
+) -> dict | None:
+    return await get_collection("messages").find_one_and_update(
+        {"_id": msg_id, "conversation_id": conversation_id, "sender_id": sender_id},
+        {"$set": {"content": content, "edited": True, "updated_at": datetime.now(timezone.utc)}},
+        return_document=True,
+    )
+
+
 async def delete_message(msg_id: str) -> None:
     await get_collection("messages").delete_one({"_id": msg_id})
+
+
+async def delete_message_for_sender_in_conversation(
+    msg_id: str, conversation_id: str, sender_id: str
+) -> bool:
+    result = await get_collection("messages").delete_one(
+        {"_id": msg_id, "conversation_id": conversation_id, "sender_id": sender_id}
+    )
+    return result.deleted_count > 0
 
 
 async def list_messages(

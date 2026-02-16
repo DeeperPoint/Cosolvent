@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 import websockets
+from websockets.exceptions import ConnectionClosed
 
 from tests.e2e.helpers import (
     bootstrap_or_login_admin,
@@ -115,6 +116,44 @@ async def test_local_full_stack_flow():
             await ws.send(json.dumps({"type": "ping"}))
             pong = json.loads(await ws.recv())
             assert pong["type"] == "pong"
+
+        async with websockets.connect(
+            ws_url,
+            additional_headers={"Cookie": f"session_token={buyer_auth['session_token']}"},
+        ) as ws_cookie_fallback:
+            await ws_cookie_fallback.send(json.dumps({"type": "auth"}))
+            connected_cookie = json.loads(await ws_cookie_fallback.recv())
+            assert connected_cookie["type"] == "connected"
+
+        async with websockets.connect(ws_url) as ws_invalid:
+            await ws_invalid.send(json.dumps({"type": "auth", "token": "invalid-token"}))
+            with pytest.raises(ConnectionClosed):
+                await ws_invalid.recv()
+            assert ws_invalid.close_code == 4001
+
+        async with websockets.connect(ws_url) as ws_closed_conversation:
+            await ws_closed_conversation.send(json.dumps({"type": "auth", "token": buyer_auth["session_token"]}))
+            connected_msg = json.loads(await ws_closed_conversation.recv())
+            assert connected_msg["type"] == "connected"
+
+            close_conv = await producer.post(f"/api/conversations/{conv_id}/close")
+            close_conv.raise_for_status()
+
+            await ws_closed_conversation.send(
+                json.dumps({"type": "message", "content": "should not persist", "content_type": "text"})
+            )
+            with pytest.raises(ConnectionClosed):
+                await ws_closed_conversation.recv()
+            assert ws_closed_conversation.close_code == 4008
+
+        deactivated = await admin.post(f"/api/admin/users/{buyer_auth['user_id']}/deactivate")
+        deactivated.raise_for_status()
+
+        async with websockets.connect(ws_url) as ws_deactivated:
+            await ws_deactivated.send(json.dumps({"type": "auth", "token": buyer_auth["session_token"]}))
+            with pytest.raises(ConnectionClosed):
+                await ws_deactivated.recv()
+            assert ws_deactivated.close_code == 4003
 
         dashboard = await admin.get("/api/admin/dashboard")
         dashboard.raise_for_status()

@@ -19,6 +19,9 @@ class ConnectionManager:
 
     async def connect(self, conversation_id: str, user_id: str, ws: WebSocket) -> None:
         await ws.accept()
+        self.register(conversation_id, user_id, ws)
+
+    def register(self, conversation_id: str, user_id: str, ws: WebSocket) -> None:
         if conversation_id not in self._connections:
             self._connections[conversation_id] = []
         self._connections[conversation_id].append((user_id, ws))
@@ -39,13 +42,17 @@ class ConnectionManager:
         logger.info("WS disconnected: user=%s conv=%s", user_id, conversation_id)
 
     async def broadcast(self, conversation_id: str, message: dict[str, Any]) -> None:
-        conns = self._connections.get(conversation_id, [])
+        conns = list(self._connections.get(conversation_id, []))
         data = json.dumps(message, default=str)
+        stale_connections: list[tuple[str, WebSocket]] = []
         for uid, ws in conns:
             try:
                 await ws.send_text(data)
             except Exception:
                 logger.warning("Failed to send to user=%s", uid)
+                stale_connections.append((uid, ws))
+        for uid, ws in stale_connections:
+            self.disconnect(conversation_id, uid, ws)
 
 
 manager = ConnectionManager()

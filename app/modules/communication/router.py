@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, Path, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, WebSocket, WebSocketDisconnect
 
 from app.core.dependencies import get_config, get_current_user
+from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.communication import service
 from app.modules.communication.schemas import (
@@ -16,6 +17,12 @@ from app.modules.communication.schemas import (
 from app.modules.communication.websocket import manager
 
 router = APIRouter()
+
+WS_CLOSE_AUTH = 4001
+WS_CLOSE_BAD_REQUEST = 4002
+WS_CLOSE_FORBIDDEN = 4003
+WS_CLOSE_NOT_FOUND = 4004
+WS_CLOSE_POLICY = 4008
 
 
 @router.post("/conversations")
@@ -114,66 +121,82 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
     """
     # Accept and wait for auth message
     await websocket.accept()
+    session_token: str | None = None
+    user_id = ""
     try:
         raw = await websocket.receive_text()
-        data = json.loads(raw)
-        if data.get("type") != "auth" or not data.get("token"):
-            await websocket.close(code=4001, reason="Auth required")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            await websocket.close(code=WS_CLOSE_BAD_REQUEST, reason="Invalid payload")
             return
 
-        # Verify session
-        from app.core.database import get_collection
-        session = await get_collection("sessions").find_one({"token": data["token"]})
-        if not session:
-            await websocket.close(code=4001, reason="Invalid session")
+        if data.get("type") != "auth":
+            await websocket.close(code=WS_CLOSE_AUTH, reason="Auth required")
             return
 
-        user_id = str(session["user_id"])
-
-        # Verify participant
-        conv = await get_collection("conversations").find_one({"_id": conversation_id})
-        if not conv:
-            await websocket.close(code=4004, reason="Conversation not found")
-            return
-        participant_ids = [p["user_id"] for p in conv["participants"]]
-        if user_id not in participant_ids:
-            await websocket.close(code=4003, reason="Not a participant")
+        session_token = data.get("token") or websocket.cookies.get("session_token")
+        if not session_token:
+            await websocket.close(code=WS_CLOSE_AUTH, reason="Auth required")
             return
 
-        # Re-register with manager (we already accepted above, so just track)
-        if conversation_id not in manager._connections:
-            manager._connections[conversation_id] = []
-        manager._connections[conversation_id].append((user_id, websocket))
+        user = await get_current_user(session_token)
+        user_id = user["_id"]
+
+        await service.get_conversation(conversation_id, user)
+
+        manager.register(conversation_id, user_id, websocket)
 
         await websocket.send_text(json.dumps({"type": "connected", "user_id": user_id}))
 
         # Message loop
         while True:
             raw = await websocket.receive_text()
-            data = json.loads(raw)
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                await websocket.close(code=WS_CLOSE_BAD_REQUEST, reason="Invalid payload")
+                break
+
             if data.get("type") == "message":
-                from app.modules.communication import repository as comms_repo
-                msg = await comms_repo.create_message(
-                    conversation_id, user_id, data.get("content", ""), data.get("content_type", "text")
+                if not session_token:
+                    await websocket.close(code=WS_CLOSE_AUTH, reason="Auth required")
+                    break
+                user = await get_current_user(session_token)
+                msg = await service.send_message(
+                    conversation_id,
+                    user,
+                    data.get("content", ""),
+                    data.get("content_type", "text"),
                 )
                 response = {
                     "type": "new_message",
-                    "message": {
-                        "id": str(msg["_id"]),
-                        "conversation_id": conversation_id,
-                        "sender_id": user_id,
-                        "content": msg["content"],
-                        "content_type": msg["content_type"],
-                        "created_at": str(msg["created_at"]),
-                    },
+                    "message": msg,
                 }
                 await manager.broadcast(conversation_id, response)
             elif data.get("type") == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            await websocket.close(code=WS_CLOSE_AUTH, reason="Invalid session")
+        elif exc.status_code == 403:
+            await websocket.close(code=WS_CLOSE_FORBIDDEN, reason="Forbidden")
+        elif exc.status_code == 404:
+            await websocket.close(code=WS_CLOSE_NOT_FOUND, reason="Not found")
+        else:
+            await websocket.close(code=WS_CLOSE_BAD_REQUEST, reason="Authorization failed")
+    except ForbiddenError as exc:
+        reason = str(exc.message)
+        if "not active" in reason.lower():
+            await websocket.close(code=WS_CLOSE_POLICY, reason="Conversation is not active")
+        else:
+            await websocket.close(code=WS_CLOSE_FORBIDDEN, reason="Forbidden")
+    except NotFoundError:
+        await websocket.close(code=WS_CLOSE_NOT_FOUND, reason="Conversation not found")
 
     except WebSocketDisconnect:
         pass
     except Exception:
-        pass
+        await websocket.close(code=WS_CLOSE_BAD_REQUEST, reason="Connection error")
     finally:
-        manager.disconnect(conversation_id, user_id if "user_id" in dir() else "", websocket)
+        manager.disconnect(conversation_id, user_id, websocket)

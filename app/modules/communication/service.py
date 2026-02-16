@@ -73,7 +73,9 @@ async def accept_conversation(conv_id: str, user: dict) -> dict[str, Any]:
     if conv["initiator_id"] == user_id:
         raise ForbiddenError("Initiator cannot accept their own request")
 
-    updated = await repo.update_conversation_status(conv_id, "active")
+    updated = await repo.update_conversation_status_if_current(conv_id, "pending", "active")
+    if not updated:
+        raise ConflictError("Conversation is no longer pending")
 
     from app.modules.notifications.service import create_notification
     await create_notification(
@@ -91,7 +93,9 @@ async def reject_conversation(conv_id: str, user: dict) -> dict[str, Any]:
     if conv["status"] != "pending":
         raise ConflictError(f"Conversation is already {conv['status']}")
 
-    updated = await repo.update_conversation_status(conv_id, "rejected")
+    updated = await repo.update_conversation_status_if_current(conv_id, "pending", "rejected")
+    if not updated:
+        raise ConflictError("Conversation is no longer pending")
 
     from app.modules.notifications.service import create_notification
     await create_notification(
@@ -148,22 +152,37 @@ async def send_message(
 
 
 async def edit_message(conv_id: str, msg_id: str, user: dict, content: str) -> dict[str, Any]:
+    conv = await _get_conversation_or_404(conv_id)
+    _assert_participant(conv, user["_id"])
+
     msg = await repo.get_message(msg_id)
-    if not msg:
+    if not msg or msg.get("conversation_id") != conv_id:
         raise NotFoundError("Message not found")
     if msg["sender_id"] != user["_id"]:
         raise ForbiddenError("Can only edit own messages")
-    updated = await repo.update_message(msg_id, content)
+    updated = await repo.update_message_for_sender_in_conversation(
+        msg_id,
+        conv_id,
+        user["_id"],
+        content,
+    )
+    if not updated:
+        raise NotFoundError("Message not found")
     return _serialize(updated)
 
 
 async def delete_message(conv_id: str, msg_id: str, user: dict) -> None:
+    conv = await _get_conversation_or_404(conv_id)
+    _assert_participant(conv, user["_id"])
+
     msg = await repo.get_message(msg_id)
-    if not msg:
+    if not msg or msg.get("conversation_id") != conv_id:
         raise NotFoundError("Message not found")
     if msg["sender_id"] != user["_id"]:
         raise ForbiddenError("Can only delete own messages")
-    await repo.delete_message(msg_id)
+    deleted = await repo.delete_message_for_sender_in_conversation(msg_id, conv_id, user["_id"])
+    if not deleted:
+        raise NotFoundError("Message not found")
 
 
 async def list_messages(conv_id: str, user: dict, skip: int = 0, limit: int = 50) -> list[dict]:

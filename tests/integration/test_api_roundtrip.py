@@ -28,6 +28,7 @@ async def test_auth_onboarding_admin_discovery_and_communication_roundtrip():
     admin = new_client(base_url)
     producer = new_client(base_url)
     buyer = new_client(base_url)
+    intruder = new_client(base_url)
 
     try:
         await bootstrap_or_login_admin(admin, ADMIN_EMAIL, ADMIN_PASSWORD)
@@ -120,6 +121,58 @@ async def test_auth_onboarding_admin_discovery_and_communication_roundtrip():
             json={"content": "Can you share protein content range?", "content_type": "text"},
         )
         send_message.raise_for_status()
+        first_message_id = send_message.json()["id"]
+
+        create_conv_2 = await buyer.post(
+            "/api/conversations",
+            json={
+                "receiver_user_id": producer_auth["user_id"],
+                "initial_message": "Second thread",
+            },
+        )
+        create_conv_2.raise_for_status()
+        conv_2 = create_conv_2.json()
+        conv_id_2 = conv_2["id"]
+        if conv_2["status"] == "pending":
+            accept_conv_2 = await producer.post(f"/api/conversations/{conv_id_2}/accept")
+            accept_conv_2.raise_for_status()
+
+        second_message = await buyer.post(
+            f"/api/conversations/{conv_id_2}/messages",
+            json={"content": "Message in second conversation", "content_type": "text"},
+        )
+        second_message.raise_for_status()
+        second_message_id = second_message.json()["id"]
+
+        mismatch_edit = await buyer.put(
+            f"/api/conversations/{conv_id}/messages/{second_message_id}",
+            json={"content": "attempted cross-thread edit"},
+        )
+        assert mismatch_edit.status_code == 404
+
+        mismatch_delete = await buyer.delete(
+            f"/api/conversations/{conv_id}/messages/{second_message_id}",
+        )
+        assert mismatch_delete.status_code == 404
+
+        intruder_auth = await signup_user(
+            intruder,
+            email=random_email("intruder"),
+            password=USER_PASSWORD,
+            participant_type="buyer",
+        )
+        assert intruder_auth["user_id"]
+
+        intruder_edit = await intruder.put(
+            f"/api/conversations/{conv_id}/messages/{first_message_id}",
+            json={"content": "intruder-edit"},
+        )
+        assert intruder_edit.status_code == 403
+
+        intruder_delete = await intruder.delete(
+            f"/api/conversations/{conv_id}/messages/{first_message_id}",
+        )
+        assert intruder_delete.status_code == 403
 
         producer_notifications_2 = await producer.get("/api/notifications")
         producer_notifications_2.raise_for_status()
@@ -135,3 +188,4 @@ async def test_auth_onboarding_admin_discovery_and_communication_roundtrip():
         await admin.aclose()
         await producer.aclose()
         await buyer.aclose()
+        await intruder.aclose()
