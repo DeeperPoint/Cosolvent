@@ -57,7 +57,7 @@ make live
 Rules:
 1. Do not hand-edit generated files.
 2. Regenerate via compiler/UI.
-3. Only commit generated artifacts when the PR explicitly requires them.
+3. Do not commit generated artifacts. Keep PRs focused on source files, tests, and docs.
 
 ## Pull Request Checklist
 

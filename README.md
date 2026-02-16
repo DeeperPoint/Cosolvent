@@ -1,155 +1,111 @@
-# Cosolvent
+# Cosolvent Beta
 
-**Cosolvent is a marketplace compiler for thin markets.**  
-It helps founders launch a deployable marketplace backend when supply and demand exist, but trades still fail because matching is hard, trust is low, information is dense, and time/geo gaps are real.
+Cosolvent Beta helps teams launch a marketplace backend for thin markets without starting from scratch.
 
-This project is directly informed by `WHITEPAPER.md` and the market-physics model behind it.
+## Why We Built Cosolvent
 
-<img width="1008" height="793" alt="image" src="https://github.com/user-attachments/assets/f448f0ad-1879-4796-86b4-416fbd38e698" />
+Most marketplaces fail early for the same reasons:
+- the right buyers and suppliers exist, but finding each other is hard,
+- trust signals are scattered,
+- onboarding is inconsistent,
+- teams spend months wiring basic flows before learning if the market works.
 
-## Why this exists
+We built Cosolvent to shorten that path.
 
-Thin markets are not broken because people do not want to trade. They are broken because friction dominates intent.
+You should be able to go from idea to a usable, policy-aware marketplace runtime in days, not quarters.
 
-`Market function requires: Desire > Opacity + Friction`
+## Thin Markets, Simply
 
-Cosolvent is built to reduce that friction with deterministic infrastructure:
-- guided onboarding for non-technical operators,
-- generated role-aware APIs and policy artifacts,
-- Postgres-backed runtime and metadata,
-- AI-assisted discovery and communication paths.
+A thin market is a market where matches are possible but fragile.
 
-## What you get after onboarding
+People are willing to trade, but friction blocks outcomes:
+- not enough visibility,
+- unclear profile quality,
+- too much back-and-forth,
+- weak trust defaults.
 
-`clone -> onboard -> generate -> deploy` yields:
-- stable runtime config (`marketplace.yaml`),
-- generated role alias routers and policy registry,
-- generated marketplace metadata migration,
-- generated OpenAPI snapshot,
-- optional export package for a fresh repo handoff.
+## Where AI Actually Helps
 
-```mermaid
-flowchart LR
-    A["Clone Repo"] --> B["Open /onboarding"]
-    B --> C["Guided Setup (roles, rules, discovery, trust)"]
-    C --> D["Validate + Save Config"]
-    D --> E["Generate Project"]
-    E --> F["Managed Outputs (app/generated, migrations, OpenAPI)"]
-    F --> G["Start API + Worker"]
-    G --> H["Deploy Marketplace"]
-```
+AI is useful here when it reduces operator and user effort:
+- better profile understanding,
+- better retrieval/discovery,
+- faster onboarding assistance,
+- clearer communication support.
 
-## Architecture at a glance
+AI is not used as a magic replacement for your business rules.
+Your market logic still comes from explicit configuration and deterministic generation.
 
-- API: `FastAPI`
-- Data: `Postgres + pgvector`
-- Async jobs: `Redis + ARQ`
-- File storage: `S3-compatible`
-- Compiler: deterministic config-to-artifacts pipeline
+## How Cosolvent Helps
 
-```mermaid
-flowchart TB
-    W["WHITEPAPER: Thin-Market Physics"] --> O["Onboarding Decisions"]
-    O --> M["marketplace.yaml (source of truth)"]
-    M --> C["Compiler"]
-    C --> R["Generated Runtime Artifacts"]
-    C --> DB["Generated Alembic Metadata Migration"]
-    R --> API["FastAPI Runtime"]
-    DB --> PG["Postgres"]
-    API --> U["Operators + Marketplace Users"]
-```
+Cosolvent gives you a guided system, not a blank framework:
 
-## Quick start
+1. Guided setup UI for operators
+- Define participant roles, permissions, onboarding rules, communication policy, discovery behavior.
 
-### 1) Clone and configure
+2. Deterministic compile pipeline
+- Same config in -> same artifacts out.
+- Drift checks tell you when runtime artifacts are stale.
+
+3. Safety by default
+- Validation-first setup.
+- Managed-zone generation and overwrite rules.
+- Auditable config-to-runtime translation.
+
+4. Usable day-to-day workflow
+- Edit setup in guided UI.
+- Validate.
+- Generate.
+- Run and iterate.
+
+## Who This Is For
+
+- founders validating a B2B marketplace concept,
+- product/ops teams that need a configurable backend quickly,
+- engineers who want clear extension points after baseline setup.
+
+## Quick Start
 
 ```bash
 git clone https://github.com/DeeperPoint/cosolvent-beta.git
 cd cosolvent-beta
 cp .env.example .env
-```
-
-Minimum values:
-- `SESSION_SECRET`
-- `MARKETPLACE_CONFIG_PATH` (defaults to `marketplace.yaml`)
-
-### 2) Run onboarding
-
-```bash
 make setup-up
 make onboarding
 ```
 
-Open `http://localhost:18080/onboarding`.
+Open: `http://localhost:18080/onboarding`
 
-### 3) Generate marketplace code artifacts
-
-Use the onboarding `Generate Project` action, or CLI:
+Then generate and run:
 
 ```bash
 make compile
-make export
-```
-
-### 4) Start runtime
-
-```bash
 make up
 make wait-api
-make bootstrap-admin
 ```
 
-Core URLs:
-- API: `http://localhost:18000`
-- OpenAPI docs: `http://localhost:18000/docs`
-- Health: `http://localhost:18000/api/health`
+API docs: `http://localhost:18000/docs`
 
-## Artifact policy
+## Daily Workflow
 
-`marketplace.yaml` is authoritative. Generated files are build outputs:
-- `app/generated/*`
-- `generated/manifest.json`
-- `openapi/generated_openapi.json`
-- `alembic/versions/auto_marketplace_*.py`
+1. Open onboarding.
+2. Update setup decisions.
+3. Validate setup.
+4. Generate artifacts.
+5. Run tests.
 
-Rules:
-1. Do not hand-edit generated files.
-2. Regenerate from config/compiler changes.
-3. Keep PRs focused on source/docs/tests by default.
-
-## Testing gate
+Recommended checks:
 
 ```bash
 make lint
 make unit
 make compile-check
-make integration
-make e2e
 ```
 
-`make live` is optional and should run only when provider credentials are present.
+## Notes on Generated Artifacts
 
-## Developer commands
+Generated artifacts are local build outputs and should not be hand-edited.
+Regenerate from config and compiler changes.
 
-- `make help`
-- `make setup-up`, `make setup-down`
-- `make up`, `make down`, `make reset`
-- `make compile`, `make compile-check`, `make export`
-- `make logs`, `make logs-api`, `make logs-worker`
+## Documentation
 
-## Open source
-
-- License: MIT (`LICENSE`)
-- Contributing guide: `CONTRIBUTING.md`
-- Code of conduct: `CODE_OF_CONDUCT.md`
-- Security policy: `SECURITY.md`
-- Support guide: `SUPPORT.md`
-
-## Documentation map
-
-- `docs/getting-started.md`
-- `docs/architecture.md`
-- `docs/generation.md`
-- `docs/testing.md`
-- `docs/data-models.md`
-- `docs/thin-market-principles.md`
+Start with `docs/README.md` for a quick map.
