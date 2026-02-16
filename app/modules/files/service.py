@@ -1,8 +1,33 @@
 from __future__ import annotations
 
+from io import BytesIO
+from typing import BinaryIO
+
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.modules.files import repository as repo
 from app.modules.files import storage
+
+
+async def upload_file_stream(
+    user_id: str,
+    file_obj: BinaryIO,
+    filename: str,
+    content_type: str,
+    privacy: str = "public",
+    category: str = "general",
+    profile_id: str | None = None,
+) -> dict:
+    url = await storage.upload_fileobj(file_obj, filename, content_type)
+    file_doc = await repo.create_file(
+        user_id=user_id,
+        filename=filename,
+        url=url,
+        content_type=content_type,
+        privacy=privacy,
+        category=category,
+        profile_id=profile_id,
+    )
+    return _file_response(file_doc)
 
 
 async def upload_file(
@@ -14,17 +39,15 @@ async def upload_file(
     category: str = "general",
     profile_id: str | None = None,
 ) -> dict:
-    url = await storage.upload_file(file_bytes, filename, content_type)
-    file_doc = await repo.create_file(
+    return await upload_file_stream(
         user_id=user_id,
+        file_obj=BytesIO(file_bytes),
         filename=filename,
-        url=url,
         content_type=content_type,
         privacy=privacy,
         category=category,
         profile_id=profile_id,
     )
-    return _file_response(file_doc)
 
 
 async def get_file(file_id: str, user: dict) -> dict:

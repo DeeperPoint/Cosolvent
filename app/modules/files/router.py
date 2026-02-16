@@ -16,10 +16,9 @@ async def upload_file(
     profile_id: str | None = Form(None),
     user: dict = Depends(get_current_user),
 ):
-    content = await file.read()
-    return await service.upload_file(
+    return await service.upload_file_stream(
         user_id=str(user["_id"]),
-        file_bytes=content,
+        file_obj=file.file,
         filename=file.filename or "upload",
         content_type=file.content_type or "application/octet-stream",
         privacy=privacy,
