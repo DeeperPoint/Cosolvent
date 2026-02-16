@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
+    files_max_upload_bytes: int = 26_214_400
+    files_private_url_ttl_seconds: int = 300
+    files_allowed_privacy: list[str] = ["public", "private"]
 
     # OpenAI
     openai_api_key: str = ""

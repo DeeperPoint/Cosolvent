@@ -19,6 +19,9 @@ All settings are loaded from `.env` via `app/core/config.py`.
 | `S3_REGION` | `us-east-1` | For files | S3 region |
 | `AWS_ACCESS_KEY_ID` | _(empty)_ | For files | AWS access key |
 | `AWS_SECRET_ACCESS_KEY` | _(empty)_ | For files | AWS secret |
+| `FILES_MAX_UPLOAD_BYTES` | `26214400` | No | Maximum allowed upload size (bytes) |
+| `FILES_PRIVATE_URL_TTL_SECONDS` | `300` | No | Presigned URL TTL for private file reads |
+| `FILES_ALLOWED_PRIVACY` | `["public","private"]` | No | JSON array of accepted privacy values |
 | `OPENAI_API_KEY` | _(empty)_ | For AI endpoints | OpenAI API key |
 | `COHERE_API_KEY` | _(empty)_ | Optional | Cohere rerank key |
 | `RESEND_API_KEY` | _(empty)_ | For email jobs | Resend API key |

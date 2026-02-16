@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
+
+FilePrivacy = Literal["public", "private"]
 
 
 class FileResponse(BaseModel):
@@ -9,8 +13,10 @@ class FileResponse(BaseModel):
     profile_id: str | None = None
     filename: str
     url: str
+    s3_key: str | None = None
+    size_bytes: int | None = None
     content_type: str
-    privacy: str
+    privacy: FilePrivacy
     category: str
     created_at: str | None = None
 
@@ -22,5 +28,7 @@ class PrivateAssetResponse(BaseModel):
     participant_type: str
     filename: str
     url: str
+    s3_key: str | None = None
+    size_bytes: int | None = None
     content_type: str
     created_at: str | None = None

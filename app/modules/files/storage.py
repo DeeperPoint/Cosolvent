@@ -3,13 +3,27 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 import uuid
+from dataclasses import dataclass
 from io import BytesIO
 from typing import BinaryIO
+from urllib.parse import quote, unquote, urlparse
 
 import boto3
 
 from app.core.config import settings
+
+logger = logging.getLogger("cosolvent")
+_UPLOAD_PREFIX = "uploads/"
+_MAX_FILENAME_LENGTH = 128
+
+
+@dataclass(frozen=True)
+class UploadedObject:
+    key: str
+    url: str
 
 
 def _get_client():
@@ -21,7 +35,44 @@ def _get_client():
     )
 
 
-def _upload_object(file_obj: BinaryIO, key: str, content_type: str) -> None:
+def _sanitize_filename(filename: str) -> str:
+    basename = filename.replace("\\", "/").split("/")[-1]
+    basename = re.sub(r"[\x00-\x1f\x7f]+", "", basename)
+    basename = re.sub(r"\s+", " ", basename).strip()
+    basename = re.sub(r"[^A-Za-z0-9._ -]", "_", basename)
+    basename = basename.strip(" .")
+    if not basename:
+        basename = "upload.bin"
+    if len(basename) > _MAX_FILENAME_LENGTH:
+        basename = basename[:_MAX_FILENAME_LENGTH]
+    return basename
+
+
+def is_safe_upload_key(key: str) -> bool:
+    if not key or not key.startswith(_UPLOAD_PREFIX):
+        return False
+    parts = key.split("/")
+    if any(part in {"", ".", ".."} for part in parts[1:]):
+        return False
+    return True
+
+
+def public_url_for_key(key: str) -> str:
+    return f"https://{settings.s3_bucket}.s3.{settings.s3_region}.amazonaws.com/{quote(key, safe='/')}"
+
+
+def extract_upload_key_from_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    expected_host = f"{settings.s3_bucket}.s3.{settings.s3_region}.amazonaws.com"
+    if parsed.scheme != "https" or parsed.netloc != expected_host:
+        return None
+    key = unquote(parsed.path.lstrip("/"))
+    if not is_safe_upload_key(key):
+        return None
+    return key
+
+
+def _upload_object(file_obj: BinaryIO, key: str, content_type: str) -> UploadedObject:
     client = _get_client()
     file_obj.seek(0)
     client.put_object(
@@ -30,16 +81,17 @@ def _upload_object(file_obj: BinaryIO, key: str, content_type: str) -> None:
         Body=file_obj,
         ContentType=content_type,
     )
+    return UploadedObject(key=key, url=public_url_for_key(key))
 
 
-async def upload_fileobj(file_obj: BinaryIO, filename: str, content_type: str) -> str:
+async def upload_fileobj(file_obj: BinaryIO, filename: str, content_type: str) -> UploadedObject:
     """Upload a file-like object to S3 and return the object URL."""
-    key = f"uploads/{uuid.uuid4().hex}/{filename}"
-    await asyncio.to_thread(_upload_object, file_obj, key, content_type)
-    return f"https://{settings.s3_bucket}.s3.{settings.s3_region}.amazonaws.com/{key}"
+    safe_name = _sanitize_filename(filename)
+    key = f"{_UPLOAD_PREFIX}{uuid.uuid4().hex}/{safe_name}"
+    return await asyncio.to_thread(_upload_object, file_obj, key, content_type)
 
 
-async def upload_file(file_bytes: bytes, filename: str, content_type: str) -> str:
+async def upload_file(file_bytes: bytes, filename: str, content_type: str) -> UploadedObject:
     """Upload bytes to S3, return the URL."""
     return await upload_fileobj(BytesIO(file_bytes), filename, content_type)
 
@@ -49,10 +101,25 @@ def _delete_object(key: str) -> None:
     client.delete_object(Bucket=settings.s3_bucket, Key=key)
 
 
-async def delete_file(url: str) -> None:
-    """Delete file from S3 by URL."""
-    # Extract key from URL
-    prefix = f"https://{settings.s3_bucket}.s3.{settings.s3_region}.amazonaws.com/"
-    if url.startswith(prefix):
-        key = url[len(prefix):]
-        await asyncio.to_thread(_delete_object, key)
+async def delete_file(*, s3_key: str | None = None, url: str | None = None) -> None:
+    """Delete file from S3 by key with URL fallback for legacy records."""
+    key = s3_key if s3_key and is_safe_upload_key(s3_key) else None
+    if key is None and url:
+        key = extract_upload_key_from_url(url)
+    if key is None:
+        logger.warning("Skipping S3 delete due to missing or unsafe key")
+        return
+    await asyncio.to_thread(_delete_object, key)
+
+
+def _generate_presigned_get_url(key: str, expires_seconds: int) -> str:
+    client = _get_client()
+    return client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": settings.s3_bucket, "Key": key},
+        ExpiresIn=expires_seconds,
+    )
+
+
+async def generate_presigned_get_url(key: str, expires_seconds: int) -> str:
+    return await asyncio.to_thread(_generate_presigned_get_url, key, expires_seconds)

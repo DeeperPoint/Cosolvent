@@ -9,7 +9,9 @@ from app.core.database import get_collection
 async def create_file(
     user_id: str,
     filename: str,
+    s3_key: str,
     url: str,
+    size_bytes: int,
     content_type: str,
     privacy: str = "public",
     category: str = "general",
@@ -19,7 +21,9 @@ async def create_file(
         "user_id": user_id,
         "profile_id": profile_id,
         "filename": filename,
+        "s3_key": s3_key,
         "url": url,
+        "size_bytes": size_bytes,
         "content_type": content_type,
         "privacy": privacy,
         "category": category,
@@ -56,7 +60,9 @@ async def create_private_asset(
     profile_id: str,
     participant_type: str,
     filename: str,
+    s3_key: str,
     url: str,
+    size_bytes: int,
     content_type: str,
 ) -> dict:
     doc = {
@@ -64,7 +70,9 @@ async def create_private_asset(
         "profile_id": profile_id,
         "participant_type": participant_type,
         "filename": filename,
+        "s3_key": s3_key,
         "url": url,
+        "size_bytes": size_bytes,
         "content_type": content_type,
         "created_at": datetime.now(timezone.utc),
     }
