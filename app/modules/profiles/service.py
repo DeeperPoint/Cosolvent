@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timezone
 
 from pydantic import ValidationError
@@ -10,6 +11,7 @@ from app.core.marketplace_config import MarketplaceConfig
 from app.core.queue import enqueue_job
 from app.engine.schema_engine import compute_completeness, validate_profile_fields
 from app.engine.visibility_engine import ViewerTier, filter_fields, get_viewer_tier
+from app.modules.files import repository as files_repo
 from app.modules.profiles.ai_generation import generate_profile_content
 from app.modules.profiles import repository as repo
 
@@ -73,6 +75,14 @@ async def submit_draft(user: dict, config: MarketplaceConfig) -> dict:
     if not onboarding:
         raise AppError(f"No onboarding config for type '{pt}'")
 
+    existing_profile = await repo.get_profile_by_user(user_id)
+    if existing_profile:
+        raise ConflictError("Profile already exists")
+
+    pending_app = await repo.get_pending_application_by_user(user_id)
+    if pending_app:
+        return {"status": "pending_review", "application_id": str(pending_app["_id"])}
+
     # Check completeness threshold
     completeness = compute_completeness(config, pt, draft["fields"])
     if completeness < onboarding.profile_completeness_threshold:
@@ -81,9 +91,24 @@ async def submit_draft(user: dict, config: MarketplaceConfig) -> dict:
             f"{onboarding.profile_completeness_threshold}%"
         )
 
+    draft_id = str(draft["_id"])
+    if onboarding.document_upload_required:
+        uploaded_count = await files_repo.count_files_for_profile_owner(user_id, draft_id)
+        if uploaded_count < 1:
+            raise AppError(
+                "At least one onboarding document must be uploaded before submission",
+                status_code=422,
+            )
+
     if onboarding.requires_approval and onboarding.approval_type == "manual":
         # Create application for admin review
-        app = await repo.create_application(user_id, pt, str(draft["_id"]))
+        app = await repo.create_application(
+            user_id=user_id,
+            participant_type=pt,
+            draft_id=draft_id,
+            submitted_fields=deepcopy(draft["fields"]),
+            submitted_completeness=completeness,
+        )
         return {"status": "pending_review", "application_id": str(app["_id"])}
     else:
         # Auto-approve: create profile directly
@@ -130,6 +155,8 @@ async def get_profile(
         is_owner=is_owner,
         is_admin=is_admin,
     )
+    if tier != "owner" and profile.get("status") != "active":
+        raise NotFoundError("Profile not found")
     return _profile_response(profile, config, tier)
 
 
@@ -175,16 +202,24 @@ async def approve_application(app_id: str, feedback: str = "") -> dict:
     if application["status"] != "pending":
         raise AppError("Application is not pending")
 
-    draft = await repo.get_draft(application["user_id"])
-    if not draft:
-        raise AppError("Draft not found for this application")
+    submitted_fields = application.get("submitted_fields")
+    submitted_completeness = application.get("submitted_completeness")
+    if isinstance(submitted_fields, dict):
+        approved_fields = deepcopy(submitted_fields)
+        completeness = int(submitted_completeness) if isinstance(submitted_completeness, int) else 0
+    else:
+        draft = await repo.get_draft(application["user_id"])
+        if not draft:
+            raise AppError("Draft not found for this application")
+        approved_fields = draft["fields"]
+        completeness = 100
 
     profile = await repo.create_profile(
         user_id=application["user_id"],
         participant_type=application["participant_type"],
-        fields=draft["fields"],
+        fields=approved_fields,
         status="active",
-        completeness=100,
+        completeness=completeness,
     )
     await repo.delete_draft(application["user_id"])
     await repo.update_application(app_id, {"status": "approved", "admin_feedback": feedback})
@@ -292,14 +327,15 @@ def _profile_response(profile: dict, config: MarketplaceConfig, tier: ViewerTier
     schema = config.profile_schemas.get(pt)
     filtered = filter_fields(schema, profile["fields"], tier) if schema else profile["fields"]
 
+    can_view_ai = tier == "owner"
     return {
         "id": str(profile["_id"]),
         "user_id": profile["user_id"],
         "participant_type": pt,
         "status": profile["status"],
         "fields": filtered,
-        "ai_profile": profile.get("ai_profile"),
-        "ai_profile_draft": profile.get("ai_profile_draft"),
+        "ai_profile": profile.get("ai_profile") if can_view_ai else None,
+        "ai_profile_draft": profile.get("ai_profile_draft") if can_view_ai else None,
         "ai_profile_status": profile.get("ai_profile_status", "none"),
         "ai_profile_updated_at": (
             str(profile.get("ai_profile_updated_at", "")) if profile.get("ai_profile_updated_at") else None

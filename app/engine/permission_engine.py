@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.core.marketplace_config import MarketplaceConfig
 
 
@@ -37,3 +39,25 @@ def get_allowed_conversation_targets(
         for rule in config.communication.conversation_rules
         if rule.initiator == initiator_type
     ]
+
+
+def requires_onboarding(config: MarketplaceConfig, type_slug: str) -> bool:
+    """Return whether the participant type is required to onboard."""
+    pt = config.get_type(type_slug)
+    if pt is None:
+        return False
+    return bool(pt.permissions.requires_onboarding)
+
+
+def has_completed_required_onboarding(
+    config: MarketplaceConfig,
+    user: dict[str, Any],
+) -> bool:
+    """Return True when the user has satisfied onboarding requirements."""
+    if user.get("role") == "admin":
+        return True
+
+    participant_type = str(user.get("participant_type", ""))
+    if not requires_onboarding(config, participant_type):
+        return True
+    return bool(user.get("has_onboarded", False))

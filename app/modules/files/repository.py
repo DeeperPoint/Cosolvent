@@ -43,6 +43,12 @@ async def list_files_for_profile(profile_id: str) -> list[dict]:
     return await cursor.to_list(length=100)
 
 
+async def count_files_for_profile_owner(user_id: str, profile_id: str) -> int:
+    return await get_collection("files").count_documents(
+        {"user_id": user_id, "profile_id": profile_id}
+    )
+
+
 # ── Private assets ────────────────────────────────────────────────────────
 
 async def create_private_asset(

@@ -28,7 +28,7 @@ async def test_anonymous_search_disabled_by_default():
 @pytest.mark.asyncio
 async def test_authenticated_user_without_can_search_is_forbidden():
     cfg = _config()
-    viewer = {"_id": "u1", "participant_type": "producer", "role": "user"}
+    viewer = {"_id": "u1", "participant_type": "producer", "role": "user", "has_onboarded": True}
     with pytest.raises(ForbiddenError):
         await service.search(cfg, query="wheat", viewer=viewer)
 
@@ -126,7 +126,7 @@ async def test_hybrid_global_pagination_and_stable_order():
 @pytest.mark.asyncio
 async def test_ai_profile_is_hidden_for_non_owner_discovery_viewers():
     cfg = _config()
-    viewer = {"_id": "buyer-user", "participant_type": "buyer", "role": "user"}
+    viewer = {"_id": "buyer-user", "participant_type": "buyer", "role": "user", "has_onboarded": True}
     cfg.discovery.ai.vector_search_enabled = False
 
     docs = [
@@ -144,3 +144,11 @@ async def test_ai_profile_is_hidden_for_non_owner_discovery_viewers():
     ):
         result = await service.search(cfg, query="ridge", participant_type="producer", viewer=viewer)
     assert result["results"][0]["ai_profile"] is None
+
+
+@pytest.mark.asyncio
+async def test_non_onboarded_user_with_required_onboarding_is_forbidden():
+    cfg = _config()
+    viewer = {"_id": "buyer-user", "participant_type": "buyer", "role": "user", "has_onboarded": False}
+    with pytest.raises(ForbiddenError, match="Complete onboarding"):
+        await service.search(cfg, query="wheat", participant_type="producer", viewer=viewer)

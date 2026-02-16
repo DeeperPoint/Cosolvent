@@ -6,7 +6,7 @@ from typing import Any
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.core.marketplace_config import MarketplaceConfig
-from app.engine.permission_engine import can_initiate_conversation
+from app.engine.permission_engine import can_initiate_conversation, has_completed_required_onboarding
 from app.modules.communication import repository as repo
 
 
@@ -25,6 +25,11 @@ async def create_conversation(
     initiator_type = initiator.get("participant_type", "")
     receiver_type = receiver.get("participant_type", "")
     initiator_id = initiator["_id"]
+
+    if not has_completed_required_onboarding(config, initiator):
+        raise ForbiddenError("Complete onboarding before initiating conversations")
+    if not has_completed_required_onboarding(config, receiver):
+        raise ForbiddenError("Cannot start a conversation with a user who has not completed onboarding")
 
     allowed, requires_approval = can_initiate_conversation(config, initiator_type, receiver_type)
     if not allowed:

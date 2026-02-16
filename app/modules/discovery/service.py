@@ -9,7 +9,7 @@ from typing import Any
 from app.core.config import settings
 from app.core.exceptions import AppError, ForbiddenError, NotFoundError, ServiceUnavailableError, UnauthorizedError
 from app.core.marketplace_config import MarketplaceConfig
-from app.engine.permission_engine import check_permission
+from app.engine.permission_engine import check_permission, has_completed_required_onboarding
 from app.engine.visibility_engine import ViewerTier, filter_fields_for_discovery
 from app.modules.discovery import repository as repo
 from app.modules.discovery.vector_service import (
@@ -84,6 +84,8 @@ def _resolve_discovery_viewer_tier(config: MarketplaceConfig, viewer: dict[str, 
     participant_type = str(viewer.get("participant_type", ""))
     if not check_permission(config, participant_type, "can_search"):
         raise ForbiddenError("Missing permission: can_search")
+    if not has_completed_required_onboarding(config, viewer):
+        raise ForbiddenError("Complete onboarding before using discovery")
     return "authenticated"
 
 

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
+from app.core.marketplace_config import load_marketplace_config
 from app.modules.communication import service
+
+FIXTURES = Path(__file__).parent.parent / "test_config"
 
 
 @pytest.fixture
@@ -21,6 +25,10 @@ def _conversation(conv_id: str = "conv-1") -> dict:
         "initiator_id": "u1",
         "participants": [{"user_id": "u1"}, {"user_id": "u2"}],
     }
+
+
+def _config():
+    return load_marketplace_config(FIXTURES / "agriculture.yaml")
 
 
 @pytest.mark.asyncio
@@ -123,3 +131,39 @@ async def test_reject_conversation_conflict_when_conditional_update_misses(mock_
 
     with pytest.raises(ConflictError, match="no longer pending"):
         await service.reject_conversation("conv-1", {"_id": "u2"})
+
+
+@pytest.mark.asyncio
+async def test_create_conversation_blocks_non_onboarded_initiator(mock_repo):
+    with patch(
+        "app.modules.auth.repository.find_user_by_id",
+        new=AsyncMock(
+            return_value={"_id": "u2", "participant_type": "producer", "role": "user", "has_onboarded": True}
+        ),
+    ):
+        with pytest.raises(ForbiddenError, match="Complete onboarding"):
+            await service.create_conversation(
+                {"_id": "u1", "participant_type": "buyer", "role": "user", "has_onboarded": False},
+                "u2",
+                "hello",
+                _config(),
+            )
+    mock_repo.create_conversation.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_conversation_blocks_non_onboarded_receiver(mock_repo):
+    with patch(
+        "app.modules.auth.repository.find_user_by_id",
+        new=AsyncMock(
+            return_value={"_id": "u2", "participant_type": "producer", "role": "user", "has_onboarded": False}
+        ),
+    ):
+        with pytest.raises(ForbiddenError, match="has not completed onboarding"):
+            await service.create_conversation(
+                {"_id": "u1", "participant_type": "buyer", "role": "user", "has_onboarded": True},
+                "u2",
+                "hello",
+                _config(),
+            )
+    mock_repo.create_conversation.assert_not_called()

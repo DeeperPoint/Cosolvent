@@ -102,12 +102,17 @@ async def create_application(
     user_id: str,
     participant_type: str,
     draft_id: str,
+    submitted_fields: dict,
+    submitted_completeness: int,
 ) -> dict:
     now = datetime.now(timezone.utc)
     doc = {
         "user_id": user_id,
         "participant_type": participant_type,
         "draft_id": str(draft_id),
+        "submitted_fields": submitted_fields,
+        "submitted_completeness": submitted_completeness,
+        "submitted_at": now,
         "status": "pending",
         "admin_feedback": None,
         "created_at": now,
@@ -124,6 +129,13 @@ async def get_application(app_id: str) -> dict | None:
 async def get_application_by_user(user_id: str) -> dict | None:
     return await get_collection("applications").find_one(
         {"user_id": user_id},
+        sort=[("created_at", -1)],
+    )
+
+
+async def get_pending_application_by_user(user_id: str) -> dict | None:
+    return await get_collection("applications").find_one(
+        {"user_id": user_id, "status": "pending"},
         sort=[("created_at", -1)],
     )
 

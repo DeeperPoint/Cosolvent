@@ -141,15 +141,32 @@ async def _coerce_fields_to_current_schema(
     return result
 
 
+async def _onboarding_requires_document(client: httpx.AsyncClient, type_slug: str) -> bool:
+    template = await client.get("/api/setup/config-template")
+    template.raise_for_status()
+    config = template.json().get("config", {})
+    onboarding = (config.get("onboarding") or {}).get(type_slug) or {}
+    return bool(onboarding.get("document_upload_required"))
+
+
 async def register_update_submit(
     client: httpx.AsyncClient, type_slug: str, fields: dict
 ) -> dict:
     reg = await client.post(f"/api/profiles/{type_slug}/register")
     reg.raise_for_status()
+    draft_id = reg.json()["id"]
 
     payload_fields = await _coerce_fields_to_current_schema(client, type_slug, fields)
     upd = await client.put(f"/api/profiles/{type_slug}/draft", json={"fields": payload_fields})
     upd.raise_for_status()
+
+    if await _onboarding_requires_document(client, type_slug):
+        upload = await client.post(
+            "/api/files/upload",
+            data={"privacy": "private", "category": "onboarding", "profile_id": draft_id},
+            files={"file": ("onboarding.txt", b"onboarding-document", "text/plain")},
+        )
+        upload.raise_for_status()
 
     sub = await client.post(f"/api/profiles/{type_slug}/draft/submit")
     sub.raise_for_status()

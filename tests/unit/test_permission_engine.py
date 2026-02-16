@@ -6,7 +6,9 @@ from app.core.marketplace_config import load_marketplace_config
 from app.engine.permission_engine import (
     can_initiate_conversation,
     check_permission,
+    has_completed_required_onboarding,
     get_allowed_conversation_targets,
+    requires_onboarding,
 )
 
 FIXTURES = Path(__file__).parent.parent / "test_config"
@@ -70,3 +72,26 @@ class TestGetAllowedTargets:
     def test_recruiter_targets(self):
         targets = get_allowed_conversation_targets(_talent(), "recruiter")
         assert set(targets) == {"candidate", "employer"}
+
+
+class TestOnboardingGuards:
+    def test_requires_onboarding_flag_reads_from_type_permissions(self):
+        assert requires_onboarding(_agri(), "producer") is True
+        assert requires_onboarding(_agri(), "nonexistent") is False
+
+    def test_admin_is_always_considered_onboarded(self):
+        assert has_completed_required_onboarding(
+            _agri(),
+            {"role": "admin", "participant_type": None, "has_onboarded": False},
+        )
+
+    def test_user_must_have_has_onboarded_when_type_requires_it(self):
+        cfg = _agri()
+        assert not has_completed_required_onboarding(
+            cfg,
+            {"role": "user", "participant_type": "producer", "has_onboarded": False},
+        )
+        assert has_completed_required_onboarding(
+            cfg,
+            {"role": "user", "participant_type": "producer", "has_onboarded": True},
+        )
