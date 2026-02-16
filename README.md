@@ -5,6 +5,8 @@ It helps founders launch a deployable marketplace backend when supply and demand
 
 This project is directly informed by `WHITEPAPER.md` and the market-physics model behind it.
 
+<img width="1008" height="793" alt="image" src="https://github.com/user-attachments/assets/f448f0ad-1879-4796-86b4-416fbd38e698" />
+
 ## Why this exists
 
 Thin markets are not broken because people do not want to trade. They are broken because friction dominates intent.
