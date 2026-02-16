@@ -1,45 +1,56 @@
 # Architecture
 
-## Overview
+## Intent
 
-Cosolvent is a configurable single-marketplace backend built on:
+Cosolvent is not a generic CRUD scaffold. It is a thin-market engineering runtime:
 
-- FastAPI
-- Postgres + pgvector
-- Redis + ARQ workers
-- S3-compatible storage
+- keep heterogeneity in profiles,
+- still make discovery work,
+- reduce trust friction,
+- make onboarding non-technical,
+- compile configuration into deterministic deployable assets.
 
-`marketplace.yaml` remains the source of truth for marketplace behavior.  
-The onboarding/setup service can now compile that config into deterministic generated artifacts (role aliases, policy matrices, migration metadata seed, OpenAPI snapshot, export archive).
+The operating thesis comes from `WHITEPAPER.md`.
 
-## Runtime Shape
+## System Overview
 
-### Core runtime
+```mermaid
+flowchart LR
+    U["Founder / Operator"] --> O["/onboarding (guided setup)"]
+    O --> Y["marketplace.yaml"]
+    Y --> C["Compiler (normalize -> hash -> render -> write)"]
+    C --> G["app/generated/*"]
+    C --> A["alembic auto marketplace migration"]
+    C --> S["openapi/generated_openapi.json"]
+    G --> API["FastAPI runtime"]
+    API --> DB["Postgres + pgvector"]
+    API --> R["Redis + ARQ workers"]
+```
 
-- `app/main.py`: API app factory and router registration.
-- `app/core/`: shared infra (settings, DB proxy/session, redis, middleware, dependencies).
-- `app/modules/*`: feature modules (`router -> service -> repository -> storage`).
-- `app/engine/*`: config-driven runtime engines for schema validation, permissions, and visibility.
-- `app/workers/*`: async processing for indexing/email/document flows.
+## Core Runtime Shape
 
-### Setup runtime
+- `app/main.py`: app factory and router registration.
+- `app/core/`: settings, DB sessions, middleware, dependencies.
+- `app/modules/*`: domain modules (`router -> service -> repository`).
+- `app/engine/*`: schema, permission, and visibility engines.
+- `app/workers/*`: async indexing, document processing, email tasks.
 
-- `app/setup_app.py`: standalone setup app that does not require DB/API startup.
-- `app/modules/setup/router.py`: onboarding UI + setup APIs (`validate`, `render-yaml`, `save`, `generate`, `generate/check`).
+## Setup and Compiler Runtime
 
-## Compiler and Managed Zones
+- `app/setup_app.py`: setup-only app for onboarding and generation workflows.
+- `app/modules/setup/router.py`: `/onboarding` and setup APIs.
+- `app/compiler/*`: deterministic config compiler.
 
-Compiler package: `app/compiler/`
+Compiler responsibilities:
+1. Validate and canonicalize marketplace config.
+2. Produce stable `spec_hash`.
+3. Render managed generated artifacts.
+4. Prune stale managed outputs via manifest.
+5. Optionally export `.tar.gz` package for repo handoff.
 
-- `normalize.py`: validates + canonicalizes config and computes stable `spec_hash`.
-- `ir.py`: compile IR + options.
-- `render.py`: deterministic file rendering.
-- `writer.py`: managed-zone writes and stale artifact pruning.
-- `manifest.py`: generation manifest and sync metadata.
-- `exporter.py`: `.tar.gz` export packaging.
-- `service.py`: orchestration for compile/check and OpenAPI snapshot.
+## Managed Zones
 
-Managed output zones:
+Generated outputs are restricted to managed zones:
 
 - `app/generated/*`
 - `alembic/versions/auto_marketplace_*.py`
@@ -47,27 +58,28 @@ Managed output zones:
 - `generated/manifest.json`
 - `exports/*.tar.gz` (optional)
 
-Regeneration only mutates managed zones and never touches handwritten files outside those zones.
+No handwritten files outside these zones are overwritten during regeneration.
 
-## Endpoint Compatibility Strategy
+## API Compatibility Strategy
 
-Generic endpoints stay intact (example: `/api/profiles/{type_slug}/...`).
+Generic endpoints remain stable for compatibility:
+- `/api/profiles/{type_slug}/...`
 
-Generated role aliases are additive, e.g.:
+Generated role alias endpoints are additive:
+- `/api/roles/{role_slug}/register`
+- `/api/roles/{role_slug}/draft`
+- `/api/roles/{role_slug}/me`
+- `/api/roles/{role_slug}/{profile_id}`
 
-- `/api/roles/producer/register`
-- `/api/roles/producer/draft`
-- `/api/roles/producer/me`
-- `/api/roles/producer/{profile_id}`
-
-`app/main.py` loads generated aliases when `app/generated/role_alias_router.py` exists.
+`app/main.py` loads generated routers when present.
 
 ## Data Strategy
 
-Operational data remains on shared document-style JSONB tables (`users`, `profiles`, `applications`, etc.) plus vector tables.
+Primary storage:
+- Postgres operational tables (`users`, `profiles`, `applications`, `conversations`, etc.)
+- pgvector-backed search tables (`profile_vectors`, `ai_document_chunks`)
 
-Generated migration adds marketplace metadata tables:
-
+Generated migration materializes marketplace metadata tables:
 - `marketplace_roles`
 - `marketplace_role_permissions`
 - `marketplace_onboarding_rules`
@@ -75,19 +87,20 @@ Generated migration adds marketplace metadata tables:
 - `marketplace_profile_field_defs`
 - `marketplace_builds`
 
-This hybrid approach preserves existing runtime behavior while giving deterministic, queryable marketplace metadata.
+This preserves runtime flexibility while keeping generated marketplace intent queryable and auditable.
 
-## Generation/CI Contract
+## Whitepaper-to-System Mapping
 
-- Source input: `marketplace.yaml`
-- Determinism: canonical JSON + stable `spec_hash`
-- CI gate: `python -m cli compile --check --config marketplace.yaml --mode mvp`
-- Build fails if generated artifacts drift from config
+| Thin-market force | Practical runtime response |
+| --- | --- |
+| Opacity & friction | Guided onboarding + deterministic schemas + alias routes |
+| Information density | Dynamic profile models + visibility engine + vector retrieval |
+| Temporal distance | Async workflows via Redis/ARQ + notifications |
+| Trust & safety | Approval workflows, admin oversight, structured communication rules |
+| Cognitive bandwidth | Guided onboarding with presets and reviewed generation output |
 
-## High-Level Flow
+## CI Contract
 
-1. Clone repo.
-2. Run setup service and complete onboarding.
-3. Save config.
-4. Generate project artifacts.
-5. Start full stack and deploy or export package.
+- Config source: `marketplace.yaml`
+- Drift gate: `python -m cli compile --check --config marketplace.yaml --mode mvp`
+- CI fails when generated artifacts are stale against config/compiler state.

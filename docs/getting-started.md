@@ -1,5 +1,17 @@
 ## Quick Start (Recommended: Docker)
 
+Cosolvent is designed for thin markets where counterparties exist but still fail to transact reliably.
+
+Use this guide when you want the fastest path from clone to a running, generated marketplace backend.
+
+```mermaid
+flowchart LR
+    A["Clone"] --> B["Onboarding"]
+    B --> C["Generate Project"]
+    C --> D["Boot API + Worker"]
+    D --> E["Bootstrap Admin"]
+```
+
 ### 1. Clone
 
 ```bash

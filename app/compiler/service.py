@@ -15,6 +15,8 @@ from .normalize import normalize_to_ir
 from .render import render_artifacts
 from .writer import write_artifacts
 
+_CODEBASE_ROOT = Path(__file__).resolve().parents[2]
+
 
 def compile_marketplace(
     *,
@@ -34,7 +36,7 @@ def compile_marketplace(
     )
 
     openapi_rel = "openapi/generated_openapi.json"
-    include_generated_aliases = root == Path.cwd() and (root / "app/generated/role_alias_router.py").exists()
+    include_generated_aliases = _can_include_generated_aliases(root)
     openapi_doc = _build_openapi_doc(
         MarketplaceConfig(**ir.config), include_generated_aliases=include_generated_aliases
     )
@@ -86,7 +88,7 @@ def check_compile_sync(
 
     ir = normalize_to_ir(config, project_root=root, mode=options.mode)
     artifacts, _migration_revision, _migration_path = render_artifacts(ir)
-    include_generated_aliases = root == Path.cwd() and (root / "app/generated/role_alias_router.py").exists()
+    include_generated_aliases = _can_include_generated_aliases(root)
     expected_openapi = json.dumps(
         _build_openapi_doc(MarketplaceConfig(**ir.config), include_generated_aliases=include_generated_aliases),
         indent=2,
@@ -132,6 +134,16 @@ def _validate_compile_options(options: CompileOptions) -> None:
         raise ValueError("overwrite_policy must be 'managed'")
     if options.mode not in ("mvp", "strict"):
         raise ValueError("mode must be 'mvp' or 'strict'")
+
+
+def _can_include_generated_aliases(root: Path) -> bool:
+    """Only include import-based generated aliases when compiling in this codebase root.
+
+    OpenAPI generation imports `app.generated.role_alias_router` as a Python module.
+    That module import resolves against the currently-running codebase, not an arbitrary
+    temporary `project_root`. Restricting this avoids false failures in temp-dir tests.
+    """
+    return root == _CODEBASE_ROOT and (root / "app/generated/role_alias_router.py").exists()
 
 
 def _build_openapi_doc(

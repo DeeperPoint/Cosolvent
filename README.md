@@ -1,20 +1,65 @@
-# cosolvent-beta
+# Cosolvent
 
-Configurable marketplace backend compiler/runtime built with:
-`FastAPI + Postgres (pgvector) + Redis (ARQ workers)`.
+**Cosolvent is a marketplace compiler for thin markets.**  
+It helps founders launch a deployable marketplace backend when supply and demand exist, but trades still fail because matching is hard, trust is low, information is dense, and time/geo gaps are real.
 
-The product flow is:
-`clone repo -> onboarding UI -> generate -> deploy`.
+This project is directly informed by `WHITEPAPER.md` and the market-physics model behind it.
 
-## Requirements
+## Why this exists
 
-- Docker + Docker Compose
-- Python `3.11+` (for local CLI/testing)
-- Postgres with `pgvector` support (if running outside Docker)
+Thin markets are not broken because people do not want to trade. They are broken because friction dominates intent.
 
-## Quick Start
+`Market function requires: Desire > Opacity + Friction`
 
-### 1. Clone and configure env
+Cosolvent is built to reduce that friction with deterministic infrastructure:
+- guided onboarding for non-technical operators,
+- generated role-aware APIs and policy artifacts,
+- Postgres-backed runtime and metadata,
+- AI-assisted discovery and communication paths.
+
+## What you get after onboarding
+
+`clone -> onboard -> generate -> deploy` yields:
+- stable runtime config (`marketplace.yaml`),
+- generated role alias routers and policy registry,
+- generated marketplace metadata migration,
+- generated OpenAPI snapshot,
+- optional export package for a fresh repo handoff.
+
+```mermaid
+flowchart LR
+    A["Clone Repo"] --> B["Open /onboarding"]
+    B --> C["Guided Setup (roles, rules, discovery, trust)"]
+    C --> D["Validate + Save Config"]
+    D --> E["Generate Project"]
+    E --> F["Managed Outputs (app/generated, migrations, OpenAPI)"]
+    F --> G["Start API + Worker"]
+    G --> H["Deploy Marketplace"]
+```
+
+## Architecture at a glance
+
+- API: `FastAPI`
+- Data: `Postgres + pgvector`
+- Async jobs: `Redis + ARQ`
+- File storage: `S3-compatible`
+- Compiler: deterministic config-to-artifacts pipeline
+
+```mermaid
+flowchart TB
+    W["WHITEPAPER: Thin-Market Physics"] --> O["Onboarding Decisions"]
+    O --> M["marketplace.yaml (source of truth)"]
+    M --> C["Compiler"]
+    C --> R["Generated Runtime Artifacts"]
+    C --> DB["Generated Alembic Metadata Migration"]
+    R --> API["FastAPI Runtime"]
+    DB --> PG["Postgres"]
+    API --> U["Operators + Marketplace Users"]
+```
+
+## Quick start
+
+### 1) Clone and configure
 
 ```bash
 git clone https://github.com/DeeperPoint/cosolvent-beta.git
@@ -22,104 +67,57 @@ cd cosolvent-beta
 cp .env.example .env
 ```
 
-Minimum env values to set:
-
+Minimum values:
 - `SESSION_SECRET`
-- `MARKETPLACE_CONFIG_PATH` (default `marketplace.yaml`)
-- For non-Docker local runtime: `POSTGRES_DSN` and `REDIS_URL`
+- `MARKETPLACE_CONFIG_PATH` (defaults to `marketplace.yaml`)
 
-### 2. Launch onboarding (V2 is default and only UI)
+### 2) Run onboarding
 
 ```bash
 make setup-up
 make onboarding
 ```
 
-Open:
-`http://localhost:18080/onboarding`
+Open `http://localhost:18080/onboarding`.
 
-### 3. Configure and generate
+### 3) Generate marketplace code artifacts
 
-In onboarding:
+Use the onboarding `Generate Project` action, or CLI:
 
-1. Select a preset (or keep existing config).
-2. Complete guided steps (roles, onboarding rules, communication, discovery).
-3. Validate and save config.
-4. Click `Generate Project`.
+```bash
+make compile
+make export
+```
 
-### 4. Start full stack
+### 4) Start runtime
 
 ```bash
 make up
 make wait-api
-```
-
-Useful URLs:
-
-- API: `http://localhost:18000`
-- Swagger docs: `http://localhost:18000/docs`
-- Health: `http://localhost:18000/api/health`
-
-### 5. Bootstrap admin
-
-```bash
 make bootstrap-admin
 ```
 
-Optional override:
+Core URLs:
+- API: `http://localhost:18000`
+- OpenAPI docs: `http://localhost:18000/docs`
+- Health: `http://localhost:18000/api/health`
 
-```bash
-make bootstrap-admin ADMIN_EMAIL=owner@yourmarket.com ADMIN_PASSWORD='StrongPass123!'
-```
+## Artifact policy
 
-### 6. Stop/reset
-
-```bash
-make down
-make reset
-```
-
-## Compiler Workflow
-
-Generate:
-
-```bash
-python -m cli compile --config marketplace.yaml --mode mvp
-```
-
-Check drift:
-
-```bash
-python -m cli compile --check --config marketplace.yaml --mode mvp
-```
-
-Export package:
-
-```bash
-python -m cli export --config marketplace.yaml --mode mvp --export-dir exports
-```
-
-## Generated Artifact Policy
-
-`marketplace.yaml` is the source of truth. Generated files are managed outputs:
-
+`marketplace.yaml` is authoritative. Generated files are build outputs:
 - `app/generated/*`
 - `generated/manifest.json`
 - `openapi/generated_openapi.json`
 - `alembic/versions/auto_marketplace_*.py`
 
-Team workflow:
+Rules:
+1. Do not hand-edit generated files.
+2. Regenerate from config/compiler changes.
+3. Keep PRs focused on source/docs/tests by default.
 
-1. Run generation locally (`make compile`) when changing config/compiler behavior.
-2. Do not hand-edit generated files.
-3. Keep commits focused on source/docs/tests unless artifact updates are explicitly required.
-
-## Testing
-
-Recommended gate:
+## Testing gate
 
 ```bash
-make wait-api
 make lint
 make unit
 make compile-check
@@ -127,59 +125,29 @@ make integration
 make e2e
 ```
 
-`make live` is optional and only for environments with real provider credentials.
+`make live` is optional and should run only when provider credentials are present.
 
-## Common Commands
+## Developer commands
 
-Run `make help` for full list. Most used:
-
+- `make help`
 - `make setup-up`, `make setup-down`
 - `make up`, `make down`, `make reset`
 - `make compile`, `make compile-check`, `make export`
-- `make lint`, `make unit`, `make integration`, `make e2e`
 - `make logs`, `make logs-api`, `make logs-worker`
 
-## Local (Non-Docker) Dev
+## Open source
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-cp .env.example .env
-python -m cli validate marketplace.example.yaml
-python -m cli wizard -o marketplace.yaml
-python -m cli compile --config marketplace.yaml --mode mvp
-make api
-# in another shell:
-make worker
-```
+- License: MIT (`LICENSE`)
+- Contributing guide: `CONTRIBUTING.md`
+- Code of conduct: `CODE_OF_CONDUCT.md`
+- Security policy: `SECURITY.md`
+- Support guide: `SUPPORT.md`
 
-## Troubleshooting
-
-### API startup failure
-
-- Verify Postgres credentials/connectivity.
-- Verify pgvector support (`CREATE EXTENSION vector`).
-- Verify `MARKETPLACE_CONFIG_PATH` points to an existing YAML file.
-
-### Compile check fails
-
-- Run `make compile`.
-- Re-run `make compile-check` and inspect drift list.
-
-### Worker jobs not processing
-
-- Check `make logs-worker`.
-- Confirm Redis connectivity via `REDIS_URL`.
-
-### AI endpoints return `503`
-
-Expected when provider credentials are missing/unavailable. Core non-AI flows should still work.
-
-## Docs
+## Documentation map
 
 - `docs/getting-started.md`
-- `docs/testing.md`
-- `docs/generation.md`
 - `docs/architecture.md`
+- `docs/generation.md`
+- `docs/testing.md`
 - `docs/data-models.md`
+- `docs/thin-market-principles.md`
