@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from dataclasses import dataclass
@@ -146,47 +147,69 @@ class CollectionProxy:
         return_document: bool = True,
         projection: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
-        current = await self.find_one(query)
-        if current is None:
-            if not upsert:
-                return None
-            base_doc = _doc_from_filter(query)
-            base_doc.update(update_doc.get("$setOnInsert", {}))
-            base_doc.update(update_doc.get("$set", {}))
-            insert_result = await self.insert_one(base_doc)
+        async with session_scope() as session:
+            if upsert:
+                # Serialize upserts for the same logical key to avoid duplicate inserts.
+                lock_key = self._upsert_lock_key(query)
+                await session.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+                    {"lock_key": lock_key},
+                )
+
+            current = await self._find_one_for_update(session, query)
+            if current is None:
+                if not upsert:
+                    return None
+                base_doc = _doc_from_filter(query)
+                base_doc.update(update_doc.get("$setOnInsert", {}))
+                base_doc.update(update_doc.get("$set", {}))
+
+                payload = _serialize_json(dict(base_doc))
+                raw_id = payload.pop("_id", None)
+                doc_id = _coerce_uuid(raw_id) if raw_id else uuid.uuid4()
+                await session.execute(
+                    self.table.insert().values(
+                        id=doc_id,
+                        data=payload,
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                )
+                await session.commit()
+
+                if not return_document:
+                    return None
+                inserted = _deserialize_json(dict(payload))
+                inserted["_id"] = str(doc_id)
+                return _apply_projection(inserted, projection)
+
+            updated = _apply_update(current, update_doc, is_insert=False)
+            payload = _serialize_json({k: v for k, v in updated.items() if k != "_id"})
+            doc_id = _coerce_uuid(current["_id"])
+
+            await session.execute(
+                update(self.table)
+                .where(self.table.c.id == doc_id)
+                .values(
+                    data=payload,
+                    updated_at=datetime.now(timezone.utc),
+                )
+            )
+            await session.commit()
             if not return_document:
                 return None
-            return await self.find_one({"_id": insert_result.inserted_id}, projection=projection)
-
-        updated = _apply_update(current, update_doc, is_insert=False)
-        payload = _serialize_json({k: v for k, v in updated.items() if k != "_id"})
-        doc_id = _coerce_uuid(current["_id"])
-
-        async with session_scope() as session:
-            await session.execute(
-                update(self.table)
-                .where(self.table.c.id == doc_id)
-                .values(
-                    data=payload,
-                    updated_at=datetime.now(timezone.utc),
-                )
-            )
-            await session.commit()
-
-        if not return_document:
-            return None
-        return _apply_projection(updated, projection)
+            return _apply_projection(updated, projection)
 
     async def update_one(self, query: dict[str, Any], update_doc: dict[str, Any]) -> UpdateResult:
-        current = await self.find_one(query)
-        if not current:
-            return UpdateResult(matched_count=0, modified_count=0)
-
-        updated = _apply_update(current, update_doc, is_insert=False)
-        payload = _serialize_json({k: v for k, v in updated.items() if k != "_id"})
-        doc_id = _coerce_uuid(current["_id"])
-
         async with session_scope() as session:
+            current = await self._find_one_for_update(session, query)
+            if not current:
+                return UpdateResult(matched_count=0, modified_count=0)
+
+            updated = _apply_update(current, update_doc, is_insert=False)
+            payload = _serialize_json({k: v for k, v in updated.items() if k != "_id"})
+            doc_id = _coerce_uuid(current["_id"])
+
             await session.execute(
                 update(self.table)
                 .where(self.table.c.id == doc_id)
@@ -196,29 +219,25 @@ class CollectionProxy:
                 )
             )
             await session.commit()
-        return UpdateResult(matched_count=1, modified_count=1)
+            return UpdateResult(matched_count=1, modified_count=1)
 
     async def delete_one(self, query: dict[str, Any]) -> DeleteResult:
-        current = await self.find_one(query, projection={"_id": 1})
-        if not current:
-            return DeleteResult(deleted_count=0)
-
         async with session_scope() as session:
+            current = await self._find_one_for_update(session, query)
+            if not current:
+                return DeleteResult(deleted_count=0)
+
             await session.execute(self.table.delete().where(self.table.c.id == _coerce_uuid(current["_id"])))
             await session.commit()
-        return DeleteResult(deleted_count=1)
+            return DeleteResult(deleted_count=1)
 
     async def count_documents(self, query: dict[str, Any] | None = None) -> int:
-        predicate, fully_supported = self._compile_query(query or {})
-        if fully_supported:
-            statement = select(func.count()).select_from(self.table)
-            if predicate is not None:
-                statement = statement.where(predicate)
-            async with session_scope() as session:
-                return int((await session.execute(statement)).scalar_one())
-
-        docs = await self._find_docs(query or {}, None, [], 0, None)
-        return len(docs)
+        predicate = self._supported_predicate(query or {})
+        statement = select(func.count()).select_from(self.table)
+        if predicate is not None:
+            statement = statement.where(predicate)
+        async with session_scope() as session:
+            return int((await session.execute(statement)).scalar_one())
 
     async def aggregate(self, pipeline: list[dict[str, Any]]) -> AggregateCursor:
         match_stage = {}
@@ -271,47 +290,32 @@ class CollectionProxy:
         skip: int,
         limit: int | None,
     ) -> list[dict[str, Any]]:
-        predicate, fully_supported = self._compile_query(query)
-        unsupported_sort = any(self._sort_expression(field) is None for field, _ in sort_fields)
+        predicate = self._supported_predicate(query)
+        unsupported_sort = [field for field, _ in sort_fields if self._sort_expression(field) is None]
+        if unsupported_sort:
+            raise ValueError(
+                f"Unsupported sort fields for collection '{self.name}': {', '.join(unsupported_sort)}"
+            )
 
         statement: Select[Any] = select(self.table.c.id, self.table.c.data)
-        if fully_supported and predicate is not None:
+        if predicate is not None:
             statement = statement.where(predicate)
 
-        if not unsupported_sort:
-            for field, direction in sort_fields:
-                sort_expr = self._sort_expression(field)
-                if sort_expr is None:
-                    continue
-                statement = statement.order_by(sort_expr.desc() if direction < 0 else sort_expr.asc())
+        for field, direction in sort_fields:
+            sort_expr = self._sort_expression(field)
+            if sort_expr is None:
+                continue
+            statement = statement.order_by(sort_expr.desc() if direction < 0 else sort_expr.asc())
 
-        apply_window_in_sql = fully_supported and not unsupported_sort
-        if apply_window_in_sql:
-            if skip:
-                statement = statement.offset(skip)
-            if limit is not None:
-                statement = statement.limit(limit)
+        if skip:
+            statement = statement.offset(skip)
+        if limit is not None:
+            statement = statement.limit(limit)
 
         async with session_scope() as session:
             rows = await self._load_rows(session, statement)
 
         docs = [_row_to_doc(row) for row in rows]
-        if not fully_supported:
-            docs = [doc for doc in docs if _matches(doc, query)]
-
-        if unsupported_sort or not fully_supported:
-            for field, direction in reversed(sort_fields):
-                docs.sort(
-                    key=lambda doc, k=field: _sort_value(_first_value(doc, k)),
-                    reverse=direction < 0,
-                )
-
-        if not apply_window_in_sql:
-            if skip:
-                docs = docs[skip:]
-            if limit is not None:
-                docs = docs[:limit]
-
         return [_apply_projection(doc, projection) for doc in docs]
 
     async def _load_rows(self, session: AsyncSession, statement: Select[Any]) -> list[Any]:
@@ -372,6 +376,31 @@ class CollectionProxy:
         if not expressions:
             return None, fully_supported
         return and_(*expressions), fully_supported
+
+    def _supported_predicate(self, query: dict[str, Any]) -> ColumnElement[bool] | None:
+        predicate, fully_supported = self._compile_query(query)
+        if not fully_supported:
+            raise ValueError(f"Unsupported query for collection '{self.name}'")
+        return predicate
+
+    async def _find_one_for_update(
+        self,
+        session: AsyncSession,
+        query: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        predicate = self._supported_predicate(query)
+        statement: Select[Any] = select(self.table.c.id, self.table.c.data).limit(1).with_for_update()
+        if predicate is not None:
+            statement = statement.where(predicate)
+        row = (await session.execute(statement)).first()
+        return _row_to_doc(row) if row else None
+
+    def _upsert_lock_key(self, query: dict[str, Any]) -> str:
+        try:
+            encoded = json.dumps(_serialize_json(query), sort_keys=True, separators=(",", ":"))
+        except TypeError:
+            encoded = str(query)
+        return f"{self.name}:{encoded}"
 
     def _compile_condition(
         self,
@@ -495,6 +524,11 @@ async def _ensure_indexes(conn) -> None:
     # Core uniqueness constraints
     await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email ON users ((data->>'email'))"))
     await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_sessions_token ON sessions ((data->>'token'))"))
+    await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_drafts_user_id ON drafts ((data->>'user_id'))"))
+    await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_prompts_intent ON ai_prompts ((data->>'intent'))"))
+    await conn.execute(
+        text("CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_chat_history_thread_id ON ai_chat_history ((data->>'thread_id'))")
+    )
 
     # Search/filter indexes
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_sessions_expires_at ON sessions ((data->>'expires_at'))"))
@@ -517,6 +551,64 @@ async def _ensure_indexes(conn) -> None:
         text(
             "CREATE INDEX IF NOT EXISTS ix_ai_document_chunks_embedding "
             "ON ai_document_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
+        )
+    )
+    await conn.execute(
+        text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_document_chunks_document_chunk "
+            "ON ai_document_chunks (document_id, chunk_index)"
+        )
+    )
+    await conn.execute(
+        text("CREATE INDEX IF NOT EXISTS ix_ai_document_chunks_document_id ON ai_document_chunks (document_id)")
+    )
+
+    # Cleanup stale vector rows before enforcing referential integrity.
+    await conn.execute(
+        text(
+            "DELETE FROM ai_document_chunks c "
+            "WHERE NOT EXISTS (SELECT 1 FROM ai_documents d WHERE d.id = c.document_id)"
+        )
+    )
+    await conn.execute(
+        text(
+            "DELETE FROM profile_vectors v "
+            "WHERE NOT EXISTS (SELECT 1 FROM profiles p WHERE p.id = v.profile_id)"
+        )
+    )
+
+    await conn.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_document_chunks_document_id'
+                ) THEN
+                    ALTER TABLE ai_document_chunks
+                    ADD CONSTRAINT fk_ai_document_chunks_document_id
+                    FOREIGN KEY (document_id) REFERENCES ai_documents(id) ON DELETE CASCADE;
+                END IF;
+            END
+            $$;
+            """
+        )
+    )
+    await conn.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'fk_profile_vectors_profile_id'
+                ) THEN
+                    ALTER TABLE profile_vectors
+                    ADD CONSTRAINT fk_profile_vectors_profile_id
+                    FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE;
+                END IF;
+            END
+            $$;
+            """
         )
     )
 

@@ -43,13 +43,24 @@ def create_app() -> FastAPI:
     @application.on_event("startup")
     async def on_startup() -> None:
         await connect_db()
-        await connect_redis()
-        logger.info("Database and Redis connected")
+        try:
+            await connect_redis()
+            logger.info("Database and Redis connected")
+        except Exception:
+            # Redis is optional for non-queue request paths; keep API available.
+            logger.exception("Redis connection failed at startup; continuing without queue backend")
 
     @application.on_event("shutdown")
     async def on_shutdown() -> None:
-        await close_redis()
-        await close_db()
+        try:
+            await close_redis()
+        except Exception:
+            logger.exception("Redis close failed during shutdown")
+        finally:
+            try:
+                await close_db()
+            except Exception:
+                logger.exception("Database close failed during shutdown")
         logger.info("Connections closed")
 
     # ── health check ─────────────────────────────────────────────

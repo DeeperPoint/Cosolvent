@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Column, DateTime, Integer, MetaData, Table, Text, text
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, MetaData, Table, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 metadata = MetaData()
@@ -50,19 +50,31 @@ ai_document_chunks = Table(
     "ai_document_chunks",
     metadata,
     Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-    Column("document_id", UUID(as_uuid=True), nullable=False),
+    Column(
+        "document_id",
+        UUID(as_uuid=True),
+        ForeignKey("ai_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
     Column("chunk_index", Integer, nullable=False),
     Column("chunk_text", Text, nullable=False),
     Column("embedding", Vector(1536), nullable=False),
     Column("chunk_metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
+    UniqueConstraint("document_id", "chunk_index", name="uq_ai_document_chunks_document_chunk"),
 )
 
 profile_vectors = Table(
     "profile_vectors",
     metadata,
     Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-    Column("profile_id", UUID(as_uuid=True), nullable=False, unique=True),
+    Column(
+        "profile_id",
+        UUID(as_uuid=True),
+        ForeignKey("profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    ),
     Column("embedding", Vector(1536), nullable=False),
     Column("vector_metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),

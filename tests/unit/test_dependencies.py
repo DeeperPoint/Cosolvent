@@ -79,3 +79,27 @@ async def test_get_current_user_rejects_naive_expired_session():
             await get_current_user("t")
     assert exc.value.status_code == 401
     assert "expired" in exc.value.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_rejects_malformed_expiry_and_cleans_session():
+    sessions = AsyncMock()
+    sessions.find_one = AsyncMock(
+        return_value={"_id": "s1", "token": "t", "user_id": "u1", "expires_at": "not-a-date"}
+    )
+    sessions.delete_one = AsyncMock(return_value=None)
+    users = AsyncMock()
+    users.find_one = AsyncMock(return_value={"_id": "u1", "email": "x@example.com", "is_active": True})
+
+    def fake_get_collection(name: str):
+        if name == "sessions":
+            return sessions
+        if name == "users":
+            return users
+        raise AssertionError("unexpected collection")
+
+    with patch("app.core.dependencies.get_collection", side_effect=fake_get_collection):
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user("t")
+    assert exc.value.status_code == 401
+    sessions.delete_one.assert_awaited_once_with({"_id": "s1"})

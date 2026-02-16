@@ -26,6 +26,9 @@ async def get_current_user(session_token: str = Cookie(None)) -> dict[str, Any]:
     if not session:
         raise HTTPException(401, "Invalid session")
     if _is_session_expired(session.get("expires_at")):
+        # Best-effort cleanup of stale/invalid sessions to reduce repeated auth hits.
+        if session.get("_id"):
+            await sessions.delete_one({"_id": session["_id"]})
         raise HTTPException(401, "Session expired")
 
     users = get_collection("users")
@@ -45,9 +48,9 @@ def _is_session_expired(expires_at: Any) -> bool:
         try:
             expires_at = datetime.fromisoformat(expires_at)
         except ValueError:
-            return False
+            return True
     if not isinstance(expires_at, datetime):
-        return False
+        return True
     if expires_at.tzinfo is None:
         now_naive_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         return expires_at < now_naive_utc
