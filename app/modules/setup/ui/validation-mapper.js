@@ -30,8 +30,23 @@ const MESSAGE_REWRITES = [
     stepIndex: 5,
   },
   {
+    match: "Discovery searchable_type",
+    friendly: "Each searchable role must also be marked visible in search.",
+    stepIndex: 5,
+  },
+  {
     match: "Discovery filter_field",
     friendly: "A discovery filter field does not exist in any profile schema.",
+    stepIndex: 5,
+  },
+  {
+    match: "profile_similarity_threshold must be between 0 and 1",
+    friendly: "Similarity threshold must stay between 0.00 and 1.00.",
+    stepIndex: 5,
+  },
+  {
+    match: "max_vector_candidates must be >= 1",
+    friendly: "Max vector candidates must be at least 1.",
     stepIndex: 5,
   },
 ];

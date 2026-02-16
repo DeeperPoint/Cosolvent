@@ -26,10 +26,18 @@ export const DEFAULT_DISCOVERY = Object.freeze({
     anonymous: "public",
     authenticated: "protected",
   },
+  access: {
+    anonymous_search_enabled: false,
+    anonymous_filter_mode: "public_only",
+  },
   ai: {
     vector_search_enabled: true,
     rag_query_enabled: true,
     follow_up_suggestions: true,
+    profile_retrieval_mode: "hybrid",
+    rag_failure_behavior: "service_unavailable",
+    profile_similarity_threshold: 0.25,
+    max_vector_candidates: 500,
   },
 });
 
@@ -206,9 +214,34 @@ export function normalizeConfig(raw) {
     : [];
   cfg.discovery = { ...clone(DEFAULT_DISCOVERY), ...(cfg.discovery || {}) };
   cfg.discovery.result_visibility = { ...clone(DEFAULT_DISCOVERY.result_visibility), ...(cfg.discovery.result_visibility || {}) };
+  cfg.discovery.access = { ...clone(DEFAULT_DISCOVERY.access), ...(cfg.discovery.access || {}) };
   cfg.discovery.ai = { ...clone(DEFAULT_DISCOVERY.ai), ...(cfg.discovery.ai || {}) };
   cfg.discovery.filter_fields = Array.isArray(cfg.discovery.filter_fields) ? cfg.discovery.filter_fields : [];
   cfg.discovery.searchable_types = Array.isArray(cfg.discovery.searchable_types) ? cfg.discovery.searchable_types : [];
+  cfg.discovery.access.anonymous_search_enabled = Boolean(cfg.discovery.access.anonymous_search_enabled);
+  cfg.discovery.access.anonymous_filter_mode = ["public_only", "none", "all"].includes(cfg.discovery.access.anonymous_filter_mode)
+    ? cfg.discovery.access.anonymous_filter_mode
+    : "public_only";
+  cfg.discovery.ai.profile_retrieval_mode = ["hybrid", "rag_strict"].includes(cfg.discovery.ai.profile_retrieval_mode)
+    ? cfg.discovery.ai.profile_retrieval_mode
+    : "hybrid";
+  cfg.discovery.ai.rag_failure_behavior = ["service_unavailable", "empty"].includes(cfg.discovery.ai.rag_failure_behavior)
+    ? cfg.discovery.ai.rag_failure_behavior
+    : "service_unavailable";
+  cfg.discovery.ai.profile_similarity_threshold = Number.isFinite(Number(cfg.discovery.ai.profile_similarity_threshold))
+    ? Number(cfg.discovery.ai.profile_similarity_threshold)
+    : 0.25;
+  cfg.discovery.ai.max_vector_candidates = Number.isFinite(Number(cfg.discovery.ai.max_vector_candidates))
+    ? Number(cfg.discovery.ai.max_vector_candidates)
+    : 500;
+  cfg.discovery.ai.profile_similarity_threshold = Math.min(
+    1,
+    Math.max(0, cfg.discovery.ai.profile_similarity_threshold),
+  );
+  cfg.discovery.ai.max_vector_candidates = Math.max(
+    1,
+    Math.round(cfg.discovery.ai.max_vector_candidates),
+  );
 
   const validSlugs = new Set();
   const seen = new Set();

@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from app.core.marketplace_config import load_marketplace_config
-from app.engine.visibility_engine import filter_fields, get_viewer_tier
+from app.engine.visibility_engine import filter_fields, filter_fields_for_discovery, get_viewer_tier
 
 FIXTURES = Path(__file__).parent.parent / "test_config"
 
@@ -62,3 +62,19 @@ class TestGetViewerTier:
 
     def test_admin(self):
         assert get_viewer_tier(is_authenticated=True, is_owner=False, is_admin=True) == "owner"
+
+
+class TestDiscoveryVisibility:
+    def test_discovery_anonymous_uses_config_visibility(self):
+        cfg = load_marketplace_config(FIXTURES / "agriculture.yaml")
+        schema = cfg.profile_schemas["producer"]
+        result = filter_fields_for_discovery(cfg, schema, SAMPLE_FIELDS, "anonymous")
+        assert "farm_name" in result
+        assert "annual_production" not in result
+
+    def test_discovery_authenticated_uses_config_visibility(self):
+        cfg = load_marketplace_config(FIXTURES / "agriculture.yaml")
+        schema = cfg.profile_schemas["producer"]
+        result = filter_fields_for_discovery(cfg, schema, SAMPLE_FIELDS, "authenticated")
+        assert "farm_name" in result
+        assert "annual_production" in result

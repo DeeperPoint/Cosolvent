@@ -106,6 +106,29 @@ class AIDiscoveryConfig(BaseModel):
     vector_search_enabled: bool = True
     rag_query_enabled: bool = True
     follow_up_suggestions: bool = True
+    profile_retrieval_mode: Literal["hybrid", "rag_strict"] = "hybrid"
+    rag_failure_behavior: Literal["service_unavailable", "empty"] = "service_unavailable"
+    profile_similarity_threshold: float = 0.25
+    max_vector_candidates: int = 500
+
+    @field_validator("profile_similarity_threshold")
+    @classmethod
+    def validate_similarity_threshold(cls, v: float) -> float:
+        if v < 0 or v > 1:
+            raise ValueError("profile_similarity_threshold must be between 0 and 1")
+        return v
+
+    @field_validator("max_vector_candidates")
+    @classmethod
+    def validate_max_vector_candidates(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("max_vector_candidates must be >= 1")
+        return v
+
+
+class DiscoveryAccessConfig(BaseModel):
+    anonymous_search_enabled: bool = False
+    anonymous_filter_mode: Literal["public_only", "none", "all"] = "public_only"
 
 
 class DiscoveryConfig(BaseModel):
@@ -113,6 +136,7 @@ class DiscoveryConfig(BaseModel):
     filter_fields: list[str] = []
     result_visibility: ResultVisibility = ResultVisibility()
     ai: AIDiscoveryConfig = AIDiscoveryConfig()
+    access: DiscoveryAccessConfig = DiscoveryAccessConfig()
 
 
 # ── Marketplace identity ─────────────────────────────────────────────────
@@ -187,6 +211,11 @@ class MarketplaceConfig(BaseModel):
         for st in self.discovery.searchable_types:
             if st not in slugs:
                 raise ValueError(f"Discovery searchable_types references unknown type '{st}'")
+            pt = self.get_type(st)
+            if pt and not pt.permissions.visible_in_search:
+                raise ValueError(
+                    f"Discovery searchable_type '{st}' must have visible_in_search=true"
+                )
 
         # Filter fields must exist in at least one profile schema
         all_field_names = set()

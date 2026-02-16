@@ -70,7 +70,13 @@ async def test_local_full_stack_flow():
 
         apps = await admin.get("/api/admin/applications", params={"status": "pending"})
         apps.raise_for_status()
-        app_id = apps.json()[0]["id"]
+        pending = apps.json()
+        producer_app = next(
+            (item for item in pending if item.get("user_id") == producer_auth["user_id"]),
+            None,
+        )
+        assert producer_app, "Expected pending application for producer"
+        app_id = producer_app["id"]
         approve = await admin.post(f"/api/admin/applications/{app_id}/approve")
         approve.raise_for_status()
 

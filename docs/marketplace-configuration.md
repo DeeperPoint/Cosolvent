@@ -96,10 +96,17 @@ discovery:
   result_visibility:
     anonymous: public
     authenticated: protected
+  access:
+    anonymous_search_enabled: false
+    anonymous_filter_mode: public_only   # public_only | none | all
   ai:
     vector_search_enabled: true
     rag_query_enabled: true
     follow_up_suggestions: true
+    profile_retrieval_mode: rag_strict   # hybrid | rag_strict
+    rag_failure_behavior: service_unavailable  # service_unavailable | empty
+    profile_similarity_threshold: 0.25
+    max_vector_candidates: 500
 ```
 
 ## Sections
@@ -209,9 +216,15 @@ Each rule:
 | `filter_fields` | list[string] | Field names available as search filters |
 | `result_visibility.anonymous` | `public` | Fields shown to anonymous users |
 | `result_visibility.authenticated` | `public` / `protected` | Fields shown to logged-in users |
+| `access.anonymous_search_enabled` | bool | Allow unauthenticated use of `/api/search` |
+| `access.anonymous_filter_mode` | `public_only` / `none` / `all` | Anonymous filter policy |
 | `ai.vector_search_enabled` | bool | Enable semantic/vector search |
 | `ai.rag_query_enabled` | bool | Enable RAG Q&A |
 | `ai.follow_up_suggestions` | bool | Enable AI follow-up suggestions |
+| `ai.profile_retrieval_mode` | `hybrid` / `rag_strict` | Profile search retrieval strategy |
+| `ai.rag_failure_behavior` | `service_unavailable` / `empty` | Strict-mode behavior when vector retrieval is unavailable |
+| `ai.profile_similarity_threshold` | float (0..1) | Minimum vector similarity score in strict mode |
+| `ai.max_vector_candidates` | int (`>= 1`) | Max vector candidates used during ranking |
 
 ## Cross-Validation Rules
 
@@ -224,8 +237,11 @@ The config is validated at load time. The following constraints are enforced:
 5. At least one type must have **`can_search: true`**
 6. At least one type must have **`visible_in_search: true`**
 7. **`searchable_types`** must reference valid type slugs
-8. **`filter_fields`** must exist in at least one profile schema
-9. `select`/`multi_select` fields must have **`options`** defined
+8. **`searchable_types`** must only include types with **`visible_in_search: true`**
+9. **`filter_fields`** must exist in at least one profile schema
+10. `select`/`multi_select` fields must have **`options`** defined
+11. `ai.profile_similarity_threshold` must be within **0..1**
+12. `ai.max_vector_candidates` must be **>= 1**
 
 ## CLI Validation
 

@@ -12,6 +12,7 @@ from tests.e2e.helpers import (
     register_update_submit,
     require_mode,
     signup_user,
+    wait_for,
 )
 
 ADMIN_EMAIL = "admin@example.com"
@@ -28,6 +29,7 @@ async def test_auth_onboarding_admin_discovery_and_communication_roundtrip():
     admin = new_client(base_url)
     producer = new_client(base_url)
     buyer = new_client(base_url)
+    anonymous = new_client(base_url)
     intruder = new_client(base_url)
 
     try:
@@ -54,7 +56,12 @@ async def test_auth_onboarding_admin_discovery_and_communication_roundtrip():
         apps.raise_for_status()
         app_items = apps.json()
         assert app_items, "Expected at least one pending application"
-        app_id = app_items[0]["id"]
+        producer_app = next(
+            (item for item in app_items if item.get("user_id") == producer_auth["user_id"]),
+            None,
+        )
+        assert producer_app, "Expected pending application for producer"
+        app_id = producer_app["id"]
 
         approved = await admin.post(f"/api/admin/applications/{app_id}/approve")
         approved.raise_for_status()
@@ -87,12 +94,32 @@ async def test_auth_onboarding_admin_discovery_and_communication_roundtrip():
         buyer_alias.raise_for_status()
         assert buyer_alias.json().get("participant_type") == "buyer"
 
-        search_resp = await buyer.post(
+        anon_search_resp = await anonymous.post(
             "/api/search/producer",
             json={"query": "wheat farm", "filters": {"country": "Canada"}},
         )
-        search_resp.raise_for_status()
-        search_data = search_resp.json()
+        assert anon_search_resp.status_code == 401
+
+        forbidden_search = await producer.post(
+            "/api/search/producer",
+            json={"query": "wheat farm", "filters": {"country": "Canada"}},
+        )
+        assert forbidden_search.status_code == 403
+
+        async def _search_producer():
+            resp = await buyer.post(
+                "/api/search/producer",
+                json={"query": "wheat farm", "filters": {"country": "Canada"}},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        search_data = await wait_for(
+            _search_producer,
+            lambda body: bool(body.get("results")),
+            timeout_seconds=20.0,
+            interval_seconds=0.5,
+        )
         assert search_data["results"], "Expected producer search results"
 
         create_conv = await buyer.post(
@@ -188,4 +215,5 @@ async def test_auth_onboarding_admin_discovery_and_communication_roundtrip():
         await admin.aclose()
         await producer.aclose()
         await buyer.aclose()
+        await anonymous.aclose()
         await intruder.aclose()

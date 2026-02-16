@@ -1,6 +1,6 @@
 """Generated role registry for this marketplace build."""
 
-SPEC_HASH = "096ab1bd61cf63b4c1b6209f8d9845f43e0235b00edffc18669afbe7ce089525"
+SPEC_HASH = "cd0965b201144ad27f7976332380d34a776d5ebbfc68543b9c44f550628ba753"
 ROLE_SLUGS = ['producer', 'buyer']
 ROLE_REGISTRY = {'buyer': {'name': 'Buyer',
            'onboarding': {'ai_extraction_enabled': False,

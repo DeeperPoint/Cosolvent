@@ -31,6 +31,12 @@ Open `http://localhost:18080/onboarding`, then:
 2. save to `marketplace.yaml`,
 3. click `Generate Project`.
 
+Recommended discovery defaults after setup save:
+
+1. `discovery.ai.profile_retrieval_mode: rag_strict` for RAG-primary profile retrieval.
+2. `discovery.access.anonymous_search_enabled: false` unless you intentionally want public search.
+3. If public search is enabled, keep `discovery.access.anonymous_filter_mode: public_only`.
+
 ### 3. Start full stack
 
 ```bash

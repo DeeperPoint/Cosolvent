@@ -62,6 +62,16 @@
         "title": "AIProfileActionResponse",
         "type": "object"
       },
+      "AIProfileStatusEnum": {
+        "enum": [
+          "none",
+          "generated",
+          "approved",
+          "rejected"
+        ],
+        "title": "AIProfileStatusEnum",
+        "type": "string"
+      },
       "ApplicationDecisionResponse": {
         "properties": {
           "feedback": {
@@ -216,6 +226,370 @@
         "title": "BootstrapRequest",
         "type": "object"
       },
+      "BuyerBusinessTypeOption": {
+        "enum": [
+          "Mill",
+          "Brewery",
+          "Bakery",
+          "Trading Company",
+          "Food Manufacturer",
+          "Other"
+        ],
+        "title": "BuyerBusinessTypeOption",
+        "type": "string"
+      },
+      "BuyerCountryOption": {
+        "enum": [
+          "Canada",
+          "USA",
+          "Brazil",
+          "Japan",
+          "South Korea",
+          "Germany",
+          "Italy"
+        ],
+        "title": "BuyerCountryOption",
+        "type": "string"
+      },
+      "BuyerCropsOfInterestOption": {
+        "enum": [
+          "Wheat",
+          "Barley",
+          "Canola",
+          "Oats",
+          "Lentils",
+          "Peas",
+          "Flax"
+        ],
+        "title": "BuyerCropsOfInterestOption",
+        "type": "string"
+      },
+      "BuyerDraftFields": {
+        "properties": {
+          "annual_volume_needed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annual Volume Needed"
+          },
+          "business_type": {
+            "$ref": "#/components/schemas/BuyerBusinessTypeOption"
+          },
+          "country": {
+            "$ref": "#/components/schemas/BuyerCountryOption"
+          },
+          "crops_of_interest": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BuyerCropsOfInterestOption"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crops Of Interest"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "org_name": {
+            "title": "Org Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_name",
+          "country",
+          "business_type"
+        ],
+        "title": "BuyerDraftFields",
+        "type": "object"
+      },
+      "BuyerDraftResponse": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "fields": {
+            "$ref": "#/components/schemas/BuyerProfileFields"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "participant_type": {
+            "$ref": "#/components/schemas/ParticipantTypeEnum"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DraftStatusEnum"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "participant_type",
+          "status",
+          "fields"
+        ],
+        "title": "BuyerDraftResponse",
+        "type": "object"
+      },
+      "BuyerDraftUpdateRequest": {
+        "properties": {
+          "fields": {
+            "$ref": "#/components/schemas/BuyerDraftFields"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "title": "BuyerDraftUpdateRequest",
+        "type": "object"
+      },
+      "BuyerProfileFields": {
+        "properties": {
+          "annual_volume_needed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annual Volume Needed"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BuyerBusinessTypeOption"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "country": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BuyerCountryOption"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "crops_of_interest": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BuyerCropsOfInterestOption"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crops Of Interest"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "org_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Name"
+          }
+        },
+        "title": "BuyerProfileFields",
+        "type": "object"
+      },
+      "BuyerProfileResponse": {
+        "properties": {
+          "ai_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Profile"
+          },
+          "ai_profile_draft": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Profile Draft"
+          },
+          "ai_profile_status": {
+            "$ref": "#/components/schemas/AIProfileStatusEnum",
+            "default": "none"
+          },
+          "ai_profile_updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Profile Updated At"
+          },
+          "completeness": {
+            "default": 0,
+            "title": "Completeness",
+            "type": "integer"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "fields": {
+            "$ref": "#/components/schemas/BuyerProfileFields"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "participant_type": {
+            "$ref": "#/components/schemas/ParticipantTypeEnum"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProfileStatusEnum"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "participant_type",
+          "status",
+          "fields"
+        ],
+        "title": "BuyerProfileResponse",
+        "type": "object"
+      },
+      "BuyerSubmitActiveResponse": {
+        "properties": {
+          "profile_id": {
+            "title": "Profile Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "active",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "profile_id"
+        ],
+        "title": "BuyerSubmitActiveResponse",
+        "type": "object"
+      },
+      "BuyerSubmitPendingResponse": {
+        "properties": {
+          "application_id": {
+            "title": "Application Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "pending_review",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "application_id"
+        ],
+        "title": "BuyerSubmitPendingResponse",
+        "type": "object"
+      },
       "ConfigPayload": {
         "properties": {
           "config": {
@@ -271,6 +645,13 @@
         ],
         "title": "DocumentUpload",
         "type": "object"
+      },
+      "DraftStatusEnum": {
+        "enum": [
+          "draft"
+        ],
+        "title": "DraftStatusEnum",
+        "type": "string"
       },
       "DraftUpdateRequest": {
         "description": "Update draft fields \u2014 validated dynamically against config schema.",
@@ -566,6 +947,480 @@
         "title": "LoginRequest",
         "type": "object"
       },
+      "ParticipantTypeEnum": {
+        "enum": [
+          "producer",
+          "buyer"
+        ],
+        "title": "ParticipantTypeEnum",
+        "type": "string"
+      },
+      "ProducerCertificationsOption": {
+        "enum": [
+          "Organic",
+          "Non-GMO",
+          "Fair Trade",
+          "ISO 22000"
+        ],
+        "title": "ProducerCertificationsOption",
+        "type": "string"
+      },
+      "ProducerCountryOption": {
+        "enum": [
+          "Canada",
+          "USA",
+          "Brazil",
+          "Australia",
+          "Argentina"
+        ],
+        "title": "ProducerCountryOption",
+        "type": "string"
+      },
+      "ProducerDraftFields": {
+        "properties": {
+          "annual_production": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annual Production"
+          },
+          "certifications": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ProducerCertificationsOption"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certifications"
+          },
+          "country": {
+            "$ref": "#/components/schemas/ProducerCountryOption"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "farm_name": {
+            "title": "Farm Name",
+            "type": "string"
+          },
+          "financial_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Financial Notes"
+          },
+          "primary_crops": {
+            "items": {
+              "$ref": "#/components/schemas/ProducerPrimaryCropsOption"
+            },
+            "title": "Primary Crops",
+            "type": "array"
+          },
+          "protein_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protein Content"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "storage_capacity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Capacity"
+          }
+        },
+        "required": [
+          "farm_name",
+          "country",
+          "primary_crops"
+        ],
+        "title": "ProducerDraftFields",
+        "type": "object"
+      },
+      "ProducerDraftResponse": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "fields": {
+            "$ref": "#/components/schemas/ProducerProfileFields"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "participant_type": {
+            "$ref": "#/components/schemas/ParticipantTypeEnum"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DraftStatusEnum"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "participant_type",
+          "status",
+          "fields"
+        ],
+        "title": "ProducerDraftResponse",
+        "type": "object"
+      },
+      "ProducerDraftUpdateRequest": {
+        "properties": {
+          "fields": {
+            "$ref": "#/components/schemas/ProducerDraftFields"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "title": "ProducerDraftUpdateRequest",
+        "type": "object"
+      },
+      "ProducerPrimaryCropsOption": {
+        "enum": [
+          "Wheat",
+          "Barley",
+          "Canola",
+          "Oats",
+          "Lentils",
+          "Peas",
+          "Flax"
+        ],
+        "title": "ProducerPrimaryCropsOption",
+        "type": "string"
+      },
+      "ProducerProfileFields": {
+        "properties": {
+          "annual_production": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annual Production"
+          },
+          "certifications": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ProducerCertificationsOption"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certifications"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProducerCountryOption"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "farm_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Farm Name"
+          },
+          "financial_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Financial Notes"
+          },
+          "primary_crops": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ProducerPrimaryCropsOption"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Crops"
+          },
+          "protein_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protein Content"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "storage_capacity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Capacity"
+          }
+        },
+        "title": "ProducerProfileFields",
+        "type": "object"
+      },
+      "ProducerProfileResponse": {
+        "properties": {
+          "ai_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Profile"
+          },
+          "ai_profile_draft": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Profile Draft"
+          },
+          "ai_profile_status": {
+            "$ref": "#/components/schemas/AIProfileStatusEnum",
+            "default": "none"
+          },
+          "ai_profile_updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Profile Updated At"
+          },
+          "completeness": {
+            "default": 0,
+            "title": "Completeness",
+            "type": "integer"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "fields": {
+            "$ref": "#/components/schemas/ProducerProfileFields"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "participant_type": {
+            "$ref": "#/components/schemas/ParticipantTypeEnum"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProfileStatusEnum"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "participant_type",
+          "status",
+          "fields"
+        ],
+        "title": "ProducerProfileResponse",
+        "type": "object"
+      },
+      "ProducerSubmitActiveResponse": {
+        "properties": {
+          "profile_id": {
+            "title": "Profile Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "active",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "profile_id"
+        ],
+        "title": "ProducerSubmitActiveResponse",
+        "type": "object"
+      },
+      "ProducerSubmitPendingResponse": {
+        "properties": {
+          "application_id": {
+            "title": "Application Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "pending_review",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "application_id"
+        ],
+        "title": "ProducerSubmitPendingResponse",
+        "type": "object"
+      },
+      "ProfileStatusEnum": {
+        "enum": [
+          "active",
+          "pending",
+          "suspended",
+          "rejected"
+        ],
+        "title": "ProfileStatusEnum",
+        "type": "string"
+      },
       "ProfileStatusUpdate": {
         "properties": {
           "status": {
@@ -679,11 +1534,14 @@
           },
           "page": {
             "default": 1,
+            "minimum": 1.0,
             "title": "Page",
             "type": "integer"
           },
           "page_size": {
             "default": 20,
+            "maximum": 100.0,
+            "minimum": 1.0,
             "title": "Page Size",
             "type": "integer"
           },
@@ -4331,7 +5189,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BuyerDraftResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -4349,7 +5209,7 @@
         },
         "summary": "Get Draft Buyer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       },
       "put": {
@@ -4369,7 +5229,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DraftUpdateRequest"
+                "$ref": "#/components/schemas/BuyerDraftUpdateRequest"
               }
             }
           },
@@ -4379,7 +5239,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BuyerDraftResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -4397,7 +5259,7 @@
         },
         "summary": "Update Draft Buyer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -4419,7 +5281,17 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/BuyerSubmitPendingResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BuyerSubmitActiveResponse"
+                    }
+                  ],
+                  "title": "Response Submit Draft Buyer Api Roles Buyer Draft Submit Post"
+                }
               }
             },
             "description": "Successful Response"
@@ -4437,7 +5309,7 @@
         },
         "summary": "Submit Draft Buyer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -4459,7 +5331,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BuyerProfileResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -4477,7 +5351,7 @@
         },
         "summary": "Me Buyer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -4499,7 +5373,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BuyerDraftResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -4517,7 +5393,7 @@
         },
         "summary": "Register Buyer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -4548,7 +5424,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BuyerProfileResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -4566,7 +5444,7 @@
         },
         "summary": "Get Profile Buyer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       },
       "put": {
@@ -4595,7 +5473,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DraftUpdateRequest"
+                "$ref": "#/components/schemas/BuyerDraftUpdateRequest"
               }
             }
           },
@@ -4605,7 +5483,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BuyerProfileResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -4623,7 +5503,7 @@
         },
         "summary": "Update Profile Buyer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -4674,7 +5554,7 @@
         },
         "summary": "Ai Approve Buyer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -4725,7 +5605,7 @@
         },
         "summary": "Ai Generate Buyer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -4776,7 +5656,7 @@
         },
         "summary": "Ai Reject Buyer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -4798,7 +5678,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerDraftResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -4816,7 +5698,7 @@
         },
         "summary": "Get Draft Producer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       },
       "put": {
@@ -4836,7 +5718,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DraftUpdateRequest"
+                "$ref": "#/components/schemas/ProducerDraftUpdateRequest"
               }
             }
           },
@@ -4846,7 +5728,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerDraftResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -4864,7 +5748,7 @@
         },
         "summary": "Update Draft Producer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -4886,7 +5770,17 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProducerSubmitPendingResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ProducerSubmitActiveResponse"
+                    }
+                  ],
+                  "title": "Response Submit Draft Producer Api Roles Producer Draft Submit Post"
+                }
               }
             },
             "description": "Successful Response"
@@ -4904,7 +5798,7 @@
         },
         "summary": "Submit Draft Producer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -4926,7 +5820,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerProfileResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -4944,7 +5840,7 @@
         },
         "summary": "Me Producer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -4966,7 +5862,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerDraftResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -4984,7 +5882,7 @@
         },
         "summary": "Register Producer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -5015,7 +5913,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerProfileResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -5033,7 +5933,7 @@
         },
         "summary": "Get Profile Producer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       },
       "put": {
@@ -5062,7 +5962,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DraftUpdateRequest"
+                "$ref": "#/components/schemas/ProducerDraftUpdateRequest"
               }
             }
           },
@@ -5072,7 +5972,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerProfileResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -5090,7 +5992,7 @@
         },
         "summary": "Update Profile Producer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -5141,7 +6043,7 @@
         },
         "summary": "Ai Approve Producer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -5192,7 +6094,7 @@
         },
         "summary": "Ai Generate Producer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -5243,7 +6145,7 @@
         },
         "summary": "Ai Reject Producer",
         "tags": [
-          "generated-roles"
+          "profiles"
         ]
       }
     },
@@ -5356,6 +6258,46 @@
         ]
       }
     },
+    "/api/setup/assets/{asset_name}": {
+      "get": {
+        "operationId": "setup_asset_api_setup_assets__asset_name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_name",
+            "required": true,
+            "schema": {
+              "title": "Asset Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Setup Asset",
+        "tags": [
+          "setup"
+        ]
+      }
+    },
     "/api/setup/config-template": {
       "get": {
         "operationId": "get_config_template_api_setup_config_template_get",
@@ -5460,6 +6402,29 @@
           }
         },
         "summary": "Check Generated Sync",
+        "tags": [
+          "setup"
+        ]
+      }
+    },
+    "/api/setup/presets": {
+      "get": {
+        "operationId": "get_setup_presets_api_setup_presets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Setup Presets Api Setup Presets Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Setup Presets",
         "tags": [
           "setup"
         ]

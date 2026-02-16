@@ -48,9 +48,15 @@ const dom = {
   filterFieldsInput: document.getElementById("filterFieldsInput"),
   anonymousVisibility: document.getElementById("anonymousVisibility"),
   authenticatedVisibility: document.getElementById("authenticatedVisibility"),
+  anonymousSearchEnabled: document.getElementById("anonymousSearchEnabled"),
+  anonymousFilterMode: document.getElementById("anonymousFilterMode"),
   vectorSearchEnabled: document.getElementById("vectorSearchEnabled"),
   ragQueryEnabled: document.getElementById("ragQueryEnabled"),
   followUpSuggestions: document.getElementById("followUpSuggestions"),
+  profileRetrievalMode: document.getElementById("profileRetrievalMode"),
+  ragFailureBehavior: document.getElementById("ragFailureBehavior"),
+  profileSimilarityThreshold: document.getElementById("profileSimilarityThreshold"),
+  maxVectorCandidates: document.getElementById("maxVectorCandidates"),
   schemaList: document.getElementById("schemaList"),
   riskList: document.getElementById("riskList"),
   yamlPreview: document.getElementById("yamlPreview"),
@@ -325,9 +331,15 @@ function renderDiscovery() {
   dom.filterFieldsInput.value = configState.discovery.filter_fields.join(", ");
   dom.anonymousVisibility.value = configState.discovery.result_visibility.anonymous;
   dom.authenticatedVisibility.value = configState.discovery.result_visibility.authenticated;
+  dom.anonymousSearchEnabled.checked = Boolean(configState.discovery.access.anonymous_search_enabled);
+  dom.anonymousFilterMode.value = configState.discovery.access.anonymous_filter_mode;
   dom.vectorSearchEnabled.checked = Boolean(configState.discovery.ai.vector_search_enabled);
   dom.ragQueryEnabled.checked = Boolean(configState.discovery.ai.rag_query_enabled);
   dom.followUpSuggestions.checked = Boolean(configState.discovery.ai.follow_up_suggestions);
+  dom.profileRetrievalMode.value = configState.discovery.ai.profile_retrieval_mode;
+  dom.ragFailureBehavior.value = configState.discovery.ai.rag_failure_behavior;
+  dom.profileSimilarityThreshold.value = String(configState.discovery.ai.profile_similarity_threshold);
+  dom.maxVectorCandidates.value = String(configState.discovery.ai.max_vector_candidates);
 }
 
 function fieldTypeOptions(selected) {
@@ -442,6 +454,18 @@ function renderRisks() {
   }
   if (!configState.discovery.searchable_types.length) {
     risks.push("No searchable roles configured. Discovery may return no results.");
+  }
+  if (
+    configState.discovery.access.anonymous_search_enabled &&
+    configState.discovery.access.anonymous_filter_mode === "all"
+  ) {
+    risks.push("Anonymous filters are set to 'all'. This can expose sensitive signals through filter behavior.");
+  }
+  if (
+    configState.discovery.ai.profile_retrieval_mode === "rag_strict" &&
+    !configState.discovery.ai.vector_search_enabled
+  ) {
+    risks.push("RAG strict is enabled while vector search is disabled. Discovery requests may fail.");
   }
   if (risks.length === 0) {
     dom.riskList.innerHTML = "<p>No high-risk issues detected. Configuration looks launch-ready for MVP.</p>";
@@ -908,6 +932,16 @@ function bindEvents() {
       renderStepNav();
       return;
     }
+    if (target === dom.anonymousSearchEnabled) {
+      configState.discovery.access.anonymous_search_enabled = dom.anonymousSearchEnabled.checked;
+      renderStepNav();
+      return;
+    }
+    if (target === dom.anonymousFilterMode) {
+      configState.discovery.access.anonymous_filter_mode = dom.anonymousFilterMode.value;
+      renderStepNav();
+      return;
+    }
     if (target === dom.vectorSearchEnabled) {
       configState.discovery.ai.vector_search_enabled = dom.vectorSearchEnabled.checked;
       renderStepNav();
@@ -920,6 +954,26 @@ function bindEvents() {
     }
     if (target === dom.followUpSuggestions) {
       configState.discovery.ai.follow_up_suggestions = dom.followUpSuggestions.checked;
+      renderStepNav();
+      return;
+    }
+    if (target === dom.profileRetrievalMode) {
+      configState.discovery.ai.profile_retrieval_mode = dom.profileRetrievalMode.value;
+      renderStepNav();
+      return;
+    }
+    if (target === dom.ragFailureBehavior) {
+      configState.discovery.ai.rag_failure_behavior = dom.ragFailureBehavior.value;
+      renderStepNav();
+      return;
+    }
+    if (target === dom.profileSimilarityThreshold) {
+      configState.discovery.ai.profile_similarity_threshold = Number(dom.profileSimilarityThreshold.value || 0);
+      renderStepNav();
+      return;
+    }
+    if (target === dom.maxVectorCandidates) {
+      configState.discovery.ai.max_vector_candidates = Number(dom.maxVectorCandidates.value || 1);
       renderStepNav();
       return;
     }

@@ -141,10 +141,18 @@ def _base_template(name: str, description: str, industry: str) -> dict[str, Any]
             "searchable_types": ["provider"],
             "filter_fields": ["country", "specialties"],
             "result_visibility": {"anonymous": "public", "authenticated": "protected"},
+            "access": {
+                "anonymous_search_enabled": False,
+                "anonymous_filter_mode": "public_only",
+            },
             "ai": {
                 "vector_search_enabled": True,
                 "rag_query_enabled": True,
                 "follow_up_suggestions": True,
+                "profile_retrieval_mode": "rag_strict",
+                "rag_failure_behavior": "service_unavailable",
+                "profile_similarity_threshold": 0.25,
+                "max_vector_candidates": 500,
             },
         },
     }

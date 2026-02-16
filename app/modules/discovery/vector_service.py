@@ -6,10 +6,10 @@ import logging
 import uuid
 from typing import Any
 
-from sqlalchemy import Select, delete, insert, select, update
+from sqlalchemy import Select, delete, false, func, insert, or_, select, update
 
 from app.core.database import session_scope
-from app.core.db_schema import ai_document_chunks, profile_vectors
+from app.core.db_schema import ai_document_chunks, profile_vectors, table_for_collection
 
 logger = logging.getLogger("cosolvent.vector")
 
@@ -61,6 +61,86 @@ async def search_vectors(
     if source == "document":
         return await _search_document_vectors(query_embedding, top_k, filters)
     return await _search_profile_vectors(query_embedding, top_k, filters)
+
+
+async def search_profile_vectors_strict(
+    query_embedding: list[float],
+    *,
+    participant_types: list[str],
+    filters: dict[str, Any] | None = None,
+    min_score: float = 0.0,
+    offset: int = 0,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    profiles = table_for_collection("profiles")
+    distance = profile_vectors.c.embedding.cosine_distance(query_embedding)
+    similarity = 1 - distance
+    score = similarity.label("score")
+    stmt: Select[Any] = (
+        select(
+            profile_vectors.c.profile_id,
+            score,
+            profile_vectors.c.vector_metadata,
+            profiles.c.data.label("profile_data"),
+        )
+        .select_from(profile_vectors.join(profiles, profiles.c.id == profile_vectors.c.profile_id))
+        .where(profiles.c.data["status"].astext == "active")
+        .where(profiles.c.data["participant_type"].astext.in_(participant_types))
+    )
+
+    if min_score > 0:
+        stmt = stmt.where(similarity >= min_score)
+
+    # For strict profile retrieval, apply user-facing filters against canonical profile data
+    # to avoid stale vector metadata causing false negatives/positives.
+    stmt = _apply_profile_field_filters(stmt, profiles.c.data, filters or {})
+    stmt = stmt.order_by(
+        score.desc(),
+        profiles.c.data["updated_at"].astext.desc(),
+        profile_vectors.c.profile_id.asc(),
+    )
+    stmt = stmt.offset(max(0, offset)).limit(max(1, limit))
+
+    async with session_scope() as session:
+        rows = (await session.execute(stmt)).all()
+
+    return [
+        {
+            "id": str(row.profile_id),
+            "score": float(row.score),
+            "metadata": row.vector_metadata or {},
+            "profile": dict(row.profile_data or {}),
+        }
+        for row in rows
+    ]
+
+
+async def count_profile_vectors_strict(
+    query_embedding: list[float],
+    *,
+    participant_types: list[str],
+    filters: dict[str, Any] | None = None,
+    min_score: float = 0.0,
+) -> int:
+    profiles = table_for_collection("profiles")
+    distance = profile_vectors.c.embedding.cosine_distance(query_embedding)
+    similarity = 1 - distance
+    stmt: Select[Any] = (
+        select(func.count())
+        .select_from(profile_vectors.join(profiles, profiles.c.id == profile_vectors.c.profile_id))
+        .where(profiles.c.data["status"].astext == "active")
+        .where(profiles.c.data["participant_type"].astext.in_(participant_types))
+    )
+
+    if min_score > 0:
+        stmt = stmt.where(similarity >= min_score)
+
+    # Keep count predicate in lockstep with strict search predicate.
+    stmt = _apply_profile_field_filters(stmt, profiles.c.data, filters or {})
+
+    async with session_scope() as session:
+        value = (await session.execute(stmt)).scalar_one()
+    return int(value)
 
 
 async def delete_profile_vector(profile_id: str) -> None:
@@ -137,11 +217,40 @@ def _apply_metadata_filters(stmt: Select[Any], metadata_column: Any, filters: di
         if value is None:
             continue
         if isinstance(value, list):
-            text_values = [str(v) for v in value]
-            stmt = stmt.where(metadata_column[key].astext.in_(text_values))
+            if not value:
+                stmt = stmt.where(false())
+                continue
+            conditions = [_json_field_any_match(metadata_column, key, option) for option in value]
+            stmt = stmt.where(or_(*conditions))
         else:
-            stmt = stmt.where(metadata_column[key].astext == str(value))
+            stmt = stmt.where(_json_field_any_match(metadata_column, key, value))
     return stmt
+
+
+def _apply_profile_field_filters(stmt: Select[Any], profile_data_column: Any, filters: dict[str, Any]) -> Select[Any]:
+    for key, value in filters.items():
+        if value is None:
+            continue
+        if isinstance(value, list):
+            if not value:
+                stmt = stmt.where(false())
+                continue
+            conditions = [
+                _json_field_any_match(profile_data_column["fields"], key, option)
+                for option in value
+            ]
+            stmt = stmt.where(or_(*conditions))
+        else:
+            stmt = stmt.where(_json_field_any_match(profile_data_column["fields"], key, value))
+    return stmt
+
+
+def _json_field_any_match(column: Any, key: str, value: Any):
+    # Supports both scalar fields and array fields with "any-match" semantics.
+    return or_(
+        column.contains({key: value}),
+        column.contains({key: [value]}),
+    )
 
 
 def _to_uuid(value: str) -> uuid.UUID | None:

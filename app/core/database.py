@@ -539,8 +539,10 @@ async def _ensure_indexes(conn) -> None:
 
     # Full-text fallback support
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_profiles_data_trgm ON profiles USING gin ((data::text) gin_trgm_ops)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_profiles_data_gin ON profiles USING gin (data)"))
 
     # Vector indexes
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_profile_vectors_metadata_gin ON profile_vectors USING gin (vector_metadata)"))
     await conn.execute(
         text(
             "CREATE INDEX IF NOT EXISTS ix_profile_vectors_embedding "

@@ -105,10 +105,14 @@ class TestDiscovery:
     def test_searchable_types(self):
         cfg = load_marketplace_config(FIXTURES / "agriculture.yaml")
         assert cfg.discovery.searchable_types == ["producer"]
+        assert cfg.discovery.access.anonymous_search_enabled is False
+        assert cfg.discovery.access.anonymous_filter_mode == "public_only"
 
     def test_ai_settings(self):
         cfg = load_marketplace_config(FIXTURES / "minimal.yaml")
         assert cfg.discovery.ai.vector_search_enabled is False
+        assert cfg.discovery.ai.profile_retrieval_mode == "hybrid"
+        assert cfg.discovery.ai.rag_failure_behavior == "service_unavailable"
 
 
 class TestCrossValidation:
@@ -173,6 +177,20 @@ class TestCrossValidation:
     def test_bad_filter_field(self):
         raw = self._make_raw()
         raw["discovery"]["filter_fields"] = ["nonexistent_field"]
+        with pytest.raises(Exception):
+            MarketplaceConfig(**raw)
+
+    def test_searchable_type_must_be_visible(self):
+        raw = self._make_raw()
+        for pt in raw["participant_types"]:
+            if pt["slug"] == "producer":
+                pt["permissions"]["visible_in_search"] = False
+        with pytest.raises(Exception):
+            MarketplaceConfig(**raw)
+
+    def test_invalid_similarity_threshold(self):
+        raw = self._make_raw()
+        raw["discovery"]["ai"]["profile_similarity_threshold"] = 1.2
         with pytest.raises(Exception):
             MarketplaceConfig(**raw)
 

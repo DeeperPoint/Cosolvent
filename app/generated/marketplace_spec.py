@@ -1,11 +1,17 @@
 """Generated marketplace specification snapshot."""
 
-SPEC_HASH = "096ab1bd61cf63b4c1b6209f8d9845f43e0235b00edffc18669afbe7ce089525"
+SPEC_HASH = "cd0965b201144ad27f7976332380d34a776d5ebbfc68543b9c44f550628ba753"
 GENERATOR_VERSION = "1.0.0"
 MARKETPLACE_SPEC = {'communication': {'conversation_rules': [{'initiator': 'buyer',
                                            'receiver': 'producer',
                                            'requires_approval': True}]},
- 'discovery': {'ai': {'follow_up_suggestions': True,
+ 'discovery': {'access': {'anonymous_filter_mode': 'public_only',
+                          'anonymous_search_enabled': False},
+               'ai': {'follow_up_suggestions': True,
+                      'max_vector_candidates': 500,
+                      'profile_retrieval_mode': 'rag_strict',
+                      'profile_similarity_threshold': 0.25,
+                      'rag_failure_behavior': 'service_unavailable',
                       'rag_query_enabled': True,
                       'vector_search_enabled': True},
                'filter_fields': ['country', 'primary_crops', 'certifications'],

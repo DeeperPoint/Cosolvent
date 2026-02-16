@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-SPEC_HASH = "096ab1bd61cf63b4c1b6209f8d9845f43e0235b00edffc18669afbe7ce089525"
+SPEC_HASH = "cd0965b201144ad27f7976332380d34a776d5ebbfc68543b9c44f550628ba753"
 PROFILE_MODEL_DEFS: dict[str, dict[str, Any]] = {'buyer': {'sections': [{'fields': [{'label': 'Organization Name',
                                      'name': 'org_name',
                                      'options': None,
