@@ -1,0 +1,357 @@
+%% Copyright © 2026 Mustafa Uzumeri. All rights reserved.
+%%
+%% ================================================================
+%% DEAL STATE MODEL — COSOLVENT DEAL BRIEF INTEGRATION
+%% ================================================================
+%%
+%% SUMMARY: INTEGRATING DEAL-MAKING LOGIC INTO THE DEAL BRIEF
+%% ================================================================
+%%
+%% 1. OVERVIEW
+%% -----------
+%% The Deal Brief (called "Handoff Artifact" in the roadmap) is
+%% the platform's primary deliverable — a structured document
+%% that carries the platform's value into offline deal execution.
+%% It is assembled from the outcomes of a multi-issue, multi-party
+%% negotiation process.
+%%
+%% This diagram models the state machines that govern deal brief
+%% construction at two levels:
+%%
+%%   ISSUE-LEVEL: Each negotiable term (price, volume, quality,
+%%   delivery, payment terms, etc.) runs its own bilateral
+%%   negotiation between producer and consumer. An issue must
+%%   reach "Agree" for its terms to enter the deal brief.
+%%
+%%   DEAL-LEVEL: The overall deal aggregates all issue outcomes
+%%   and all required participant roles. The deal brief can only
+%%   be assembled when ALL issues are agreed AND all required
+%%   participants (facilitators) are accounted for.
+%%
+%% 2. KEY ASSUMPTIONS
+%% ------------------
+%%   A. No agreement unless all individual issues are agreed.
+%%      If any single issue reaches "Quit" and cannot be
+%%      recovered, the deal fails. There is no partial deal.
+%%      This is the package-deal principle — concessions on
+%%      one issue may depend on outcomes of other issues.
+%%
+%%   B. Deal is not made until all required participants are
+%%      consulted or accounted for. The two principals
+%%      (producer, consumer) negotiate the terms, but the
+%%      deal also requires facilitator roles (customs broker,
+%%      shipper, inspector, trade finance, etc.) to be filled
+%%      or explicitly waived before the brief is complete.
+%%
+%% 3. ISSUE-LEVEL NEGOTIATION
+%% --------------------------
+%%   Each issue follows this protocol:
+%%   - One party makes an OFFER
+%%   - The other may ACCEPT, COUNTER, REJECT, or ask a
+%%     question (which must be answered before proceeding)
+%%   - Either party may delay, entering a WAIT state
+%%   - WAIT has a configurable timeout that leads to Quit
+%%   - WAIT can resume, returning both parties to active state
+%%   - Terminal states: Agree (both accept) or Quit (reject
+%%     or timeout)
+%%
+%%   For brokerage agent integration (Roadmap Module 4):
+%%   - Agents can autonomously ACCEPT within pre-set bounds
+%%   - Agents can COUNTER within pre-approved ranges
+%%   - Agents escalate to human when outside authority
+%%   - The WAIT/resume cycle supports async cross-timezone flow
+%%
+%%   Reopening: If both parties consent, a previously Agreed
+%%   issue can be reopened and re-enter negotiation. This
+%%   supports the package-deal dynamic where conceding on one
+%%   issue may require renegotiating others.
+%%
+%% 4. DEAL-LEVEL AGGREGATION
+%% -------------------------
+%%   The deal-level state is computed from the aggregate of all
+%%   issue states and all role slot states:
+%%
+%%   Draft — Deal created, principals confirmed, issues being
+%%           defined. No offers have been made yet.
+%%
+%%   Negotiating — At least one issue is active (not terminal).
+%%           The deal is live. Started when the first OFFER is
+%%           made on any issue.
+%%
+%%   Issues Agreed — Every issue has reached Agree. No Quits.
+%%           This is a prerequisite for brief assembly, but
+%%           not sufficient — facilitator roles must also be
+%%           resolved. Issues can be reopened from this state,
+%%           returning the deal to Negotiating.
+%%
+%%   Roles Complete — All facilitator role slots have been
+%%           marked Confirmed or Not Needed. Combined with
+%%           Issues Agreed, this means the deal is structurally
+%%           complete.
+%%
+%%   Brief Ready — The Deal Brief has been assembled from
+%%           agreed terms, profiles, facilitator info, shared
+%%           documents, and AI assessments.
+%%
+%%   Handoff — The brief has been delivered to downstream
+%%           consumers (bank, lawyer, freight forwarder, etc.).
+%%           The platform's job is done.
+%%
+%%   Failed — At least one issue reached Quit without recovery,
+%%           or a deal-level timeout expired. The deal cannot
+%%           proceed.
+%%
+%% 5. FACILITATOR ROLE SLOTS
+%% -------------------------
+%%   Each deal identifies required facilitator roles. Roles can
+%%   be identified by:
+%%   - AI analysis of deal parameters (route, product, value,
+%%     regulatory jurisdictions)
+%%   - Manual specification by either principal
+%%   - Marketplace config defaults (admin/sponsor defined)
+%%
+%%   Each role slot follows its own lifecycle:
+%%     Needed → Searching → Proposed → Confirmed
+%%     Needed → Not Needed (explicitly waived by principals)
+%%     Proposed → Searching (if principals reject candidate)
+%%
+%%   A role slot is "resolved" when it reaches Confirmed or
+%%   Not Needed. All role slots must be resolved before the
+%%   deal can proceed to brief assembly.
+%%
+%% 6. DEAL BRIEF CONTENTS
+%% -----------------------
+%%   When all issues are Agreed and all roles are resolved, the
+%%   Deal Brief is assembled from:
+%%
+%%   a) AGREED TERMS — the resolved value from each issue
+%%      (price, volume, quality grade, delivery window,
+%%      payment terms, shipping responsibility, etc.)
+%%
+%%   b) PRINCIPAL PROFILES — gallery-level information about
+%%      producer and consumer (never matching-profile data)
+%%
+%%   c) CONFIRMED FACILITATORS — gallery profiles and relevant
+%%      capabilities for each filled role slot
+%%
+%%   d) NEGOTIATION SUMMARY — sanitized summary of the
+%%      negotiation (key discussion points, not raw messages)
+%%
+%%   e) SHARED DOCUMENTS — documents both parties elevated
+%%      from private/ai-only to match-only or public during
+%%      the negotiation process
+%%
+%%   f) REGULATORY FLAGS — jurisdiction-specific compliance
+%%      requirements identified from the deal parameters
+%%      (origin/destination countries, product category)
+%%
+%%   g) AI ASSESSMENT — match rationale, risk flags, fair-value
+%%      context (if pricing module is active)
+%%
+%%   The deal brief template is admin-configurable per
+%%   marketplace deployment via marketplace.yaml. Each
+%%   vertical defines: what the artifact is called, what
+%%   sections it contains, which deal/profile fields map to
+%%   which sections, and which downstream consumer roles
+%%   receive which sections.
+%%
+%%   Vertical-specific names:
+%%     Agricultural trade → "Deal Brief"
+%%     Mental health → "Plan of Care"
+%%     Manufacturing → "Production Brief"
+%%     Art/collectibles → "Transaction Package"
+%%     Real estate → "Deal Package"
+%%
+%% 7. INTEGRATION REQUIREMENTS (cosolvent-beta)
+%% ---------------------------------------------
+%%   To implement this model in cosolvent-beta:
+%%
+%%   a) DEAL DATA MODEL — A new entity linking two principals,
+%%      containing a list of DealIssue records. Each issue
+%%      carries: state machine state, current offer/counter
+%%      values, an audit trail of all actions (timestamped),
+%%      and an agreed_value field populated on Agree.
+%%      Depends on resolving Conflict C1 (JSONB vs relational).
+%%      Recommendation: Hybrid — Deal and DealIssue as typed
+%%      relational tables for referential integrity; flexible
+%%      issue_metadata as JSONB for vertical-specific fields.
+%%
+%%   b) DEAL ISSUE STATE ENGINE — A service enforcing the
+%%      transitions in the issue-level diagram. Must validate
+%%      that only legal transitions occur (e.g., cannot ACCEPT
+%%      your own OFFER), record every transition with
+%%      timestamp and actor, and emit events on state change.
+%%      This is the core building block — implement first.
+%%
+%%   c) DEAL AGGREGATION SERVICE — Monitors all issue states
+%%      and role slot states for a deal, computes the deal-
+%%      level state, and triggers brief assembly when all
+%%      conditions are met. Must handle the reopen case
+%%      (Issues Agreed → Negotiating) gracefully.
+%%
+%%   d) ROLE SLOT SERVICE — Manages facilitator role lifecycle.
+%%      Integrates with deal-triggered facilitator search
+%%      (Roadmap §3.2). Tracks slot status. Allows principals
+%%      to approve/reject proposed facilitators.
+%%
+%%   e) DEAL BRIEF GENERATOR — Template engine pulling agreed
+%%      terms, profiles, facilitator info, shared documents,
+%%      and AI assessments into a structured output document.
+%%      Template defined per marketplace in marketplace.yaml.
+%%      Could use the existing prompt management system for
+%%      the AI-generated sections (summary, risk assessment).
+%%
+%%   f) COMMUNICATION SCOPING — Extend the existing
+%%      communication module to support deal-scoped channels.
+%%      A deal channel includes both principals plus all
+%%      confirmed facilitators. Messages are contextual to
+%%      the deal. This is Roadmap item A1.4.
+%%
+%%   g) AGENT INTEGRATION — The issue-level state machine
+%%      must expose an interface for brokerage agents
+%%      (Module 4) to submit offers, counters, accepts, and
+%%      questions on behalf of a party, within that party's
+%%      delegated authority boundaries. The agent checks its
+%%      authority config before each action and escalates to
+%%      the human principal when outside bounds.
+%%
+%%   h) NOTIFICATION HOOKS — State transitions should trigger
+%%      notifications via the existing notification plumbing.
+%%      Critical notifications: counter received, issue
+%%      agreed, issue quit, all issues agreed, brief ready.
+%%      For agents: escalation required, timeout warning.
+%%
+%% 8. IMPLEMENTATION SEQUENCING
+%% ----------------------------
+%%   Per the roadmap's phasing:
+%%
+%%   Phase 1 (foundation):
+%%     1.8: Resolve C1 — architectural decision (JSONB vs
+%%          relational) before Deal data model
+%%     1.9: Deal data model with role slots
+%%     1.10: Deal-triggered facilitator search
+%%     1.11: Handoff Artifact / Deal Brief generator
+%%
+%%   Track A1 (marketplace depth):
+%%     A1.4: Match-scoped and deal-scoped communication
+%%     A1.5: User Agent entity and configuration
+%%     A1.6: Asynchronous conversation engine
+%%     A1.7: Deal progression workflow → Deal Brief
+%%
+%%   Recommended build order:
+%%     1. Issue-level state engine (standalone, testable)
+%%     2. Deal data model with DealIssue records
+%%     3. Deal aggregation service (computes deal-level state)
+%%     4. Role slot service (facilitator lifecycle)
+%%     5. Deal brief generator (template engine)
+%%     6. Deal-scoped communication channels
+%%     7. Agent interface for issue-level actions
+%%     8. Notification hooks
+%%
+%%   The issue-level state machine (this diagram's core) is
+%%   the fundamental building block. Everything else layers
+%%   on top of it.
+%%
+%% ================================================================
+
+---
+config:
+  theme: redux
+  layout: dagre
+---
+
+flowchart TD
+
+    %% ============================================================
+    %% ISSUE-LEVEL STATE MACHINE (per negotiable term)
+    %% ============================================================
+
+    subgraph ISSUE["⚖️ ISSUE-LEVEL — one instance per negotiable term"]
+        direction TB
+        P1(["Producer"]) -- "OFFER" --> P2(["Consumer"])
+        P2 <-- "question" --> P1
+        P2 -- "COUNTER" --> P1
+        P1 <-- "answer" --> P2
+        P1 -- "ACCEPT" --> AG(("✅ Agree"))
+        P2 -- "ACCEPT" --> AG
+        P1 -- "REJECT" --> QT(("🚫 Quit"))
+        P2 -- "REJECT" --> QT
+        P1 -- "delay" --> W(["⏳ WAIT"])
+        P2 -- "delay" --> W
+        W -- "timeout" --> QT
+        W -- "resume" --> P1 & P2
+        AG -. "reopen\n(both consent)" .-> P1
+    end
+
+    %% ============================================================
+    %% DEAL-LEVEL STATE MACHINE (one per deal)
+    %% ============================================================
+
+    subgraph DEAL["📋 DEAL-LEVEL — overall deal lifecycle"]
+        direction TB
+        DR["Draft"] --> |"first OFFER\non any issue"| NG["Negotiating"]
+        NG --> |"all issues\n→ Agree"| IA["Issues\nAgreed"]
+        NG --> |"any issue\n→ Quit"| FL["❌ Failed"]
+        IA -. "issue\nreopened" .-> NG
+        IA --> |"all role slots\nresolved"| RC["Roles\nComplete"]
+        RC --> |"brief\nassembled"| BR["📄 Brief\nReady"]
+        BR --> |"delivered to\ndownstream"| HO["🤝 Handoff"]
+    end
+
+    %% ============================================================
+    %% FACILITATOR ROLE SLOTS (one track per required role)
+    %% ============================================================
+
+    subgraph ROLES["👥 ROLE SLOTS — per facilitator role"]
+        direction TB
+        ND["Needed"] --> |"search\ninitiated"| SR["Searching"]
+        SR --> |"candidate\nfound"| PR["Proposed"]
+        PR --> |"principals\napprove"| CF["✅ Confirmed"]
+        PR --> |"principals\nreject"| SR
+        ND --> |"explicitly\nwaived"| NN["Not Needed"]
+    end
+
+    %% ============================================================
+    %% DEAL BRIEF CONTENTS
+    %% ============================================================
+
+    subgraph BRIEF["📄 DEAL BRIEF — assembled from"]
+        direction TB
+        T1["Agreed Terms"]
+        T2["Principal Profiles"]
+        T3["Confirmed Facilitators"]
+        T4["Negotiation Summary"]
+        T5["Shared Documents"]
+        T6["Regulatory Flags"]
+        T7["AI Assessment"]
+    end
+
+    %% ============================================================
+    %% CROSS-LEVEL CONNECTIONS
+    %% ============================================================
+
+    AG -- "agreed value\nrecorded per issue" ----> IA
+    QT -- "deal cannot\nproceed" ----> FL
+    CF -- "role\nfilled" ----> RC
+    NN -- "role\nwaived" ----> RC
+    T1 & T2 & T3 & T4 & T5 & T6 & T7 ----> BR
+
+    %% ============================================================
+    %% STYLING
+    %% ============================================================
+
+    style AG fill:#C8E6C9
+    style QT fill:#FF6D00
+    style FL fill:#FF6D00
+    style BR fill:#B3E5FC
+    style HO fill:#C8E6C9
+    style CF fill:#C8E6C9
+    style NN fill:#E0E0E0
+    style DR fill:#FFF9C4
+    style NG fill:#FFF176
+    style IA fill:#AED581
+    style RC fill:#81C784
+    style ISSUE fill:#FFF8E1,stroke:#FFC107,stroke-width:2px
+    style DEAL fill:#E8F5E9,stroke:#4CAF50,stroke-width:2px
+    style ROLES fill:#F3E5F5,stroke:#9C27B0,stroke-width:2px
+    style BRIEF fill:#E3F2FD,stroke:#2196F3,stroke-width:2px
