@@ -15,10 +15,10 @@ POSTGRES_HOST_PORT ?= 15432
 INTEGRATION_BASE_URL ?= http://localhost:$(API_HOST_PORT)
 E2E_BASE_URL ?= http://localhost:$(API_HOST_PORT)
 ADMIN_EMAIL ?= admin@example.com
-ADMIN_PASSWORD ?= ChangeMe123!
+ADMIN_PASSWORD ?= $(error Set ADMIN_PASSWORD env var before running bootstrap-admin)
 DOCKER_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
 
-.PHONY: help venv install lint lint-fix unit integration e2e live test-all \
+.PHONY: help venv install lint lint-fix format type-check clean unit integration e2e live test-all \
 	docker-cache setup-up setup-down up down reset ps logs logs-api logs-worker wait-api bootstrap-admin \
 	api worker validate-config wizard onboarding smoke-setup compile compile-check export regenerate-auto
 
@@ -38,6 +38,16 @@ lint: ## Run Ruff lint checks
 
 lint-fix: ## Run Ruff with auto-fixes
 	$(RUFF) check --fix app cli tests scripts
+
+format: ## Format code with Ruff
+	$(RUFF) format app cli tests scripts
+
+type-check: ## Run mypy type checking
+	$(VENV)/bin/mypy app cli --ignore-missing-imports
+
+clean: ## Remove build artifacts and caches
+	rm -rf dist/ *.egg-info/ .pytest_cache/ .ruff_cache/ .mypy_cache/ __pycache__/
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 unit: ## Run unit tests
 	$(PYTEST) tests/unit -q
