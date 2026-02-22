@@ -475,70 +475,50 @@ function renderSchemas() {
         ${sections
           .map(
             (section, sIndex) => `
-          <section class="field-chip">
-            <div class="field-chip-head">
-              <h5>Section ${sIndex + 1}</h5>
-              <div class="small-mono">${htmlEscape(pt.slug)}</div>
-            </div>
-            <div class="grid-2">
-              <label class="field">
-                <span class="field-help">Section name ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.name`)}</span>
-                <input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.name" type="text" value="${htmlEscape(section.name)}" />
-              </label>
-              <div class="field">
-                <span>Section actions</span>
-                <button class="outline-btn" type="button" data-action="remove-section" data-slug="${htmlEscape(pt.slug)}" data-section-index="${sIndex}">
-                  Remove Section
-                </button>
+          <details class="schema-section" open>
+            <summary>${htmlEscape(section.name)} &mdash; ${section.fields.length} field${section.fields.length !== 1 ? "s" : ""}</summary>
+            <div class="schema-section-body">
+              <div class="schema-section-head">
+                <label class="field">
+                  <span class="field-help">Section name ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.name`)}</span>
+                  <input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.name" type="text" value="${htmlEscape(section.name)}" />
+                </label>
+                <button class="outline-btn" type="button" data-action="remove-section" data-slug="${htmlEscape(pt.slug)}" data-section-index="${sIndex}">Remove</button>
               </div>
-            </div>
-            ${section.fields
-              .map((field, fIndex) => {
-                const optionsValue = Array.isArray(field.options) ? field.options.join(", ") : "";
-                return `
-                <div class="field-chip">
-                  <div class="field-chip-head">
-                    <h5>Field ${fIndex + 1}</h5>
-                    <button class="outline-btn" type="button" data-action="remove-field" data-slug="${htmlEscape(pt.slug)}" data-section-index="${sIndex}" data-field-index="${fIndex}">
-                      Remove Field
-                    </button>
-                  </div>
-                  <div class="grid-3">
-                    <label class="field">
-                      <span class="field-help">Field key ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.name`)}</span>
-                      <input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.name" type="text" value="${htmlEscape(field.name)}" />
-                    </label>
-                    <label class="field">
-                      <span class="field-help">Label shown to users ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.label`)}</span>
-                      <input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.label" type="text" value="${htmlEscape(field.label)}" />
-                    </label>
-                    <label class="field">
-                      <span class="field-help">Field type ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.type`)}</span>
-                      <select data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.type">${fieldTypeOptions(field.type)}</select>
-                    </label>
-                  </div>
-                  <div class="grid-3">
-                    <label class="field">
-                      <span class="field-help">Visibility ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.visibility`)}</span>
-                      <select data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.visibility">${fieldVisibilityOptions(field.visibility)}</select>
-                    </label>
-                    <label class="field">
-                      <span class="field-help">Options (comma separated) ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.options`)}</span>
-                      <input data-options-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.options" type="text" value="${htmlEscape(optionsValue)}" />
-                    </label>
-                    <div class="checks">
-                      <label><input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.required" type="checkbox" ${field.required ? "checked" : ""} /> Required ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.required`)}</label>
-                      <label><input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.searchable" type="checkbox" ${field.searchable ? "checked" : ""} /> Searchable ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}.searchable`)}</label>
+              ${section.fields
+                .map((field, fIndex) => {
+                  const optionsValue = Array.isArray(field.options) ? field.options.join(", ") : "";
+                  const bp = `profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}`;
+                  return `
+                  <div class="field-row">
+                    <div class="field-row-primary">
+                      <input data-bind="${bp}.name" type="text" value="${htmlEscape(field.name)}" placeholder="field_key" />
+                      <input data-bind="${bp}.label" type="text" value="${htmlEscape(field.label)}" placeholder="Label" />
+                      <select data-bind="${bp}.type">${fieldTypeOptions(field.type)}</select>
+                      <label class="field-row-check"><input data-bind="${bp}.required" type="checkbox" ${field.required ? "checked" : ""} /> Req</label>
+                      <button class="outline-btn field-row-remove" type="button" data-action="remove-field" data-slug="${htmlEscape(pt.slug)}" data-section-index="${sIndex}" data-field-index="${fIndex}" aria-label="Remove field">&times;</button>
                     </div>
+                    <details class="field-row-advanced">
+                      <summary>Visibility, search, options</summary>
+                      <div class="grid-3">
+                        <label class="field">
+                          <span>Visibility ${helpButton(`${bp}.visibility`)}</span>
+                          <select data-bind="${bp}.visibility">${fieldVisibilityOptions(field.visibility)}</select>
+                        </label>
+                        <label class="field">
+                          <span>Options (comma sep.) ${helpButton(`${bp}.options`)}</span>
+                          <input data-options-bind="${bp}.options" type="text" value="${htmlEscape(optionsValue)}" />
+                        </label>
+                        <label class="field-row-check" style="align-self:end;min-height:44px"><input data-bind="${bp}.searchable" type="checkbox" ${field.searchable ? "checked" : ""} /> Searchable</label>
+                      </div>
+                    </details>
                   </div>
-                </div>
-              `;
-              })
-              .join("")}
-            <button class="outline-btn" type="button" data-action="add-field" data-slug="${htmlEscape(pt.slug)}" data-section-index="${sIndex}">
-              Add Field
-            </button>
-          </section>
+                `;
+                })
+                .join("")}
+              <button class="outline-btn" type="button" data-action="add-field" data-slug="${htmlEscape(pt.slug)}" data-section-index="${sIndex}">Add Field</button>
+            </div>
+          </details>
         `,
           )
           .join("")}
@@ -1049,7 +1029,6 @@ function bindEvents() {
   dom.floatingGlossaryBtn.addEventListener("click", openGlossaryDrawer);
   dom.closeGlossaryBtn.addEventListener("click", closeGlossaryDrawer);
   dom.glossarySearchInput.addEventListener("input", renderGlossaryList);
-
   dom.quickReadiness.addEventListener("change", () => {
     applyQuickAnswers();
     renderAll();
@@ -1159,18 +1138,19 @@ function bindEvents() {
           : target instanceof HTMLInputElement && target.type === "number"
             ? Number(target.value || 0)
             : target.value;
-      setAtPath(configState, bind, value);
       if (target.dataset.slugInput === "true") {
         const match = bind.match(/^participant_types\.(\d+)\.slug$/);
         if (match) {
           const index = Number(match[1]);
           const remap = updateSlugReferences(configState, index, target.value);
           setStatus("warn", `Role slug updated: ${remap.oldSlug} -> ${remap.newSlug}`);
+        } else {
+          setAtPath(configState, bind, value);
         }
-        renderAll();
       } else {
-        renderStepNav();
+        setAtPath(configState, bind, value);
       }
+      renderAll();
       return;
     }
     const optionsBind = target.dataset.optionsBind;
@@ -1180,7 +1160,7 @@ function bindEvents() {
         .map((x) => x.trim())
         .filter(Boolean);
       setAtPath(configState, optionsBind, values.length ? values : null);
-      renderStepNav();
+      renderAll();
       return;
     }
   };
