@@ -82,6 +82,7 @@ export function defaultField() {
     type: "text",
     required: false,
     options: null,
+    accepted_types: null,
     visibility: "public",
     searchable: false,
   };
@@ -151,6 +152,9 @@ export function fallbackConfig() {
     discovery: {
       ...clone(DEFAULT_DISCOVERY),
       searchable_types: ["provider"],
+    },
+    ai: {
+      enabled_providers: ["openai"],
     },
   };
 }
@@ -247,6 +251,10 @@ export function normalizeConfig(raw) {
   cfg.communication.conversation_rules = Array.isArray(cfg.communication.conversation_rules)
     ? cfg.communication.conversation_rules
     : [];
+  cfg.ai = cfg.ai && typeof cfg.ai === "object" ? cfg.ai : { enabled_providers: ["openai"] };
+  cfg.ai.enabled_providers = Array.isArray(cfg.ai.enabled_providers) && cfg.ai.enabled_providers.length
+    ? cfg.ai.enabled_providers : ["openai"];
+
   cfg.discovery = { ...clone(DEFAULT_DISCOVERY), ...(cfg.discovery || {}) };
   cfg.discovery.result_visibility = { ...clone(DEFAULT_DISCOVERY.result_visibility), ...(cfg.discovery.result_visibility || {}) };
   cfg.discovery.access = { ...clone(DEFAULT_DISCOVERY.access), ...(cfg.discovery.access || {}) };
@@ -310,6 +318,7 @@ export function normalizeConfig(raw) {
                 label: String(field?.label || titleize(field?.name || "new_field")),
                 type: field?.type || "text",
                 visibility: field?.visibility || "public",
+                accepted_types: field?.type === "files" ? (Array.isArray(field?.accepted_types) ? field.accepted_types : ["image", "pdf"]) : null,
               }))
             : [defaultField()],
         }))

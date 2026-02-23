@@ -21,6 +21,7 @@ _TYPE_MAP: dict[str, type] = {
     "multi_select": list[str],
     "date": str,
     "file": str,
+    "files": list,
     "location": dict,
 }
 

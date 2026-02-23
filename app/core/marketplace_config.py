@@ -34,12 +34,16 @@ class StrictModel(BaseModel):
 
 # ── Field definition inside a profile schema section ──────────────────────
 
+_VALID_ACCEPTED_TYPES = {"image", "pdf", "document"}
+
+
 class FieldDefinition(StrictModel):
     name: str
     label: str
-    type: Literal["text", "number", "select", "multi_select", "date", "file", "rich_text", "location"]
+    type: Literal["text", "number", "select", "multi_select", "date", "file", "files", "rich_text", "location"]
     required: bool = False
     options: list[str] | None = None
+    accepted_types: list[str] | None = None
     visibility: Literal["public", "protected", "private"] = "public"
     searchable: bool = False
 
@@ -48,6 +52,21 @@ class FieldDefinition(StrictModel):
     def options_required_for_select(cls, v: list[str] | None, info) -> list[str] | None:
         if info.data.get("type") in ("select", "multi_select") and not v:
             raise ValueError("options required for select/multi_select fields")
+        return v
+
+    @field_validator("accepted_types")
+    @classmethod
+    def validate_accepted_types(cls, v: list[str] | None, info) -> list[str] | None:
+        field_type = info.data.get("type")
+        if field_type != "files":
+            if v is not None:
+                raise ValueError("accepted_types is only valid for 'files' field type")
+            return None
+        if v is None:
+            return ["image", "pdf"]
+        invalid = set(v) - _VALID_ACCEPTED_TYPES
+        if invalid:
+            raise ValueError(f"Invalid accepted_types: {sorted(invalid)}. Valid: {sorted(_VALID_ACCEPTED_TYPES)}")
         return v
 
 
@@ -173,6 +192,12 @@ class MarketplaceIdentity(StrictModel):
     industry: str = ""
 
 
+# ── AI provider config ────────────────────────────────────────────────────
+
+class AIConfig(StrictModel):
+    enabled_providers: list[str] = ["openai"]
+
+
 # ── Root config ──────────────────────────────────────────────────────────
 
 class MarketplaceConfig(StrictModel):
@@ -182,6 +207,7 @@ class MarketplaceConfig(StrictModel):
     onboarding: dict[str, OnboardingConfig]
     communication: CommunicationConfig
     discovery: DiscoveryConfig
+    ai: AIConfig = AIConfig()
 
     # ── helpers ───────────────────────────────────────────────────────
     def get_type(self, slug: str) -> ParticipantType | None:

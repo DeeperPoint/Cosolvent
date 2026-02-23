@@ -155,6 +155,9 @@ def _base_template(name: str, description: str, industry: str) -> dict[str, Any]
                 "max_vector_candidates": 500,
             },
         },
+        "ai": {
+            "enabled_providers": ["openai"],
+        },
     }
 
 

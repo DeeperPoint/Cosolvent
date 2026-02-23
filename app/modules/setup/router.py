@@ -16,7 +16,6 @@ from app.core.marketplace_config import (
     load_marketplace_config,
     set_marketplace_config,
 )
-from app.modules.ai import service as ai_service
 from app.modules.setup.presets import list_presets
 
 router = APIRouter()
@@ -80,20 +79,6 @@ async def setup_asset(asset_name: str) -> FileResponse:
     elif asset_name.endswith(".css"):
         media_type = "text/css; charset=utf-8"
     return FileResponse(path, media_type=media_type)
-
-
-@router.get("/api/setup/ai-providers")
-async def get_ai_providers() -> dict[str, Any]:
-    providers = await ai_service.get_providers()
-    llm_settings = await ai_service.get_llm_settings()
-    return {"providers": providers, "settings": llm_settings}
-
-
-@router.post("/api/setup/ai-providers")
-async def save_ai_providers(payload: dict[str, Any]) -> dict[str, Any]:
-    updates = {k: v for k, v in payload.items() if v is not None}
-    result = await ai_service.update_llm_settings(updates)
-    return {"saved": True, "settings": result}
 
 
 @router.get("/api/setup/config-template")

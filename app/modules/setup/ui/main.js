@@ -31,13 +31,11 @@ let jsonDraftValid = false;
 let jsonValidationTimer = null;
 let helpHideTimer = null;
 
-let aiProviderConfig = {
-  enabled_providers: ["openai"],
-  embedding_provider: "openai",
-  embedding_model: "text-embedding-3-small",
-  embedding_dimensions: 1536,
-};
-let providers = [];
+const PROVIDERS = [
+  { id: "openai", name: "OpenAI" },
+  { id: "openrouter", name: "OpenRouter" },
+  { id: "gemini", name: "Google Gemini" },
+];
 
 const dom = {
   sourcePath: document.getElementById("sourcePath"),
@@ -261,7 +259,7 @@ function computeStepCompletion() {
     done: slugs.every((slug) => Boolean(configState.onboarding[slug])),
   };
   completion[4] = {
-    done: (aiProviderConfig.enabled_providers || []).length > 0 && Boolean(aiProviderConfig.embedding_provider),
+    done: (configState.ai?.enabled_providers || []).length > 0,
   };
   completion[5] = {
     done: Array.isArray(configState.communication.conversation_rules) && configState.communication.conversation_rules.length > 0,
@@ -489,7 +487,7 @@ function renderDiscovery() {
 }
 
 function fieldTypeOptions(selected) {
-  const types = ["text", "number", "select", "multi_select", "date", "file", "rich_text", "location"];
+  const types = ["text", "number", "select", "multi_select", "date", "file", "files", "rich_text", "location"];
   return types
     .map((value) => `<option value="${value}" ${value === selected ? "selected" : ""}>${value}</option>`)
     .join("");
@@ -561,6 +559,15 @@ function renderSchemas() {
                           <input data-bind="${bp}.searchable" type="checkbox" ${field.searchable ? "checked" : ""} />
                           <span>Searchable</span>
                         </label>
+                        ${field.type === "files" ? (() => {
+                          const at = Array.isArray(field.accepted_types) ? field.accepted_types : ["image", "pdf"];
+                          return `<div class="field-accepted-types">
+                            <span class="field-help">Accepted file types</span>
+                            <label><input type="checkbox" data-accepted-type="${bp}" data-type-value="image" ${at.includes("image") ? "checked" : ""} /> Images</label>
+                            <label><input type="checkbox" data-accepted-type="${bp}" data-type-value="pdf" ${at.includes("pdf") ? "checked" : ""} /> PDFs</label>
+                            <label><input type="checkbox" data-accepted-type="${bp}" data-type-value="document" ${at.includes("document") ? "checked" : ""} /> Documents</label>
+                          </div>`;
+                        })() : ""}
                       </div>
                     </details>
                   </div>
@@ -614,96 +621,27 @@ function renderAIProviders() {
   const container = document.getElementById("aiProvidersContainer");
   if (!container) return;
 
-  const enabled = aiProviderConfig.enabled_providers || [];
+  const enabled = configState.ai?.enabled_providers || [];
 
-  const cardsHtml = providers.length
-    ? providers.map((p) => {
-        const isOn = enabled.includes(p.id);
-        const keyLabel = p.configured ? "✓ found" : "✗ not set";
-        const keyClass = p.configured ? "key-ok" : "key-missing";
-        return `
-          <article class="config-card" style="flex:1;min-width:160px">
-            <strong>${htmlEscape(p.name)}</strong>
-            <p class="card-note"><span class="${keyClass}">Key: ${keyLabel}</span></p>
-            <button type="button" class="outline-btn" data-action="toggle-provider" data-provider-id="${htmlEscape(p.id)}" aria-pressed="${isOn}">
-              ${isOn ? "Enabled ✓" : "Disabled"}
-            </button>
-          </article>`;
-      }).join("")
-    : '<p class="card-note">Loading providers...</p>';
-
-  const embeddingProviders = providers.filter((p) => p.supports_embeddings);
-  const embSelectOpts = embeddingProviders.length
-    ? embeddingProviders.map((p) =>
-        `<option value="${htmlEscape(p.id)}" ${p.id === aiProviderConfig.embedding_provider ? "selected" : ""}>${htmlEscape(p.name)}</option>`
-      ).join("")
-    : `<option value="${htmlEscape(aiProviderConfig.embedding_provider || "openai")}">${htmlEscape(aiProviderConfig.embedding_provider || "OpenAI")}</option>`;
-
-  const embModel = htmlEscape(aiProviderConfig.embedding_model || "text-embedding-3-small");
-  const embDim = aiProviderConfig.embedding_dimensions || 1536;
+  const cardsHtml = PROVIDERS.map((p) => {
+    const isOn = enabled.includes(p.id);
+    return `
+      <article class="config-card" style="flex:1;min-width:160px">
+        <strong>${htmlEscape(p.name)}</strong>
+        <button type="button" class="outline-btn" data-action="toggle-provider" data-provider-id="${htmlEscape(p.id)}" aria-pressed="${isOn}">
+          ${isOn ? "Enabled" : "Disabled"}
+        </button>
+      </article>`;
+  }).join("");
 
   container.innerHTML = `
     <article class="config-card">
-      <h3 class="card-title">Enable providers ${helpButton("ai_providers.enabled")}</h3>
+      <h3 class="card-title">Enable providers ${helpButton("ai.enabled_providers")}</h3>
       <p class="card-note">API keys are set in your .env file. Enable the providers you have keys for.</p>
       <div style="display:flex;flex-wrap:wrap;gap:1rem;margin-top:.75rem">${cardsHtml}</div>
     </article>
-    <article class="config-card">
-      <h3 class="card-title">Embedding provider (universal) ${helpButton("ai_providers.embedding_provider")}</h3>
-      <p class="card-note">Used for all search and RAG features. Changing provider after launch requires re-indexing all documents and profiles.</p>
-      <div class="grid-2">
-        <label class="field">
-          <span>Provider</span>
-          <select id="aiEmbeddingProvider">${embSelectOpts}</select>
-        </label>
-        <div class="field">
-          <span>Model / dimensions</span>
-          <p class="card-note">${embModel} &middot; ${embDim}d</p>
-        </div>
-      </div>
-    </article>
-    <p class="card-note">&#x2139; Model selection and per-feature settings are configured via the Admin API after launch.</p>
+    <p class="card-note">Model selection, embedding configuration, and per-feature settings are configured via the Admin API after launch.</p>
   `;
-}
-
-async function saveAIProviderConfig() {
-  try {
-    await fetch("/api/setup/ai-providers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        enabled_providers: aiProviderConfig.enabled_providers,
-        embedding_provider: aiProviderConfig.embedding_provider,
-        embedding_model: aiProviderConfig.embedding_model,
-        embedding_dimensions: aiProviderConfig.embedding_dimensions,
-      }),
-    });
-  } catch {
-    // non-blocking — save errors don't prevent generation
-  }
-}
-
-async function loadAIProviderConfig() {
-  try {
-    const resp = await fetch("/api/setup/ai-providers");
-    if (resp.ok) {
-      const data = await resp.json();
-      if (data.providers) {
-        providers = data.providers;
-      }
-      if (data.settings) {
-        aiProviderConfig = {
-          enabled_providers: data.settings.enabled_providers || ["openai"],
-          embedding_provider: data.settings.embedding_provider || "openai",
-          embedding_model: data.settings.embedding_model || "text-embedding-3-small",
-          embedding_dimensions: data.settings.embedding_dimensions ?? 1536,
-        };
-      }
-      renderAIProviders();
-    }
-  } catch {
-    // non-blocking
-  }
 }
 
 function renderAll() {
@@ -943,7 +881,6 @@ async function saveConfig() {
   if (!valid) {
     return;
   }
-  await saveAIProviderConfig();
   try {
     const data = await apiJson("/api/setup/save", {
       config: valid,
@@ -983,7 +920,6 @@ async function generateProject() {
       dom.generateReport.textContent = "Validation failed. Fix the highlighted issues above, then try again.";
       return;
     }
-    await saveAIProviderConfig();
     try {
       const data = await apiJson("/api/setup/generate", {
         config: valid,
@@ -1291,23 +1227,6 @@ function bindEvents() {
       renderStepNav();
       return;
     }
-    if (target.id === "aiEmbeddingProvider") {
-      aiProviderConfig.embedding_provider = target.value;
-      const embDefaults = {
-        gemini: { model: "text-embedding-004", dimensions: 768 },
-        openai: { model: "text-embedding-3-small", dimensions: 1536 },
-      };
-      const def = embDefaults[target.value] || embDefaults.openai;
-      aiProviderConfig.embedding_model = def.model;
-      aiProviderConfig.embedding_dimensions = def.dimensions;
-      renderAIProviders();
-      renderStepNav();
-      return;
-    }
-    if (target.id === "aiEmbeddingModel") {
-      aiProviderConfig.embedding_model = target.value;
-      return;
-    }
     const bind = target.dataset.bind;
     if (bind) {
       const value =
@@ -1327,6 +1246,14 @@ function bindEvents() {
         }
       } else {
         setAtPath(configState, bind, value);
+        if (bind.endsWith(".type")) {
+          const fieldPath = bind.replace(/\.type$/, "");
+          if (value === "files") {
+            setAtPath(configState, `${fieldPath}.accepted_types`, ["image", "pdf"]);
+          } else {
+            setAtPath(configState, `${fieldPath}.accepted_types`, null);
+          }
+        }
         if (bind.endsWith(".permissions.visible_in_search") && !value) {
           const match = bind.match(/^participant_types\.(\d+)\.permissions\.visible_in_search$/);
           if (match) {
@@ -1339,6 +1266,17 @@ function bindEvents() {
         }
       }
       renderAll();
+      return;
+    }
+    const acceptedTypeBind = target.dataset.acceptedType;
+    if (acceptedTypeBind) {
+      const container = target.closest(".field-accepted-types");
+      if (container) {
+        const checks = Array.from(container.querySelectorAll("input[data-accepted-type]"));
+        const values = checks.filter((c) => c.checked).map((c) => c.dataset.typeValue);
+        setAtPath(configState, `${acceptedTypeBind}.accepted_types`, values.length ? values : ["image", "pdf"]);
+        renderStepNav();
+      }
       return;
     }
     const optionsBind = target.dataset.optionsBind;
@@ -1488,9 +1426,10 @@ function bindEvents() {
     const action = actionBtn.dataset.action;
     if (action === "toggle-provider") {
       const pid = actionBtn.dataset.providerId;
-      const current = aiProviderConfig.enabled_providers || [];
+      if (!configState.ai) configState.ai = { enabled_providers: ["openai"] };
+      const current = configState.ai.enabled_providers || [];
       const idx = current.indexOf(pid);
-      aiProviderConfig.enabled_providers = idx >= 0
+      configState.ai.enabled_providers = idx >= 0
         ? current.filter((id) => id !== pid)
         : [...current, pid];
       renderAIProviders();
@@ -1550,7 +1489,7 @@ async function bootstrap() {
   setScene("intro");
   setStatus("warn", "Loading onboarding setup...");
   try {
-    await Promise.all([loadTemplateConfig(), loadPresets(), loadAIProviderConfig()]);
+    await Promise.all([loadTemplateConfig(), loadPresets()]);
     setStatus("ok", "Setup ready. Start setup when you are ready.");
   } catch (error) {
     setStatus("error", "Failed to load setup data.");

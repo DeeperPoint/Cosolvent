@@ -176,6 +176,7 @@ def _field_annotation(field_type: str, option_enum_name: str | None = None) -> s
         "multi_select": "list[str]",
         "date": "str",
         "file": "str",
+        "files": "list[str]",
         "location": "dict[str, Any]",
     }
     if field_type == "select" and option_enum_name:
@@ -563,6 +564,7 @@ def _render_migration(ir: CompilerIR, migration_revision: str) -> str:
                         "required": bool(field.get("required", False)),
                         "searchable": bool(field.get("searchable", False)),
                         "options_json": field.get("options"),
+                        "accepted_types_json": field.get("accepted_types"),
                         "ordinal": ordinal,
                     }
                 )
@@ -674,6 +676,7 @@ def _render_migration(ir: CompilerIR, migration_revision: str) -> str:
                 required BOOLEAN NOT NULL DEFAULT FALSE,
                 searchable BOOLEAN NOT NULL DEFAULT FALSE,
                 options_json JSONB NULL,
+                accepted_types_json JSONB NULL,
                 ordinal INTEGER NOT NULL DEFAULT 0,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -821,6 +824,7 @@ def _render_migration(ir: CompilerIR, migration_revision: str) -> str:
             for row in PROFILE_FIELD_DEFS:
                 payload = dict(row)
                 payload["options_json"] = json.dumps(payload["options_json"]) if payload.get("options_json") is not None else None
+                payload["accepted_types_json"] = json.dumps(payload["accepted_types_json"]) if payload.get("accepted_types_json") is not None else None
                 conn.execute(
                     sa.text(
                         \"\"\"
@@ -834,6 +838,7 @@ def _render_migration(ir: CompilerIR, migration_revision: str) -> str:
                             required,
                             searchable,
                             options_json,
+                            accepted_types_json,
                             ordinal,
                             updated_at
                         )
@@ -847,6 +852,7 @@ def _render_migration(ir: CompilerIR, migration_revision: str) -> str:
                             :required,
                             :searchable,
                             CAST(:options_json AS JSONB),
+                            CAST(:accepted_types_json AS JSONB),
                             :ordinal,
                             NOW()
                         FROM marketplace_roles r
