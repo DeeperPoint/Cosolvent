@@ -67,27 +67,25 @@ async def test_anonymous_public_only_rejects_non_public_filters():
 
 
 @pytest.mark.asyncio
-async def test_rag_strict_vector_failure_returns_503(monkeypatch):
+async def test_rag_strict_vector_failure_returns_503():
     cfg = _config()
     cfg.discovery.ai.profile_retrieval_mode = "rag_strict"
     cfg.discovery.ai.rag_failure_behavior = "service_unavailable"
     viewer = {"_id": "admin", "role": "admin"}
-    monkeypatch.setattr(service.settings, "openai_api_key", "test-key")
 
-    with patch("app.modules.discovery.indexer._get_embedding", new=AsyncMock(side_effect=RuntimeError("boom"))):
+    with patch("app.modules.ai.embedding_client.get_embedding", new=AsyncMock(side_effect=RuntimeError("boom"))):
         with pytest.raises(ServiceUnavailableError):
             await service.search(cfg, query="wheat", viewer=viewer)
 
 
 @pytest.mark.asyncio
-async def test_rag_strict_vector_failure_can_return_empty(monkeypatch):
+async def test_rag_strict_vector_failure_can_return_empty():
     cfg = _config()
     cfg.discovery.ai.profile_retrieval_mode = "rag_strict"
     cfg.discovery.ai.rag_failure_behavior = "empty"
     viewer = {"_id": "admin", "role": "admin"}
-    monkeypatch.setattr(service.settings, "openai_api_key", "test-key")
 
-    with patch("app.modules.discovery.indexer._get_embedding", new=AsyncMock(side_effect=RuntimeError("boom"))):
+    with patch("app.modules.ai.embedding_client.get_embedding", new=AsyncMock(side_effect=RuntimeError("boom"))):
         result = await service.search(cfg, query="wheat", viewer=viewer)
     assert result["results"] == []
     assert result["total"] == 0

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-from app.core.config import settings
 from app.core.exceptions import ServiceUnavailableError
 from app.modules.ai.llm_client import generate
 
@@ -15,9 +14,6 @@ async def extract_fields_from_document(
     field_definitions: list[dict],
 ) -> dict:
     """Extract profile fields from document text using AI."""
-    if not settings.openai_api_key:
-        raise ServiceUnavailableError("AI extraction unavailable: OpenAI API key not configured")
-
     allowed_fields = []
     for field in field_definitions:
         allowed_fields.append(
@@ -39,7 +35,8 @@ async def extract_fields_from_document(
         [
             {"role": "system", "content": "You extract structured data and return JSON only."},
             {"role": "user", "content": prompt},
-        ]
+        ],
+        use_case="document_extraction",
     )
     try:
         parsed = json.loads(raw)

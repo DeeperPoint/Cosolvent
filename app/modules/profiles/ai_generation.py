@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-from app.core.config import settings
-from app.core.exceptions import ServiceUnavailableError
 from app.modules.ai.llm_client import generate
 
 
@@ -15,9 +13,6 @@ async def generate_profile_content(
     marketplace_context: str,
 ) -> str:
     """Generate AI-written profile content from raw field data."""
-    if not settings.openai_api_key:
-        raise ServiceUnavailableError("AI profile generation unavailable: OpenAI API key not configured")
-
     fields_json = json.dumps(fields, indent=2, ensure_ascii=True, sort_keys=True)
     messages = [
         {
@@ -37,4 +32,4 @@ async def generate_profile_content(
             ),
         },
     ]
-    return (await generate(messages)).strip()
+    return (await generate(messages, use_case="profile_generation")).strip()

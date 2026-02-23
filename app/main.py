@@ -77,6 +77,13 @@ def create_app() -> FastAPI:
             # Redis is optional for non-queue request paths; keep API available.
             logger.exception("Redis connection failed at startup; continuing without queue backend")
 
+        # Migrate legacy AI settings to multi-provider schema
+        try:
+            from app.modules.ai.settings_migration import migrate_llm_settings
+            await migrate_llm_settings()
+        except Exception:
+            logger.exception("AI settings migration failed; continuing with defaults")
+
     @application.on_event("shutdown")
     async def on_shutdown() -> None:
         try:

@@ -30,6 +30,19 @@ let jsonDraftValid = false;
 let jsonValidationTimer = null;
 let helpHideTimer = null;
 
+let aiProviderConfig = {
+  chat_provider: "openai",
+  chat_model: "gpt-4o-mini",
+  temperature: 0.7,
+  max_tokens: 1024,
+  embedding_provider: "openai",
+  embedding_model: "text-embedding-3-small",
+  embedding_dimensions: 1536,
+  enabled_providers: ["openai"],
+};
+let aiChatModels = [];
+let aiEmbeddingModels = [];
+
 const dom = {
   sourcePath: document.getElementById("sourcePath"),
   sourcePathWizard: document.getElementById("sourcePathWizard"),
@@ -92,6 +105,14 @@ const dom = {
   floatingGlossaryBtn: document.getElementById("floatingGlossaryBtn"),
   closeGlossaryBtn: document.getElementById("closeGlossaryBtn"),
   helpPopover: document.getElementById("helpPopover"),
+  aiChatProvider: document.getElementById("aiChatProvider"),
+  aiChatModel: document.getElementById("aiChatModel"),
+  aiTemperature: document.getElementById("aiTemperature"),
+  aiMaxTokens: document.getElementById("aiMaxTokens"),
+  validateProviderBtn: document.getElementById("validateProviderBtn"),
+  providerValidationStatus: document.getElementById("providerValidationStatus"),
+  aiEmbeddingProvider: document.getElementById("aiEmbeddingProvider"),
+  aiEmbeddingModel: document.getElementById("aiEmbeddingModel"),
   loadConfigBtn: document.getElementById("loadConfigBtn"),
   validateBtn: document.getElementById("validateBtn"),
   renderYamlBtn: document.getElementById("renderYamlBtn"),
@@ -251,15 +272,18 @@ function computeStepCompletion() {
     done: slugs.every((slug) => Boolean(configState.onboarding[slug])),
   };
   completion[4] = {
-    done: Array.isArray(configState.communication.conversation_rules) && configState.communication.conversation_rules.length > 0,
+    done: Boolean(aiProviderConfig.chat_provider) && Boolean(aiProviderConfig.embedding_provider),
   };
   completion[5] = {
+    done: Array.isArray(configState.communication.conversation_rules) && configState.communication.conversation_rules.length > 0,
+  };
+  completion[6] = {
     done:
       slugs.every((slug) => (configState.profile_schemas[slug]?.sections || []).length > 0) &&
       Array.isArray(configState.discovery.searchable_types),
   };
-  completion[6] = {
-    done: completion.slice(1, 6).every((item) => item.done),
+  completion[7] = {
+    done: completion.slice(1, 7).every((item) => item.done),
   };
   return completion;
 }
@@ -559,6 +583,111 @@ function renderRisks() {
   dom.riskList.innerHTML = risks.map((risk) => `<p>Potential risk: ${htmlEscape(risk)}</p>`).join("");
 }
 
+async function fetchAIChatModels(provider) {
+  try {
+    const resp = await fetch(`/api/ai/models?provider=${encodeURIComponent(provider)}`);
+    if (!resp.ok) return [];
+    return await resp.json();
+  } catch {
+    return [];
+  }
+}
+
+function renderAIProviders() {
+  if (dom.aiChatProvider) {
+    dom.aiChatProvider.value = aiProviderConfig.chat_provider || "openai";
+  }
+  if (dom.aiChatModel) {
+    dom.aiChatModel.innerHTML = aiChatModels.length
+      ? aiChatModels.map((m) => `<option value="${htmlEscape(m.model)}" ${m.model === aiProviderConfig.chat_model ? "selected" : ""}>${htmlEscape(m.description || m.model)}</option>`).join("")
+      : `<option value="${htmlEscape(aiProviderConfig.chat_model)}">${htmlEscape(aiProviderConfig.chat_model)}</option>`;
+  }
+  if (dom.aiTemperature) {
+    dom.aiTemperature.value = String(aiProviderConfig.temperature ?? 0.7);
+  }
+  if (dom.aiMaxTokens) {
+    dom.aiMaxTokens.value = String(aiProviderConfig.max_tokens ?? 1024);
+  }
+  if (dom.aiEmbeddingProvider) {
+    dom.aiEmbeddingProvider.value = aiProviderConfig.embedding_provider || "openai";
+  }
+  if (dom.aiEmbeddingModel) {
+    const embModel = aiProviderConfig.embedding_model || "text-embedding-3-small";
+    const embeddingModels = aiEmbeddingModels.length
+      ? aiEmbeddingModels
+      : [{ model: embModel, description: embModel }];
+    dom.aiEmbeddingModel.innerHTML = embeddingModels
+      .map((m) => `<option value="${htmlEscape(m.model)}" ${m.model === embModel ? "selected" : ""}>${htmlEscape(m.description || m.model)}</option>`)
+      .join("");
+  }
+}
+
+async function loadAIChatModels(provider) {
+  aiChatModels = await fetchAIChatModels(provider);
+  renderAIProviders();
+}
+
+async function validateAIProvider() {
+  const provider = aiProviderConfig.chat_provider || "openai";
+  if (dom.providerValidationStatus) {
+    dom.providerValidationStatus.textContent = "Validating...";
+  }
+  try {
+    const resp = await fetch("/api/ai/providers/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider }),
+    });
+    const data = await resp.json();
+    if (dom.providerValidationStatus) {
+      dom.providerValidationStatus.textContent = data.valid
+        ? "Connection valid."
+        : "Connection failed. Check your API key.";
+    }
+  } catch {
+    if (dom.providerValidationStatus) {
+      dom.providerValidationStatus.textContent = "Validation request failed.";
+    }
+  }
+}
+
+async function saveAIProviderConfig() {
+  try {
+    await fetch("/api/setup/ai-providers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(aiProviderConfig),
+    });
+  } catch {
+    // non-blocking — save errors don't prevent generation
+  }
+}
+
+async function loadAIProviderConfig() {
+  try {
+    const resp = await fetch("/api/setup/ai-providers");
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.settings) {
+        aiProviderConfig = {
+          chat_provider: data.settings.chat_provider || "openai",
+          chat_model: data.settings.chat_model || "gpt-4o-mini",
+          temperature: data.settings.temperature ?? 0.7,
+          max_tokens: data.settings.max_tokens ?? 1024,
+          embedding_provider: data.settings.embedding_provider || "openai",
+          embedding_model: data.settings.embedding_model || "text-embedding-3-small",
+          embedding_dimensions: data.settings.embedding_dimensions ?? 1536,
+          enabled_providers: data.settings.enabled_providers || ["openai"],
+        };
+      }
+      renderAIProviders();
+      loadAIChatModels(aiProviderConfig.chat_provider);
+    }
+  } catch {
+    // non-blocking
+  }
+}
+
 function renderAll() {
   const displaySourcePath = sourcePath || "runtime config";
   if (dom.sourcePath) {
@@ -574,6 +703,7 @@ function renderAll() {
   renderParticipants();
   renderOnboarding();
   renderCommunication();
+  renderAIProviders();
   renderDiscovery();
   renderSchemas();
   renderRisks();
@@ -795,6 +925,7 @@ async function saveConfig() {
   if (!valid) {
     return;
   }
+  await saveAIProviderConfig();
   try {
     const data = await apiJson("/api/setup/save", {
       config: valid,
@@ -830,6 +961,7 @@ async function generateProject() {
   if (!valid) {
     return;
   }
+  await saveAIProviderConfig();
   try {
     const data = await apiJson("/api/setup/generate", {
       config: valid,
@@ -1037,6 +1169,62 @@ function bindEvents() {
     applyQuickAnswers();
     renderAll();
   });
+
+  if (dom.aiChatProvider) {
+    dom.aiChatProvider.addEventListener("change", () => {
+      aiProviderConfig.chat_provider = dom.aiChatProvider.value;
+      // Auto-add to enabled providers
+      if (!aiProviderConfig.enabled_providers.includes(aiProviderConfig.chat_provider)) {
+        aiProviderConfig.enabled_providers.push(aiProviderConfig.chat_provider);
+      }
+      loadAIChatModels(aiProviderConfig.chat_provider);
+      if (dom.providerValidationStatus) {
+        dom.providerValidationStatus.textContent = "";
+      }
+      renderStepNav();
+    });
+  }
+  if (dom.aiChatModel) {
+    dom.aiChatModel.addEventListener("change", () => {
+      aiProviderConfig.chat_model = dom.aiChatModel.value;
+    });
+  }
+  if (dom.aiTemperature) {
+    dom.aiTemperature.addEventListener("change", () => {
+      aiProviderConfig.temperature = Number(dom.aiTemperature.value || 0.7);
+    });
+  }
+  if (dom.aiMaxTokens) {
+    dom.aiMaxTokens.addEventListener("change", () => {
+      aiProviderConfig.max_tokens = Number(dom.aiMaxTokens.value || 1024);
+    });
+  }
+  if (dom.validateProviderBtn) {
+    dom.validateProviderBtn.addEventListener("click", validateAIProvider);
+  }
+  if (dom.aiEmbeddingProvider) {
+    dom.aiEmbeddingProvider.addEventListener("change", () => {
+      aiProviderConfig.embedding_provider = dom.aiEmbeddingProvider.value;
+      if (!aiProviderConfig.enabled_providers.includes(aiProviderConfig.embedding_provider)) {
+        aiProviderConfig.enabled_providers.push(aiProviderConfig.embedding_provider);
+      }
+      // Update default embedding model based on provider
+      if (aiProviderConfig.embedding_provider === "gemini") {
+        aiProviderConfig.embedding_model = "text-embedding-004";
+        aiProviderConfig.embedding_dimensions = 768;
+      } else {
+        aiProviderConfig.embedding_model = "text-embedding-3-small";
+        aiProviderConfig.embedding_dimensions = 1536;
+      }
+      renderAIProviders();
+      renderStepNav();
+    });
+  }
+  if (dom.aiEmbeddingModel) {
+    dom.aiEmbeddingModel.addEventListener("change", () => {
+      aiProviderConfig.embedding_model = dom.aiEmbeddingModel.value;
+    });
+  }
 
   dom.loadConfigBtn.addEventListener("click", loadTemplateConfig);
   dom.validateBtn.addEventListener("click", () => validateCurrentConfig());
@@ -1336,7 +1524,7 @@ async function bootstrap() {
   setScene("intro");
   setStatus("warn", "Loading onboarding setup...");
   try {
-    await Promise.all([loadTemplateConfig(), loadPresets()]);
+    await Promise.all([loadTemplateConfig(), loadPresets(), loadAIProviderConfig()]);
     setStatus("ok", "Setup ready. Start setup when you are ready.");
   } catch (error) {
     setStatus("error", "Failed to load setup data.");

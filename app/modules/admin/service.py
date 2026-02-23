@@ -129,8 +129,16 @@ async def update_llm_settings(updates: dict) -> dict:
     return await ai_service.update_llm_settings(updates)
 
 
-async def get_models() -> list[dict]:
-    return await ai_service.get_models()
+async def get_models(provider: str | None = None) -> list[dict]:
+    return await ai_service.get_models(provider)
+
+
+async def get_providers() -> list[dict]:
+    return await ai_service.get_providers()
+
+
+async def validate_provider(provider_id: str) -> dict:
+    return await ai_service.validate_provider(provider_id)
 
 
 async def list_prompts() -> list[dict]:

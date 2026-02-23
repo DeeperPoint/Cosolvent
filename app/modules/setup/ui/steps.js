@@ -20,6 +20,11 @@ export const STEPS = [
     hint: "Set approval, document, and profile completion rules.",
   },
   {
+    id: "ai_providers",
+    title: "AI Providers",
+    hint: "Select and configure AI providers for chat and embeddings.",
+  },
+  {
     id: "communication",
     title: "Communication",
     hint: "Define who can contact whom and approval flow.",

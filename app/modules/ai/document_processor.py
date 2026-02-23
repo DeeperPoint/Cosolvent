@@ -7,10 +7,10 @@ import uuid
 
 from sqlalchemy import delete, insert
 
-from app.core.config import settings
 from app.core.database import session_scope
 from app.core.db_schema import ai_document_chunks
 from app.modules.ai import repository as repo
+from app.modules.ai.embedding_client import get_embedding
 
 logger = logging.getLogger("cosolvent.docproc")
 
@@ -41,14 +41,6 @@ async def process_document(doc_id: str) -> None:
         text = doc.get("content", "")
         chunks = chunk_text(text)
 
-        if not settings.openai_api_key:
-            logger.warning("OpenAI API key not configured, marking document as failed")
-            await repo.update_document_status(doc_id, "FAILED")
-            return
-
-        from openai import AsyncOpenAI
-
-        client = AsyncOpenAI(api_key=settings.openai_api_key)
         document_uuid = uuid.UUID(doc_id)
 
         async with session_scope() as session:
@@ -58,8 +50,7 @@ async def process_document(doc_id: str) -> None:
 
             batch_rows = []
             for i, chunk in enumerate(chunks):
-                resp = await client.embeddings.create(input=chunk, model="text-embedding-3-small")
-                embedding = resp.data[0].embedding
+                embedding = await get_embedding(chunk)
                 batch_rows.append(
                     {
                         "document_id": document_uuid,

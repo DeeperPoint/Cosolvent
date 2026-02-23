@@ -12,6 +12,7 @@ from app.modules.ai.schemas import (
     FollowUpRequest,
     LLMSettingsUpdate,
     PromptUpdate,
+    ProviderValidateRequest,
     QueryRequest,
 )
 
@@ -60,8 +61,24 @@ async def delete_document(doc_id: str, user: dict = Depends(require_admin)):
 
 
 @router.get("/models")
-async def get_models(user: dict = Depends(require_admin)):
-    return await service.get_models()
+async def get_models(
+    provider: str | None = Query(None),
+    user: dict = Depends(require_admin),
+):
+    return await service.get_models(provider)
+
+
+@router.get("/providers")
+async def get_providers(user: dict = Depends(require_admin)):
+    return await service.get_providers()
+
+
+@router.post("/providers/validate")
+async def validate_provider(
+    body: ProviderValidateRequest,
+    user: dict = Depends(require_admin),
+):
+    return await service.validate_provider(body.provider)
 
 
 @router.get("/settings")

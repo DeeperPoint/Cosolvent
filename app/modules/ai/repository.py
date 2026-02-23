@@ -82,6 +82,57 @@ async def upsert_llm_settings(settings: dict) -> dict[str, Any]:
     return result
 
 
+async def get_resolved_chat_config(use_case: str | None = None) -> dict[str, Any]:
+    """Resolve chat config for a given use case, falling back to global defaults."""
+    s = await get_llm_settings()
+
+    provider = "openai"
+    model = "gpt-4o-mini"
+    temperature = 0.7
+    max_tokens = 1024
+
+    if s:
+        provider = s.get("chat_provider", s.get("provider", provider))
+        model = s.get("chat_model", s.get("model", model))
+        temperature = s.get("temperature", temperature)
+        max_tokens = s.get("max_tokens", max_tokens)
+
+        # Apply use-case override if present
+        if use_case:
+            overrides = s.get("use_case_overrides", {})
+            override = overrides.get(use_case)
+            if override and isinstance(override, dict):
+                provider = override.get("provider", provider)
+                model = override.get("model", model)
+
+    return {
+        "provider": provider,
+        "model": model,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+
+async def get_embedding_config() -> dict[str, Any]:
+    """Return embedding provider/model/dimensions from settings."""
+    s = await get_llm_settings()
+
+    provider = "openai"
+    model = "text-embedding-3-small"
+    dimensions = 1536
+
+    if s:
+        provider = s.get("embedding_provider", provider)
+        model = s.get("embedding_model", model)
+        dimensions = s.get("embedding_dimensions", dimensions)
+
+    return {
+        "provider": provider,
+        "model": model,
+        "dimensions": dimensions,
+    }
+
+
 # ── Chat History ──────────────────────────────────────────────────────────
 
 async def get_chat_thread(thread_id: str) -> dict[str, Any] | None:

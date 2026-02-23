@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
 
+    # OpenRouter
+    openrouter_api_key: str = ""
+
+    # Google Gemini
+    gemini_api_key: str = ""
+
     # Cohere
     cohere_api_key: str = ""
 

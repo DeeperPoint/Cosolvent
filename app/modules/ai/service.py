@@ -3,21 +3,24 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from typing import Any
 
 from sqlalchemy import delete
 
-from app.core.config import settings
 from app.core.database import session_scope
 from app.core.db_schema import ai_document_chunks
 from app.core.exceptions import AppError, ServiceUnavailableError
 from app.core.queue import enqueue_job
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.ai import repository as repo
+from app.modules.ai.embedding_client import get_embedding
 from app.modules.ai.llm_client import generate
 from app.modules.ai.prompt_manager import format_prompt, get_prompt_template
 from app.modules.discovery.vector_service import search_vectors
+
+logger = logging.getLogger("cosolvent.ai.service")
 
 
 async def query(
@@ -30,8 +33,6 @@ async def query(
     """RAG query: retrieve relevant context, generate answer."""
     if not config.discovery.ai.rag_query_enabled:
         raise AppError("RAG query is disabled for this marketplace", 400)
-    if not settings.openai_api_key:
-        raise ServiceUnavailableError("AI retrieval unavailable: OpenAI not configured")
 
     if not thread_id:
         thread_id = str(uuid.uuid4())
@@ -39,9 +40,7 @@ async def query(
     # Retrieve context from vector store
     context = ""
     try:
-        from app.modules.discovery.indexer import _get_embedding
-
-        embedding = await _get_embedding(query_text)
+        embedding = await get_embedding(query_text)
         vector_filter = {"source": "document"}
         if filters:
             vector_filter.update(filters)
@@ -63,7 +62,7 @@ async def query(
     messages.append({"role": "user", "content": prompt})
 
     # Generate
-    answer = await generate(messages)
+    answer = await generate(messages, use_case="rag_query")
 
     # Save to history
     messages.append({"role": "assistant", "content": answer})
@@ -82,8 +81,6 @@ async def follow_up(
     """Generate follow-up question suggestions."""
     if not config.discovery.ai.follow_up_suggestions:
         raise AppError("Follow-up suggestions are disabled for this marketplace", 400)
-    if not settings.openai_api_key:
-        raise ServiceUnavailableError("AI service unavailable: OpenAI API key not configured")
 
     thread = await repo.get_chat_thread(thread_id)
     if not thread:
@@ -95,7 +92,7 @@ async def follow_up(
     messages = thread.get("messages", [])
     messages.append({"role": "user", "content": prompt})
 
-    raw = await generate(messages)
+    raw = await generate(messages, use_case="follow_up")
     try:
         suggestions = json.loads(raw)
     except json.JSONDecodeError:
@@ -135,20 +132,91 @@ async def delete_document(doc_id: str) -> None:
     await repo.delete_document(doc_id)
 
 
-async def get_models() -> list[dict]:
-    return [
-        {"provider": "openai", "model": "gpt-4o-mini", "description": "Fast, affordable"},
-        {"provider": "openai", "model": "gpt-4o", "description": "Most capable"},
-        {"provider": "openai", "model": "gpt-4-turbo", "description": "High performance"},
-    ]
+async def get_models(provider: str | None = None) -> list[dict]:
+    """Fetch available models, optionally filtered by provider."""
+    from app.modules.ai.model_fetcher import fetch_models
+
+    if provider:
+        return await fetch_models(provider)
+
+    # Fetch from all enabled providers
+    settings = await repo.get_llm_settings()
+    enabled = ["openai"]
+    if settings:
+        enabled = settings.get("enabled_providers", enabled)
+
+    all_models = []
+    for p in enabled:
+        try:
+            models = await fetch_models(p)
+            all_models.extend(models)
+        except Exception:
+            logger.warning("Failed to fetch models for provider %s", p)
+    return all_models
+
+
+async def get_providers() -> list[dict]:
+    """Return all providers with their status."""
+    from app.core.config import settings as app_settings
+    from app.modules.ai.providers import PROVIDER_REGISTRY
+
+    llm_settings = await repo.get_llm_settings()
+    enabled = []
+    if llm_settings:
+        enabled = llm_settings.get("enabled_providers", [])
+
+    result = []
+    for pid, spec in PROVIDER_REGISTRY.items():
+        key = getattr(app_settings, spec.api_key_env_name, "")
+        result.append({
+            "id": str(spec.id.value),
+            "name": spec.name,
+            "enabled": str(spec.id.value) in enabled,
+            "configured": bool(key),
+            "supports_embeddings": spec.supports_embeddings,
+        })
+    return result
+
+
+async def validate_provider(provider_id: str) -> dict:
+    """Test if a provider API key is valid."""
+    from app.modules.ai.model_fetcher import validate_provider_key
+    valid = await validate_provider_key(provider_id)
+    return {"provider": provider_id, "valid": valid}
 
 
 async def get_llm_settings() -> dict:
     settings = await repo.get_llm_settings()
-    return settings or {"model": "gpt-4o-mini", "temperature": 0.7, "max_tokens": 1024}
+    if not settings:
+        return {
+            "chat_provider": "openai",
+            "chat_model": "gpt-4o-mini",
+            "temperature": 0.7,
+            "max_tokens": 1024,
+            "embedding_provider": "openai",
+            "embedding_model": "text-embedding-3-small",
+            "embedding_dimensions": 1536,
+            "enabled_providers": ["openai"],
+            "use_case_overrides": {},
+        }
+    return _serialize(settings)
 
 
 async def update_llm_settings(updates: dict) -> dict:
+    # Detect embedding dimension changes to trigger migration
+    if "embedding_dimensions" in updates and updates["embedding_dimensions"] is not None:
+        current = await repo.get_llm_settings()
+        old_dim = 1536
+        if current:
+            old_dim = current.get("embedding_dimensions", 1536)
+        new_dim = updates["embedding_dimensions"]
+        if new_dim != old_dim:
+            try:
+                from app.modules.ai.embedding_migration import migrate_embedding_dimensions
+                await migrate_embedding_dimensions(new_dim)
+            except Exception:
+                logger.exception("Embedding dimension migration failed")
+
     return _serialize(await repo.upsert_llm_settings(updates))
 
 

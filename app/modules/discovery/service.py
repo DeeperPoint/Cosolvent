@@ -6,7 +6,6 @@ import logging
 import re
 from typing import Any
 
-from app.core.config import settings
 from app.core.exceptions import AppError, ForbiddenError, NotFoundError, ServiceUnavailableError, UnauthorizedError
 from app.core.marketplace_config import MarketplaceConfig
 from app.engine.permission_engine import check_permission, has_completed_required_onboarding
@@ -164,10 +163,10 @@ async def _search_hybrid(
 
     vector_scores: dict[str, float] = {}
     query_embedding: list[float] | None = None
-    if query and config.discovery.ai.vector_search_enabled and settings.openai_api_key:
+    if query and config.discovery.ai.vector_search_enabled:
         try:
-            from app.modules.discovery.indexer import _get_embedding
-            query_embedding = await _get_embedding(query)
+            from app.modules.ai.embedding_client import get_embedding
+            query_embedding = await get_embedding(query)
             vector_filter: dict[str, Any] = {"participant_type": search_types}
             vector_filter.update(filters)
             vector_results = await search_vectors(
@@ -230,14 +229,14 @@ async def _search_rag_strict(
     if not query or not query.strip():
         return [], 0
 
-    if not config.discovery.ai.vector_search_enabled or not settings.openai_api_key:
+    if not config.discovery.ai.vector_search_enabled:
         if config.discovery.ai.rag_failure_behavior == "empty":
             return [], 0
         raise ServiceUnavailableError("Discovery retrieval unavailable: vector search is not configured")
 
     try:
-        from app.modules.discovery.indexer import _get_embedding
-        query_embedding = await _get_embedding(query)
+        from app.modules.ai.embedding_client import get_embedding
+        query_embedding = await get_embedding(query)
     except Exception as exc:
         if config.discovery.ai.rag_failure_behavior == "empty":
             logger.warning("Embedding generation failed in rag_strict mode", exc_info=True)

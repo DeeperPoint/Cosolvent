@@ -15,7 +15,7 @@ from app.modules.admin.schemas import (
     ProfileStatusUpdate,
     UserRoleUpdate,
 )
-from app.modules.ai.schemas import LLMSettingsUpdate, PromptUpdate
+from app.modules.ai.schemas import LLMSettingsUpdate, PromptUpdate, ProviderValidateRequest
 
 router = APIRouter()
 
@@ -152,11 +152,27 @@ async def get_conversation_messages(
 
 # ── AI / LLM ────────────────────────────────────────────────────────────
 
-@router.get("/ai/models")
-async def get_ai_models(
+@router.get("/ai/providers")
+async def get_ai_providers(
     user: dict = Depends(require_admin),
 ):
-    return await service.get_models()
+    return await service.get_providers()
+
+
+@router.post("/ai/providers/validate")
+async def validate_ai_provider(
+    body: ProviderValidateRequest,
+    user: dict = Depends(require_admin),
+):
+    return await service.validate_provider(body.provider)
+
+
+@router.get("/ai/models")
+async def get_ai_models(
+    provider: str | None = Query(None),
+    user: dict = Depends(require_admin),
+):
+    return await service.get_models(provider)
 
 
 @router.get("/ai/settings")
