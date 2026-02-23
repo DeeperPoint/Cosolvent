@@ -508,9 +508,9 @@ function renderSchemas() {
       const sections = schema.sections || [];
       return `
       <article class="schema-card">
-        <div class="section-head">
-          <h3>${htmlEscape(pt.name)} profile fields</h3>
-          <button class="outline-btn" type="button" data-action="add-section" data-slug="${htmlEscape(pt.slug)}">Add Section</button>
+        <div class="schema-role-header">
+          <h3>${htmlEscape(pt.name)}</h3>
+          <button class="outline-btn sm" type="button" data-action="add-section" data-slug="${htmlEscape(pt.slug)}">+ Add Section</button>
         </div>
         ${sections
           .map(
@@ -523,7 +523,7 @@ function renderSchemas() {
                   <span class="field-help">Section name ${helpButton(`profile_schemas.${pt.slug}.sections.${sIndex}.name`)}</span>
                   <input data-bind="profile_schemas.${pt.slug}.sections.${sIndex}.name" type="text" value="${htmlEscape(section.name)}" />
                 </label>
-                <button class="outline-btn" type="button" data-action="remove-section" data-slug="${htmlEscape(pt.slug)}" data-section-index="${sIndex}">Remove</button>
+                <button class="outline-btn sm" type="button" data-action="remove-section" data-slug="${htmlEscape(pt.slug)}" data-section-index="${sIndex}">Remove section</button>
               </div>
               ${section.fields
                 .map((field, fIndex) => {
@@ -531,32 +531,42 @@ function renderSchemas() {
                   const bp = `profile_schemas.${pt.slug}.sections.${sIndex}.fields.${fIndex}`;
                   return `
                   <div class="field-row">
-                    <div class="field-row-primary">
-                      <input data-bind="${bp}.name" type="text" value="${htmlEscape(field.name)}" placeholder="field_key" />
-                      <input data-bind="${bp}.label" type="text" value="${htmlEscape(field.label)}" placeholder="Label" />
-                      <select data-bind="${bp}.type">${fieldTypeOptions(field.type)}</select>
-                      <label class="field-row-check"><input data-bind="${bp}.required" type="checkbox" ${field.required ? "checked" : ""} /> Req</label>
-                      <button class="outline-btn field-row-remove" type="button" data-action="remove-field" data-slug="${htmlEscape(pt.slug)}" data-section-index="${sIndex}" data-field-index="${fIndex}" aria-label="Remove field">&times;</button>
+                    <div class="field-row-main">
+                      <div class="field-row-identity">
+                        <input data-bind="${bp}.name" type="text" value="${htmlEscape(field.name)}" placeholder="field_key" aria-label="Field key" />
+                        <input data-bind="${bp}.label" type="text" value="${htmlEscape(field.label)}" placeholder="Display label" aria-label="Display label" />
+                      </div>
+                      <div class="field-row-attrs">
+                        <select data-bind="${bp}.type" aria-label="Field type">${fieldTypeOptions(field.type)}</select>
+                        <label class="field-row-req">
+                          <input data-bind="${bp}.required" type="checkbox" ${field.required ? "checked" : ""} />
+                          <span>Required</span>
+                        </label>
+                        <button class="field-row-remove outline-btn" type="button" data-action="remove-field" data-slug="${htmlEscape(pt.slug)}" data-section-index="${sIndex}" data-field-index="${fIndex}" aria-label="Remove field">&times;</button>
+                      </div>
                     </div>
                     <details class="field-row-advanced">
-                      <summary>Visibility, search, options</summary>
-                      <div class="grid-3">
+                      <summary>Visibility &amp; options</summary>
+                      <div class="field-row-adv-body">
                         <label class="field">
-                          <span>Visibility ${helpButton(`${bp}.visibility`)}</span>
+                          <span class="field-help">Visibility ${helpButton(`${bp}.visibility`)}</span>
                           <select data-bind="${bp}.visibility">${fieldVisibilityOptions(field.visibility)}</select>
                         </label>
                         <label class="field">
-                          <span>Options (comma sep.) ${helpButton(`${bp}.options`)}</span>
+                          <span class="field-help">Options (comma-sep) ${helpButton(`${bp}.options`)}</span>
                           <input data-options-bind="${bp}.options" type="text" value="${htmlEscape(optionsValue)}" />
                         </label>
-                        <label class="field-row-check" style="align-self:end;min-height:44px"><input data-bind="${bp}.searchable" type="checkbox" ${field.searchable ? "checked" : ""} /> Searchable</label>
+                        <label class="field-row-req">
+                          <input data-bind="${bp}.searchable" type="checkbox" ${field.searchable ? "checked" : ""} />
+                          <span>Searchable</span>
+                        </label>
                       </div>
                     </details>
                   </div>
                 `;
                 })
                 .join("")}
-              <button class="outline-btn" type="button" data-action="add-field" data-slug="${htmlEscape(pt.slug)}" data-section-index="${sIndex}">Add Field</button>
+              <button class="outline-btn schema-add-field" type="button" data-action="add-field" data-slug="${htmlEscape(pt.slug)}" data-section-index="${sIndex}">+ Add Field</button>
             </div>
           </details>
         `,
@@ -1452,6 +1462,21 @@ function bindEvents() {
         startSetup();
       }
       setActiveStep(Number(stepBtn.dataset.stepNav));
+      return;
+    }
+
+    const tabBtn = target.closest(".tab-btn[data-tab-target]");
+    if (tabBtn) {
+      const targetId = tabBtn.dataset.tabTarget;
+      const tabBar = tabBtn.closest(".tab-bar");
+      tabBar?.querySelectorAll(".tab-btn").forEach((btn) => {
+        const isActive = btn === tabBtn;
+        btn.classList.toggle("active", isActive);
+        btn.setAttribute("aria-selected", String(isActive));
+      });
+      tabBar?.parentElement?.querySelectorAll(".tab-panel").forEach((panel) => {
+        panel.classList.toggle("hidden", panel.id !== `tab-panel-${targetId}`);
+      });
       return;
     }
 

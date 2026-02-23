@@ -1321,6 +1321,147 @@ input[type="checkbox"] {
 .diff-value  { color: var(--text-muted); }
 
 /* ════════════════════════════════════════════════════════════════════════
+   STEP 6 — PROFILE FIELDS + DISCOVERY TABS
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Tab bar */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+
+.tab-btn {
+  padding: .5rem 1.375rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  font-size: .9375rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast);
+  white-space: nowrap;
+  border-radius: 0;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-panel { display: block; }
+.tab-panel.hidden { display: none; }
+
+/* ── Improved field rows ───────────────────────────────────────────────── */
+
+/* 2-row layout replacing the old cramped single-row design */
+.field-row-main {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: .5rem;
+  align-items: center;
+  padding: .625rem .75rem;
+  background: var(--surface-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.field-row-identity {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .5rem;
+  min-width: 0;
+}
+
+.field-row-identity input {
+  height: 32px;
+  font-size: .8125rem;
+  padding: 0 .625rem;
+}
+
+.field-row-attrs {
+  display: flex;
+  align-items: center;
+  gap: .375rem;
+  flex-shrink: 0;
+}
+
+.field-row-attrs select {
+  height: 32px;
+  font-size: .8125rem;
+  padding: 0 .5rem;
+  padding-right: 1.75rem;
+  width: 130px;
+  flex-shrink: 0;
+}
+
+.field-row-req {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .8125rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding: .25rem .5rem;
+  border-radius: var(--radius-sm);
+  transition: background var(--t-fast);
+}
+.field-row-req:hover { background: var(--bg); }
+.field-row-req span { user-select: none; }
+
+/* Advanced section inside field row */
+.field-row-adv-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: .875rem;
+  align-items: end;
+  padding: .75rem;
+  background: var(--surface);
+}
+
+.field-row-adv-body .field-row-req {
+  margin-bottom: .25rem;
+}
+
+/* "Add field" button — dashed, full-width */
+.schema-add-field {
+  width: 100%;
+  margin-top: .75rem;
+  border-style: dashed;
+  color: var(--text-faint);
+  justify-content: center;
+}
+.schema-add-field:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-muted);
+}
+
+/* Schema role card improvements */
+.schema-role-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding-bottom: .75rem;
+  border-bottom: 2px solid var(--border);
+}
+
+.schema-role-header h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* Discovery panel — slightly more compact spacing */
+.discovery-section { display: flex; flex-direction: column; gap: .875rem; }
+
+/* ════════════════════════════════════════════════════════════════════════
    RESPONSIVE
    ════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 900px) {

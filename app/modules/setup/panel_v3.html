@@ -225,9 +225,16 @@
                   <h2 class="step-title">Profile Fields and Discovery</h2>
                   <p class="step-desc">Configure what users publish and how others find them.</p>
                 </div>
-                <div class="split">
-                  <section class="split-panel">
-                    <h3 class="pane-heading">Discovery</h3>
+
+                <!-- Tab bar -->
+                <div class="tab-bar" role="tablist" aria-label="Step sections">
+                  <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-panel-discovery" data-tab-target="discovery">Discovery</button>
+                  <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-panel-schema" data-tab-target="schema">Profile Schema</button>
+                </div>
+
+                <!-- Discovery tab -->
+                <div class="tab-panel" id="tab-panel-discovery" role="tabpanel">
+                  <div class="discovery-section">
 
                     <div class="field">
                       <span class="field-help">Searchable roles <button type="button" class="help-dot" data-help-path="discovery.searchable_types" aria-label="Help for searchable roles" aria-describedby="helpPopover">?</button></span>
@@ -308,13 +315,16 @@
                         <label><input id="followUpSuggestions" type="checkbox" /> Suggest follow-up prompts <button type="button" class="help-dot" data-help-path="discovery.ai.follow_up_suggestions" aria-label="Help" aria-describedby="helpPopover">?</button></label>
                       </div>
                     </details>
-                  </section>
 
-                  <section class="split-panel">
-                    <h3 class="pane-heading">Profile schema by role</h3>
-                    <div id="schemaList"></div>
-                  </section>
+                  </div>
                 </div>
+
+                <!-- Profile Schema tab -->
+                <div class="tab-panel hidden" id="tab-panel-schema" role="tabpanel">
+                  <p class="help-note" style="margin-bottom:1.25rem">Define the fields users fill in during onboarding. Each role can have multiple sections. Visibility and search settings are under each field's options.</p>
+                  <div id="schemaList"></div>
+                </div>
+
               </section>
 
               <!-- ─── Step 7: Review + Generate ─── -->
