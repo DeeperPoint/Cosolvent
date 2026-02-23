@@ -4,6 +4,7 @@ import { STEPS } from "./steps.js";
 import { mapValidationErrors } from "./validation-mapper.js";
 import { buildConfigDiff, renderDiffHtml } from "./diff-renderer.js";
 import {
+  DEFAULT_ONBOARDING,
   clone,
   createParticipant,
   currentSlugs,
@@ -367,7 +368,7 @@ function renderParticipants() {
 function renderOnboarding() {
   dom.onboardingList.innerHTML = configState.participant_types
     .map((pt) => {
-      const ob = configState.onboarding[pt.slug];
+      const ob = configState.onboarding[pt.slug] ?? clone(DEFAULT_ONBOARDING);
       return `
       <article class="onboarding-card">
         <h3>${htmlEscape(pt.name)} onboarding policy</h3>
@@ -1108,7 +1109,7 @@ function addParticipant() {
   const idx = configState.participant_types.length + 1;
   const slug = `role_${idx}`;
   configState.participant_types.push(createParticipant(slug, "supply"));
-  configState.onboarding[slug] = clone(configState.onboarding[currentSlugs(configState)[0]] || {});
+  configState.onboarding[slug] = clone(configState.onboarding[currentSlugs(configState)[0]] ?? DEFAULT_ONBOARDING);
   configState.profile_schemas[slug] = { sections: [defaultSection("Main", "primary_field")] };
   renderAll();
   setStatus("warn", `Added role ${slug}.`);
