@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Marketplace Setup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" />
+  <link rel="stylesheet" href="/api/setup/assets/onboarding-v3.css" />
+</head>
+<body>
+  <a class="skip-link" href="#wizardStepViewport">Skip to onboarding steps</a>
+
+  <!-- ═══════════════════════════════════════════════════════ INTRO SCENE -->
+  <section id="introScene" class="scene scene-intro">
+    <div class="intro-split">
+
+      <!-- Left: dark brand panel -->
+      <div class="intro-brand">
+        <div class="intro-brand-inner">
+          <div class="intro-logo">
+            <span class="intro-logo-mark">◆</span>
+            <span class="intro-logo-text">Cosolvent</span>
+          </div>
+          <div class="intro-hero-text">
+            <h1 class="intro-headline">Build your marketplace, configured for a thin market.</h1>
+            <p class="intro-sub">
+              Guided setup for founders. Roles, approvals, discovery, and AI — without needing technical knowledge.
+            </p>
+          </div>
+          <ul class="intro-features" aria-label="What's included">
+            <li class="intro-feature">
+              <span class="intro-feature-check" aria-hidden="true">✓</span>
+              Guided steps with quality checks before generate
+            </li>
+            <li class="intro-feature">
+              <span class="intro-feature-check" aria-hidden="true">✓</span>
+              Deterministic compile outputs with drift detection
+            </li>
+            <li class="intro-feature">
+              <span class="intro-feature-check" aria-hidden="true">✓</span>
+              Human-readable glossary available at any time
+            </li>
+          </ul>
+          <div class="intro-config-meta">
+            Config source: <strong id="sourcePath">Loading...</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: action panel -->
+      <div class="intro-action">
+        <div class="intro-action-card">
+          <div class="intro-action-icon" aria-hidden="true">⚙</div>
+          <h2 class="intro-action-title">Start your marketplace setup</h2>
+          <p class="intro-action-desc">
+            8 guided sections. Takes about 10 minutes. Everything can be edited later.
+          </p>
+          <button class="solid-btn intro-cta" id="startSetupBtn" type="button">
+            Begin setup
+          </button>
+          <button class="ghost-btn intro-glossary-btn" id="openGlossaryBtn" type="button">
+            Open glossary
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ WIZARD SCENE -->
+  <section id="wizardScene" class="scene scene-wizard hidden" aria-live="polite" aria-labelledby="activeStepTitle">
+    <div class="wizard-chrome" id="wizardShell">
+
+      <!-- Top bar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <span class="topbar-brand" aria-hidden="true">◆</span>
+          <span class="topbar-name">Setup</span>
+          <span class="topbar-sep" aria-hidden="true">/</span>
+          <h2 class="topbar-step-title" id="activeStepTitle">Template</h2>
+        </div>
+        <div class="topbar-center">
+          <p id="statusLine" class="topbar-status" data-kind=""></p>
+        </div>
+        <div class="topbar-right" role="toolbar" aria-label="Setup utilities">
+          <button class="topbar-btn" id="loadConfigBtn" type="button" title="Reload config">↺ Reload</button>
+          <button class="topbar-btn" id="validateBtn" type="button">Validate</button>
+          <button class="topbar-btn" id="renderYamlBtn" type="button">Preview YAML</button>
+          <button class="topbar-btn" id="openAdvancedDrawerBtn" type="button" aria-controls="advancedPanel" aria-expanded="false">JSON</button>
+          <button class="topbar-btn" id="floatingGlossaryBtn" type="button" aria-controls="glossaryDrawer" aria-expanded="false">Glossary</button>
+        </div>
+      </header>
+
+      <!-- Sub-bar: config source + errors -->
+      <div class="wizard-subbar">
+        <span class="wizard-source-label">Config: <strong id="sourcePathWizard">Loading...</strong></span>
+      </div>
+      <div id="friendlyErrors" class="error-banner hidden" aria-live="polite"></div>
+
+      <!-- Body: sidebar + content -->
+      <div class="wizard-body">
+
+        <!-- Step navigation sidebar -->
+        <nav class="step-sidebar" aria-label="Step jump navigation">
+          <p class="sidebar-label">Steps</p>
+          <ol id="stepNav" class="step-list"></ol>
+        </nav>
+
+        <!-- Main content pane -->
+        <div class="content-pane">
+          <div class="step-hint-bar">
+            <p id="activeStepHint" class="step-hint-text"></p>
+          </div>
+
+          <div class="step-scroll-region" id="stepScrollRegion">
+            <div id="wizardStepViewport" aria-label="Setup steps" tabindex="-1">
+
+              <!-- ─── Step 0: Template ─── -->
+              <section class="step-panel" data-step="0" aria-label="Step 1 of 8">
+                <div class="step-header">
+                  <span class="step-badge">01 / 08</span>
+                  <h2 class="step-title">Choose a Starting Template</h2>
+                  <p class="step-desc">Pick the closest use case. You can edit everything later.</p>
+                </div>
+
+                <div id="presetList" class="preset-grid"></div>
+
+                <div class="inline-grid">
+                  <label class="field">
+                    <span class="field-help">Team readiness <button type="button" class="help-dot" data-help-path="quick_answers.readiness" aria-label="Help for team readiness" aria-describedby="helpPopover">?</button></span>
+                    <select id="quickReadiness">
+                      <option value="lean">Lean team (recommended defaults)</option>
+                      <option value="review-heavy">Compliance-heavy (more approvals)</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span class="field-help">Launch style <button type="button" class="help-dot" data-help-path="quick_answers.launch_style" aria-label="Help for launch style" aria-describedby="helpPopover">?</button></span>
+                    <select id="quickLaunchStyle">
+                      <option value="fast">Launch fast MVP</option>
+                      <option value="curated">Curated onboarding quality first</option>
+                    </select>
+                  </label>
+                </div>
+              </section>
+
+              <!-- ─── Step 1: Basics ─── -->
+              <section class="step-panel hidden" data-step="1" aria-label="Step 2 of 8">
+                <div class="step-header">
+                  <span class="step-badge">02 / 08</span>
+                  <h2 class="step-title">Marketplace Basics</h2>
+                  <p class="step-desc">Brand-level details shown across setup and exports.</p>
+                </div>
+                <div class="grid-3">
+                  <label class="field">
+                    <span class="field-help">Marketplace name <button type="button" class="help-dot" data-help-path="marketplace.name" aria-label="Help for marketplace name" aria-describedby="helpPopover">?</button></span>
+                    <input id="marketplaceName" type="text" placeholder="e.g. TalentPool" />
+                  </label>
+                  <label class="field">
+                    <span class="field-help">Industry <button type="button" class="help-dot" data-help-path="marketplace.industry" aria-label="Help for industry" aria-describedby="helpPopover">?</button></span>
+                    <input id="marketplaceIndustry" type="text" placeholder="e.g. Legal staffing" />
+                  </label>
+                  <label class="field">
+                    <span class="field-help">Description <button type="button" class="help-dot" data-help-path="marketplace.description" aria-label="Help for description" aria-describedby="helpPopover">?</button></span>
+                    <input id="marketplaceDescription" type="text" placeholder="One-sentence summary" />
+                  </label>
+                </div>
+              </section>
+
+              <!-- ─── Step 2: Roles ─── -->
+              <section class="step-panel hidden" data-step="2" aria-label="Step 3 of 8">
+                <div class="step-header">
+                  <div class="step-header-row">
+                    <div>
+                      <span class="step-badge">03 / 08</span>
+                      <h2 class="step-title">Roles and Capabilities</h2>
+                      <p class="step-desc">Define who participates and what each role can do. 2–3 roles recommended.</p>
+                    </div>
+                    <button class="solid-btn sm" id="addParticipantBtn" type="button">+ Add Role</button>
+                  </div>
+                </div>
+                <div id="participantList"></div>
+              </section>
+
+              <!-- ─── Step 3: Onboarding ─── -->
+              <section class="step-panel hidden" data-step="3" aria-label="Step 4 of 8">
+                <div class="step-header">
+                  <span class="step-badge">04 / 08</span>
+                  <h2 class="step-title">Onboarding and Approval Rules</h2>
+                  <p class="step-desc">Set trust and verification standards for each role.</p>
+                </div>
+                <div id="onboardingList"></div>
+              </section>
+
+              <!-- ─── Step 4: AI Providers ─── -->
+              <section class="step-panel hidden" data-step="4" aria-label="Step 5 of 8">
+                <div class="step-header">
+                  <span class="step-badge">05 / 08</span>
+                  <h2 class="step-title">AI Providers</h2>
+                  <p class="step-desc">Select AI providers for chat responses and profile embeddings.</p>
+                </div>
+
+                <article class="config-card">
+                  <h3 class="card-title">Chat provider</h3>
+                  <div class="grid-2">
+                    <label class="field">
+                      <span class="field-help">Provider</span>
+                      <select id="aiChatProvider">
+                        <option value="openai">OpenAI</option>
+                        <option value="openrouter">OpenRouter</option>
+                        <option value="gemini">Google Gemini</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span class="field-help">Model</span>
+                      <select id="aiChatModel">
+                        <option value="">Loading models...</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="grid-2">
+                    <label class="field">
+                      <span class="field-help">Temperature (0–2)</span>
+                      <input id="aiTemperature" type="number" min="0" max="2" step="0.1" value="0.7" />
+                    </label>
+                    <label class="field">
+                      <span class="field-help">Max tokens</span>
+                      <input id="aiMaxTokens" type="number" min="1" step="1" value="1024" />
+                    </label>
+                  </div>
+                  <div class="inline-action">
+                    <button class="outline-btn" id="validateProviderBtn" type="button">Validate connection</button>
+                    <span id="providerValidationStatus" class="status-inline"></span>
+                  </div>
+                </article>
+
+                <article class="config-card">
+                  <h3 class="card-title">Embedding provider</h3>
+                  <p class="card-note">Changing provider after launch requires re-indexing all documents and profiles.</p>
+                  <div class="grid-2">
+                    <label class="field">
+                      <span class="field-help">Provider</span>
+                      <select id="aiEmbeddingProvider">
+                        <option value="openai">OpenAI</option>
+                        <option value="gemini">Google Gemini</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span class="field-help">Model</span>
+                      <select id="aiEmbeddingModel">
+                        <option value="text-embedding-3-small">text-embedding-3-small</option>
+                      </select>
+                    </label>
+                  </div>
+                </article>
+              </section>
+
+              <!-- ─── Step 5: Communication ─── -->
+              <section class="step-panel hidden" data-step="5" aria-label="Step 6 of 8">
+                <div class="step-header">
+                  <div class="step-header-row">
+                    <div>
+                      <span class="step-badge">06 / 08</span>
+                      <h2 class="step-title">Communication Rules</h2>
+                      <p class="step-desc">Control who can contact whom and whether approval is required.</p>
+                    </div>
+                    <button class="solid-btn sm" id="addRuleBtn" type="button">+ Add Rule</button>
+                  </div>
+                </div>
+                <div id="ruleList"></div>
+              </section>
+
+              <!-- ─── Step 6: Profile Fields + Discovery ─── -->
+              <section class="step-panel hidden" data-step="6" aria-label="Step 7 of 8">
+                <div class="step-header">
+                  <span class="step-badge">07 / 08</span>
+                  <h2 class="step-title">Profile Fields and Discovery</h2>
+                  <p class="step-desc">Configure what users publish and how others find them.</p>
+                </div>
+                <div class="split">
+                  <section class="split-panel">
+                    <h3 class="pane-heading">Discovery</h3>
+
+                    <div class="field">
+                      <span class="field-help">Searchable roles <button type="button" class="help-dot" data-help-path="discovery.searchable_types" aria-label="Help for searchable roles" aria-describedby="helpPopover">?</button></span>
+                      <div id="searchableTypes" class="tag-grid"></div>
+                    </div>
+
+                    <label class="field">
+                      <span class="field-help">Filter fields (comma separated) <button type="button" class="help-dot" data-help-path="discovery.filter_fields" aria-label="Help for filter fields" aria-describedby="helpPopover">?</button></span>
+                      <input id="filterFieldsInput" type="text" />
+                      <p id="filterFieldsWarning" class="help-note" aria-live="polite"></p>
+                    </label>
+
+                    <div class="grid-2">
+                      <label class="field">
+                        <span class="field-help">Visitor visibility <button type="button" class="help-dot" data-help-path="discovery.result_visibility.anonymous" aria-label="Help" aria-describedby="helpPopover">?</button></span>
+                        <select id="anonymousVisibility">
+                          <option value="public">Public</option>
+                        </select>
+                      </label>
+                      <label class="field">
+                        <span class="field-help">Signed-in visibility <button type="button" class="help-dot" data-help-path="discovery.result_visibility.authenticated" aria-label="Help" aria-describedby="helpPopover">?</button></span>
+                        <select id="authenticatedVisibility">
+                          <option value="public">Public</option>
+                          <option value="protected">Protected</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <details class="advanced-block">
+                      <summary>Anonymous search policy</summary>
+                      <div class="checks">
+                        <label><input id="anonymousSearchEnabled" type="checkbox" /> Allow anonymous users to search <button type="button" class="help-dot" data-help-path="discovery.access.anonymous_search_enabled" aria-label="Help" aria-describedby="helpPopover">?</button></label>
+                      </div>
+                      <div class="grid-2">
+                        <label class="field">
+                          <span class="field-help">Anonymous filter policy <button type="button" class="help-dot" data-help-path="discovery.access.anonymous_filter_mode" aria-label="Help" aria-describedby="helpPopover">?</button></span>
+                          <select id="anonymousFilterMode">
+                            <option value="public_only">Public fields only (recommended)</option>
+                            <option value="none">No anonymous filters</option>
+                            <option value="all">All configured filters</option>
+                          </select>
+                        </label>
+                        <p class="help-note">Use <strong>Public only</strong> to prevent filter-based inference of protected/private fields.</p>
+                      </div>
+                    </details>
+
+                    <details class="advanced-block">
+                      <summary>Advanced AI discovery options</summary>
+                      <div class="grid-2">
+                        <label class="field">
+                          <span class="field-help">Profile retrieval mode <button type="button" class="help-dot" data-help-path="discovery.ai.profile_retrieval_mode" aria-label="Help" aria-describedby="helpPopover">?</button></span>
+                          <select id="profileRetrievalMode">
+                            <option value="hybrid">Hybrid (keyword + vector)</option>
+                            <option value="rag_strict">RAG strict (vector primary)</option>
+                          </select>
+                        </label>
+                        <label class="field">
+                          <span class="field-help">Strict mode failure behavior <button type="button" class="help-dot" data-help-path="discovery.ai.rag_failure_behavior" aria-label="Help" aria-describedby="helpPopover">?</button></span>
+                          <select id="ragFailureBehavior">
+                            <option value="service_unavailable">Return 503</option>
+                            <option value="empty">Return empty results</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div class="grid-2">
+                        <label class="field">
+                          <span class="field-help">Similarity threshold (0–1) <button type="button" class="help-dot" data-help-path="discovery.ai.profile_similarity_threshold" aria-label="Help" aria-describedby="helpPopover">?</button></span>
+                          <input id="profileSimilarityThreshold" type="number" min="0" max="1" step="0.01" />
+                        </label>
+                        <label class="field">
+                          <span class="field-help">Max vector candidates <button type="button" class="help-dot" data-help-path="discovery.ai.max_vector_candidates" aria-label="Help" aria-describedby="helpPopover">?</button></span>
+                          <input id="maxVectorCandidates" type="number" min="1" step="1" />
+                        </label>
+                      </div>
+                      <div class="checks">
+                        <label><input id="vectorSearchEnabled" type="checkbox" /> Enable vector search <button type="button" class="help-dot" data-help-path="discovery.ai.vector_search_enabled" aria-label="Help" aria-describedby="helpPopover">?</button></label>
+                        <label><input id="ragQueryEnabled" type="checkbox" /> Enable retrieval-assisted answers <button type="button" class="help-dot" data-help-path="discovery.ai.rag_query_enabled" aria-label="Help" aria-describedby="helpPopover">?</button></label>
+                        <label><input id="followUpSuggestions" type="checkbox" /> Suggest follow-up prompts <button type="button" class="help-dot" data-help-path="discovery.ai.follow_up_suggestions" aria-label="Help" aria-describedby="helpPopover">?</button></label>
+                      </div>
+                    </details>
+                  </section>
+
+                  <section class="split-panel">
+                    <h3 class="pane-heading">Profile schema by role</h3>
+                    <div id="schemaList"></div>
+                  </section>
+                </div>
+              </section>
+
+              <!-- ─── Step 7: Review + Generate ─── -->
+              <section class="step-panel hidden" data-step="7" aria-label="Step 8 of 8">
+                <div class="step-header">
+                  <span class="step-badge">08 / 08</span>
+                  <h2 class="step-title">Review and Generate</h2>
+                  <p class="step-desc">Final check before generating deployable marketplace artifacts.</p>
+                </div>
+
+                <div id="riskList" class="risk-list"></div>
+
+                <article class="config-card">
+                  <h3 class="card-title">Save options</h3>
+                  <div class="grid-2">
+                    <label class="field">
+                      <span class="field-help">Output path <button type="button" class="help-dot" data-help-path="output_path" aria-label="Help" aria-describedby="helpPopover">?</button></span>
+                      <input id="outputPathInput" type="text" value="marketplace.yaml" />
+                    </label>
+                    <label class="checkline">
+                      <input id="applyRuntimeInput" type="checkbox" checked />
+                      Apply runtime immediately <button type="button" class="help-dot" data-help-path="apply_runtime" aria-label="Help" aria-describedby="helpPopover">?</button>
+                    </label>
+                  </div>
+                </article>
+
+                <article class="config-card">
+                  <h3 class="card-title">Generation options</h3>
+                  <div class="grid-3">
+                    <label class="field">
+                      <span class="field-help">Compile mode <button type="button" class="help-dot" data-help-path="compile_mode" aria-label="Help" aria-describedby="helpPopover">?</button></span>
+                      <select id="compileModeInput">
+                        <option value="mvp">MVP</option>
+                        <option value="strict">Strict</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span class="field-help">Export directory <button type="button" class="help-dot" data-help-path="export_dir" aria-label="Help" aria-describedby="helpPopover">?</button></span>
+                      <input id="exportDirInput" type="text" value="exports" />
+                    </label>
+                    <label class="checkline">
+                      <input id="exportEnabledInput" type="checkbox" checked />
+                      Create export archive <button type="button" class="help-dot" data-help-path="export_enabled" aria-label="Help" aria-describedby="helpPopover">?</button>
+                    </label>
+                  </div>
+                </article>
+
+                <div class="generate-actions">
+                  <button class="outline-btn" id="saveBtn" type="button">Save config</button>
+                  <button class="outline-btn" id="checkGeneratedBtn" type="button">Check sync</button>
+                  <button class="solid-btn generate-cta" id="generateBtn" type="button">Generate project</button>
+                </div>
+
+                <article class="config-card">
+                  <h3 class="card-title">YAML preview</h3>
+                  <pre id="yamlPreview" class="code-block">Run "Preview YAML" to inspect generated YAML.</pre>
+                </article>
+
+                <article class="config-card">
+                  <h3 class="card-title">Generation report</h3>
+                  <pre id="generateReport" class="code-block">No generation run yet.</pre>
+                </article>
+              </section>
+
+            </div><!-- /#wizardStepViewport -->
+          </div><!-- /.step-scroll-region -->
+
+          <!-- Step footer -->
+          <footer class="step-footer" aria-label="Step navigation">
+            <button class="outline-btn" id="prevStepBtn" type="button">← Previous</button>
+            <button class="solid-btn" id="nextStepBtn" type="button">Next →</button>
+          </footer>
+        </div><!-- /.content-pane -->
+
+      </div><!-- /.wizard-body -->
+    </div><!-- /.wizard-chrome -->
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════ DRAWERS -->
+
+  <!-- Advanced JSON drawer -->
+  <aside id="advancedPanel" class="side-drawer advanced-drawer hidden" aria-live="polite" aria-label="Advanced JSON editor">
+    <div class="drawer-head">
+      <div class="drawer-head-text">
+        <h2>Advanced JSON Editor</h2>
+        <p>Live validation and semantic impact preview before applying.</p>
+      </div>
+      <button class="ghost-btn drawer-close" id="closeAdvancedDrawerBtn" type="button" aria-label="Close">✕</button>
+    </div>
+    <div class="drawer-body advanced-grid">
+      <div class="drawer-col">
+        <label class="field" for="jsonEditor">Config JSON</label>
+        <textarea id="jsonEditor" class="code-textarea" spellcheck="false"></textarea>
+      </div>
+      <div class="drawer-col">
+        <div id="jsonStatus" class="json-status">JSON not validated yet.</div>
+        <div class="advanced-actions">
+          <button class="outline-btn sm" id="formatJsonBtn" type="button">Format JSON</button>
+          <button class="solid-btn sm" id="applyJsonBtn" type="button" disabled>Apply to guided setup</button>
+        </div>
+        <h3 class="pane-heading">Impact preview</h3>
+        <div id="jsonDiff" class="json-diff">No JSON impact preview yet.</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Glossary drawer -->
+  <aside id="glossaryDrawer" class="side-drawer glossary-drawer hidden" aria-label="Glossary">
+    <div class="drawer-head">
+      <div class="drawer-head-text">
+        <h2>Glossary</h2>
+      </div>
+      <button class="ghost-btn drawer-close" id="closeGlossaryBtn" type="button" aria-label="Close">✕</button>
+    </div>
+    <div class="drawer-search">
+      <label class="field" for="glossarySearchInput">
+        <input id="glossarySearchInput" type="text" placeholder="Search approval, discovery, visibility..." />
+      </label>
+    </div>
+    <div id="glossaryList" class="glossary-list"></div>
+  </aside>
+
+  <!-- Help popover -->
+  <div id="helpPopover" class="help-popover hidden" role="tooltip" aria-hidden="true" aria-live="polite"></div>
+
+  <script type="module" src="/api/setup/assets/main.js"></script>
+</body>
+</html>
