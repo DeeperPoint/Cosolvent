@@ -58,6 +58,7 @@ dev = [
     "ruff>=0.7.0",
     "mypy>=1.13.0",
     "pre-commit>=4.0.0",
+    "poethepoet>=0.32.0",
 ]
 
 [build-system]
@@ -75,6 +76,173 @@ markers = [
     "e2e: end-to-end tests against full stack",
     "live: tests requiring live external providers",
 ]
+
+[tool.poe]
+poetry_command = ""
+
+[tool.poe.env]
+API_HOST_PORT = "18000"
+SETUP_HOST_PORT = "18080"
+POSTGRES_HOST_PORT = "15432"
+
+[tool.poe.tasks.lint]
+help = "Run Ruff lint checks"
+cmd = "ruff check app cli tests scripts"
+
+[tool.poe.tasks.lint-fix]
+help = "Run Ruff with auto-fixes"
+cmd = "ruff check --fix app cli tests scripts"
+
+[tool.poe.tasks.format]
+help = "Format code with Ruff"
+cmd = "ruff format app cli tests scripts"
+
+[tool.poe.tasks.type-check]
+help = "Run mypy type checking"
+cmd = "mypy app cli --ignore-missing-imports"
+
+[tool.poe.tasks.clean]
+help = "Remove build artifacts and caches"
+shell = "rm -rf dist/ *.egg-info/ .pytest_cache/ .ruff_cache/ .mypy_cache/ __pycache__/ && find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true"
+interpreter = "bash"
+
+[tool.poe.tasks.test]
+help = "Run unit tests"
+cmd = "pytest tests/unit -q"
+
+[tool.poe.tasks.test-cov]
+help = "Run unit tests with coverage"
+cmd = "pytest tests/unit --cov=app --cov-report=term-missing -q"
+
+[tool.poe.tasks.integration]
+help = "Run integration tests (requires running stack)"
+cmd = "pytest tests/integration -q"
+env = { RUN_INTEGRATION = "1" }
+
+[tool.poe.tasks.e2e]
+help = "Run local full-stack E2E (requires running stack)"
+cmd = "pytest tests/e2e/test_local_full_stack.py tests/e2e/test_onboarding_experience.py -q"
+env = { RUN_E2E = "1" }
+
+[tool.poe.tasks.live]
+help = "Run live-provider E2E (uses .env secrets if present)"
+shell = "set -a; [ -f .env ] && source .env; set +a; RUN_LIVE_E2E=1 pytest tests/e2e/test_live_providers.py -q -rs"
+interpreter = "bash"
+
+[tool.poe.tasks.test-all]
+help = "Run lint + unit + integration + local E2E"
+sequence = ["lint", "test", "integration", "e2e"]
+
+[tool.poe.tasks.api]
+help = "Run API locally (non-Docker)"
+shell = "set -a; [ -f .env ] && source .env; set +a; uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+interpreter = "bash"
+
+[tool.poe.tasks.worker]
+help = "Run worker locally (non-Docker)"
+shell = "set -a; [ -f .env ] && source .env; set +a; arq app.workers.settings.WorkerSettings"
+interpreter = "bash"
+
+[tool.poe.tasks.validate-config]
+help = "Validate marketplace config file"
+cmd = "python -m cli validate marketplace.example.yaml"
+
+[tool.poe.tasks.wizard]
+help = "Launch CLI onboarding wizard"
+cmd = "python -m cli wizard -o marketplace.yaml"
+
+[tool.poe.tasks.compile]
+help = "Generate marketplace artifacts from marketplace.yaml"
+cmd = "python -m cli compile --config marketplace.yaml --mode mvp"
+
+[tool.poe.tasks.compile-check]
+help = "Verify generated artifacts are in sync with marketplace.yaml"
+cmd = "python -m cli compile --check --config marketplace.yaml --mode mvp"
+
+[tool.poe.tasks.export]
+help = "Generate artifacts and export deployable package"
+cmd = "python -m cli export --config marketplace.yaml --mode mvp --export-dir exports"
+
+[tool.poe.tasks.docker-up]
+help = "Start Docker stack (Postgres+Redis+API+worker)"
+shell = """
+if [ -f .env ]; then
+  DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose --env-file .env up -d --build
+else
+  DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose up -d --build
+fi
+"""
+interpreter = "bash"
+
+[tool.poe.tasks.docker-down]
+help = "Stop Docker stack"
+shell = """
+if [ -f .env ]; then
+  docker compose --env-file .env down
+else
+  docker compose down
+fi
+"""
+interpreter = "bash"
+
+[tool.poe.tasks.docker-reset]
+help = "Stop Docker stack and remove volumes"
+shell = """
+if [ -f .env ]; then
+  docker compose --env-file .env down -v --remove-orphans
+else
+  docker compose down -v --remove-orphans
+fi
+"""
+interpreter = "bash"
+
+[tool.poe.tasks.docker-ps]
+help = "Show Docker stack status"
+shell = """
+if [ -f .env ]; then
+  docker compose --env-file .env ps
+else
+  docker compose ps
+fi
+"""
+interpreter = "bash"
+
+[tool.poe.tasks.docker-logs]
+help = "Tail all Docker logs"
+shell = """
+if [ -f .env ]; then
+  docker compose --env-file .env logs -f
+else
+  docker compose logs -f
+fi
+"""
+interpreter = "bash"
+
+[tool.poe.tasks.setup-up]
+help = "Start setup/onboarding service only"
+shell = """
+if [ -f .env ]; then
+  DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose --env-file .env up -d --build setup
+else
+  DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose up -d --build setup
+fi
+"""
+interpreter = "bash"
+
+[tool.poe.tasks.setup-down]
+help = "Stop setup/onboarding service only"
+shell = """
+if [ -f .env ]; then
+  docker compose --env-file .env stop setup
+else
+  docker compose stop setup
+fi
+"""
+interpreter = "bash"
+
+[tool.poe.tasks.wait-api]
+help = "Wait for API health endpoint to be ready"
+cmd = "python scripts/wait_for_http.py --url http://localhost:18000/api/health --timeout 180"
 
 [tool.ruff]
 target-version = "py311"

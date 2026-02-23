@@ -17,7 +17,6 @@ from app.core.marketplace_config import (
     set_marketplace_config,
 )
 from app.modules.ai import service as ai_service
-from app.modules.ai.schemas import ProviderValidateRequest
 from app.modules.setup.presets import list_presets
 
 router = APIRouter()
