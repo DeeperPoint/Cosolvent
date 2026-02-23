@@ -22,7 +22,7 @@ from app.modules.setup.presets import list_presets
 router = APIRouter()
 
 _SETUP_DIR = Path(__file__).parent
-_PANEL_V2_HTML = (_SETUP_DIR / "panel_v2.html").read_text(encoding="utf-8")
+_PANEL_HTML = (_SETUP_DIR / "panel_v3.html").read_text(encoding="utf-8")
 _ASSET_DIR = _SETUP_DIR / "ui"
 _ALLOWED_ASSETS = {
     "main.js",
@@ -33,6 +33,7 @@ _ALLOWED_ASSETS = {
     "diff-renderer.js",
     "state-utils.js",
     "onboarding-v2.css",
+    "onboarding-v3.css",
 }
 
 
@@ -61,7 +62,7 @@ class GenerateCheckPayload(BaseModel):
 
 @router.get("/onboarding", response_class=HTMLResponse)
 async def onboarding_panel() -> HTMLResponse:
-    return HTMLResponse(_PANEL_V2_HTML)
+    return HTMLResponse(_PANEL_HTML)
 
 
 @router.get("/api/setup/assets/{asset_name}")
