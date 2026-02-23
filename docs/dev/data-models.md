@@ -236,3 +236,7 @@ Key indexes created at startup by `app/core/database.py`:
 - [Architecture](architecture.md) — data strategy overview
 - [Modules](modules.md) — which module owns which tables
 - [Workers](workers.md) — async indexing into vector tables
+
+---
+
+[← Engines](engines.md) · [AI Architecture →](ai-architecture.md)

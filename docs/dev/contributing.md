@@ -215,3 +215,7 @@ Add FAQ soft-delete endpoint
 - [Testing](testing.md) — writing and running tests
 - [Architecture](architecture.md) — system design context
 - [Compiler](compiler.md) — managed zones in detail
+
+---
+
+[← Testing](testing.md)

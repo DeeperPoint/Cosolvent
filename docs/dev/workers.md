@@ -134,3 +134,7 @@ The `index_profile_task` may not have run after a profile update. Trigger it man
 - [Architecture](architecture.md) — Redis in the system overview
 - [AI Architecture](ai-architecture.md) — document and profile indexing details
 - [Data Models](data-models.md) — `ai_document_chunks`, `profile_vectors`
+
+---
+
+[← AI Architecture](ai-architecture.md) · [API Reference →](api-reference.md)

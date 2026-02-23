@@ -207,3 +207,7 @@ All AI operations wrap provider calls in try/except and raise `ServiceUnavailabl
 - [Workers](workers.md) — document and profile indexing jobs
 - [Data Models](data-models.md) — ai_document_chunks, profile_vectors, ai_llm_settings
 - [AI Features](../user/ai-features.md) — operator guide for setting up providers
+
+---
+
+[← Data Models](data-models.md) · [Background Workers →](workers.md)

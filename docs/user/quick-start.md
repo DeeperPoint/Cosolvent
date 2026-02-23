@@ -173,3 +173,7 @@ python -m cli compile --check --config marketplace.yaml --mode mvp
 - [Marketplace Config Reference](marketplace-config.md) — every YAML option
 - [Environment Variables](environment.md) — what goes in `.env`
 - [Running](running.md) — Docker Compose details, logs, health checks
+
+---
+
+[← Overview](index.md) · [Setup Wizard →](setup-wizard.md)

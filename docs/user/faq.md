@@ -151,3 +151,7 @@ Yes. Point your domain's DNS to your server and configure `CORS_ORIGINS` in `.en
 - [Marketplace Config Reference](marketplace-config.md) — every config option explained
 - [Admin Guide](admin-guide.md) — managing your running marketplace
 - [Troubleshooting](troubleshooting.md) — fix common issues
+
+---
+
+[← Troubleshooting](troubleshooting.md)

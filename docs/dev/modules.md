@@ -193,3 +193,7 @@ Onboarding wizard UI and the compilation API. Only active in `setup_app.py`.
 - [Architecture](architecture.md) — how modules fit together
 - [Engines](engines.md) — permission, schema, visibility engines
 - [API Reference](api-reference.md) — complete endpoint listing
+
+---
+
+[← Architecture](architecture.md) · [Compiler →](compiler.md)

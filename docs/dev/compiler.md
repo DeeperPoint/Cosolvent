@@ -172,3 +172,7 @@ Contains all generated files plus the manifest. Used for deployment handoff or a
 - [Architecture](architecture.md) — how the compiler fits in the system
 - [Modules](modules.md) — setup module (wizard + compile API)
 - [Contributing](contributing.md) — managed zones, what not to edit
+
+---
+
+[← Modules](modules.md) · [Engines →](engines.md)

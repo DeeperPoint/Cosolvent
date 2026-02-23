@@ -196,3 +196,7 @@ async def get_profile(type_slug, profile_id, viewer):
 - [Architecture](architecture.md) — where engines fit in the system
 - [Modules](modules.md) — which modules use which engines
 - [Marketplace Config Reference](../user/marketplace-config.md) — visibility and permission options
+
+---
+
+[← Compiler](compiler.md) · [Data Models →](data-models.md)

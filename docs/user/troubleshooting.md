@@ -234,3 +234,7 @@ curl -X POST http://localhost:18000/api/auth/login \
 - [Running](running.md) — Docker Compose details
 - [Environment Variables](environment.md) — all env var defaults and requirements
 - [FAQ](faq.md) — quick answers to common questions
+
+---
+
+[← AI Features](ai-features.md) · [FAQ →](faq.md)

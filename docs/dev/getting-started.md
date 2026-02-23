@@ -227,3 +227,7 @@ Set the interpreter to `.venv/bin/python`. Enable Ruff as an external tool for f
 - [Architecture](architecture.md) — how the system is structured
 - [Testing](testing.md) — test strategy and fixture details
 - [Contributing](contributing.md) — code style, PR process
+
+---
+
+[← Developer Orientation](index.md) · [Architecture →](architecture.md)

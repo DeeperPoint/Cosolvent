@@ -97,3 +97,7 @@ When running with `docker compose`, environment variables from your `.env` file 
 - [Quick Start](quick-start.md) — minimal setup to get running
 - [Running](running.md) — Docker Compose and local startup details
 - [AI Features](ai-features.md) — AI provider configuration
+
+---
+
+[← Marketplace Config Reference](marketplace-config.md) · [Running Cosolvent →](running.md)

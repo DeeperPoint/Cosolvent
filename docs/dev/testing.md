@@ -200,3 +200,7 @@ GitHub Actions runs lint + unit tests on every push and PR (`.github/workflows/c
 ## See Also
 - [Getting Started](getting-started.md) — running tests locally
 - [Contributing](contributing.md) — what tests to add for new features
+
+---
+
+[← API Reference](api-reference.md) · [Contributing →](contributing.md)

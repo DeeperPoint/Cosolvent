@@ -176,3 +176,7 @@ API available at `http://localhost:8000`.
 - [Quick Start](quick-start.md) — end-to-end setup
 - [Environment Variables](environment.md) — configuring `.env`
 - [Troubleshooting](troubleshooting.md) — startup failures, port conflicts, and more
+
+---
+
+[← Environment Variables](environment.md) · [Admin Guide →](admin-guide.md)

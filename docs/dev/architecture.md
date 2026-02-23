@@ -174,3 +174,7 @@ This gate runs on every PR. See [Testing](testing.md) for the full CI gate.
 - [Compiler](compiler.md) — the generation pipeline
 - [Engines](engines.md) — permission, schema, visibility
 - [Data Models](data-models.md) — all DB tables and schemas
+
+---
+
+[← Getting Started](getting-started.md) · [Modules →](modules.md)

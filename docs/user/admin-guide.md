@@ -312,3 +312,7 @@ Returns the current marketplace configuration (participant types, communication 
 - [AI Features](ai-features.md) — setting up providers and RAG
 - [Troubleshooting](troubleshooting.md) — common admin issues
 - [FAQ](faq.md) — frequent operator questions
+
+---
+
+[← Running Cosolvent](running.md) · [AI Features →](ai-features.md)

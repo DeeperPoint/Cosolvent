@@ -331,3 +331,7 @@ python -m cli compile --check --config marketplace.yaml --mode mvp
 - [Setup Wizard](setup-wizard.md) — configure everything in the browser
 - [Environment Variables](environment.md) — runtime secrets and settings
 - [AI Features](ai-features.md) — provider setup for AI discovery
+
+---
+
+[← Setup Wizard](setup-wizard.md) · [Environment Variables →](environment.md)

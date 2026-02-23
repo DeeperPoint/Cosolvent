@@ -72,3 +72,7 @@ If you want to understand every config option:
 - [Quick Start](quick-start.md) — clone to running marketplace in 5 steps
 - [Setup Wizard](setup-wizard.md) — full wizard walkthrough
 - [Marketplace Config Reference](marketplace-config.md) — every YAML field explained
+
+---
+
+[Next: Quick Start →](quick-start.md)

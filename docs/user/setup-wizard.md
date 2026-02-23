@@ -250,3 +250,7 @@ The CLI wizard covers the same 7 steps in your terminal.
 - [Marketplace Config Reference](marketplace-config.md) — every YAML field in detail
 - [AI Features](ai-features.md) — AI provider setup and RAG configuration
 - [Running](running.md) — starting and stopping the stack
+
+---
+
+[← Quick Start](quick-start.md) · [Marketplace Config Reference →](marketplace-config.md)

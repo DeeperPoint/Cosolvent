@@ -193,3 +193,7 @@ curl -X PUT http://localhost:18000/api/admin/ai/prompts/rag_query \
 - [Admin Guide](admin-guide.md) — managing AI settings via API
 - [Marketplace Config Reference](marketplace-config.md) — discovery.ai options
 - [Troubleshooting](troubleshooting.md) — AI 503 errors and indexing failures
+
+---
+
+[← Admin Guide](admin-guide.md) · [Troubleshooting →](troubleshooting.md)

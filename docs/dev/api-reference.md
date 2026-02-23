@@ -313,3 +313,7 @@ Or for validation errors:
 - [Modules](modules.md) — module-level behavior details
 - [Admin Guide](../user/admin-guide.md) — admin API usage guide
 - [AI Features](../user/ai-features.md) — AI endpoint setup
+
+---
+
+[← Background Workers](workers.md) · [Testing →](testing.md)

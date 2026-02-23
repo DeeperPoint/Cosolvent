@@ -88,3 +88,7 @@ marketplace.yaml → compiler → app/generated/
 - [Architecture](architecture.md) — system design and layers
 - [Modules](modules.md) — every module in detail
 - [Contributing](contributing.md) — code style, PR process, managed zones
+
+---
+
+[Next: Getting Started →](getting-started.md)
