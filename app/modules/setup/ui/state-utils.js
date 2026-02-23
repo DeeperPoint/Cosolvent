@@ -1,3 +1,8 @@
+export const RESERVED_SLUGS = new Set([
+  "admin", "auth", "search", "files", "notifications", "setup",
+  "docs", "openapi", "roles", "ws",
+]);
+
 export const DEFAULT_PERMISSIONS = Object.freeze({
   can_list: false,
   can_search: false,
@@ -52,11 +57,13 @@ export function titleize(raw) {
 }
 
 export function sanitizeSlug(value) {
-  return String(value || "")
+  let slug = String(value || "")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_\- ]/g, "")
     .replace(/\s+/g, "_");
+  if (RESERVED_SLUGS.has(slug)) slug = `${slug}_role`;
+  return slug;
 }
 
 export function createParticipant(slug, role = "supply") {
@@ -104,7 +111,32 @@ export function fallbackConfig() {
       description: "",
       industry: "",
     },
-    participant_types: [createParticipant("provider", "supply"), createParticipant("client", "demand")],
+    participant_types: [
+      {
+        name: "Provider",
+        slug: "provider",
+        role: "supply",
+        permissions: {
+          ...clone(DEFAULT_PERMISSIONS),
+          can_list: true,
+          can_receive_conversation: true,
+          requires_onboarding: true,
+          requires_approval: true,
+          visible_in_search: true,
+        },
+      },
+      {
+        name: "Client",
+        slug: "client",
+        role: "demand",
+        permissions: {
+          ...clone(DEFAULT_PERMISSIONS),
+          can_search: true,
+          can_initiate_conversation: true,
+          requires_onboarding: true,
+        },
+      },
+    ],
     profile_schemas: {
       provider: { sections: [defaultSection("Provider Profile", "company_name")] },
       client: { sections: [defaultSection("Client Profile", "organization_name")] },
@@ -116,7 +148,10 @@ export function fallbackConfig() {
     communication: {
       conversation_rules: [{ initiator: "client", receiver: "provider", requires_approval: true }],
     },
-    discovery: clone(DEFAULT_DISCOVERY),
+    discovery: {
+      ...clone(DEFAULT_DISCOVERY),
+      searchable_types: ["provider"],
+    },
   };
 }
 
