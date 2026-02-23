@@ -70,6 +70,7 @@ const dom = {
   ruleList: document.getElementById("ruleList"),
   searchableTypes: document.getElementById("searchableTypes"),
   filterFieldsInput: document.getElementById("filterFieldsInput"),
+  filterFieldsWarning: document.getElementById("filterFieldsWarning"),
   anonymousVisibility: document.getElementById("anonymousVisibility"),
   authenticatedVisibility: document.getElementById("authenticatedVisibility"),
   anonymousSearchEnabled: document.getElementById("anonymousSearchEnabled"),
@@ -373,6 +374,7 @@ function renderParticipants() {
     `;
     })
     .join("");
+  dom.addParticipantBtn.disabled = configState.participant_types.length >= 3;
 }
 
 function renderOnboarding() {
@@ -389,7 +391,7 @@ function renderOnboarding() {
           </label>
           <label class="field">
             <span class="field-help">Approval style ${helpButton(`onboarding.${pt.slug}.approval_type`)}</span>
-            <select data-bind="onboarding.${pt.slug}.approval_type">
+            <select data-bind="onboarding.${pt.slug}.approval_type" ${!ob.requires_approval ? "disabled" : ""}>
               <option value="manual" ${ob.approval_type === "manual" ? "selected" : ""}>Manual review</option>
               <option value="auto" ${ob.approval_type === "auto" ? "selected" : ""}>Auto approve</option>
             </select>
@@ -448,16 +450,43 @@ function renderCommunication() {
     .join("");
 }
 
+function getAvailableFieldNames(cfg) {
+  const names = new Set();
+  for (const schema of Object.values(cfg.profile_schemas || {})) {
+    for (const section of schema.sections || []) {
+      for (const field of section.fields || []) {
+        if (field.name) names.add(field.name);
+      }
+    }
+  }
+  return Array.from(names).sort();
+}
+
 function renderDiscovery() {
   const slugs = currentSlugs(configState);
-  dom.searchableTypes.innerHTML = slugs
-    .map(
-      (slug) => `
-      <label><input type="checkbox" data-searchable-type="${htmlEscape(slug)}" ${configState.discovery.searchable_types.includes(slug) ? "checked" : ""} /> ${htmlEscape(slug)}</label>
-    `,
-    )
-    .join("");
+  dom.searchableTypes.innerHTML = slugs.map(slug => {
+    const pt = configState.participant_types.find(p => p.slug === slug);
+    const canBeSearchable = Boolean(pt?.permissions?.visible_in_search);
+    const checked = configState.discovery.searchable_types.includes(slug);
+    return `<label${canBeSearchable ? "" : ' style="opacity:0.5"'}>
+      <input type="checkbox" data-searchable-type="${htmlEscape(slug)}"
+        ${checked ? "checked" : ""} ${canBeSearchable ? "" : "disabled"} />
+      ${htmlEscape(slug)}
+      ${canBeSearchable ? "" : '<span class="help-note"> (enable "Visible in search" on this role first)</span>'}
+    </label>`;
+  }).join("");
   dom.filterFieldsInput.value = configState.discovery.filter_fields.join(", ");
+  const availableFields = getAvailableFieldNames(configState);
+  if (dom.filterFieldsWarning) {
+    const unknown = configState.discovery.filter_fields.filter(f => !availableFields.includes(f));
+    if (unknown.length) {
+      dom.filterFieldsWarning.textContent = `Unknown field${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}. Available fields: ${availableFields.join(", ") || "(none defined)"}`;
+    } else {
+      dom.filterFieldsWarning.textContent = availableFields.length
+        ? `Available fields: ${availableFields.join(", ")}`
+        : "";
+    }
+  }
   dom.anonymousVisibility.value = configState.discovery.result_visibility.anonymous;
   dom.authenticatedVisibility.value = configState.discovery.result_visibility.authenticated;
   dom.anonymousSearchEnabled.checked = Boolean(configState.discovery.access.anonymous_search_enabled);
@@ -957,27 +986,34 @@ async function checkGeneratedSync() {
 }
 
 async function generateProject() {
-  const valid = await validateCurrentConfig({ showSuccess: false });
-  if (!valid) {
-    return;
-  }
-  await saveAIProviderConfig();
+  dom.generateBtn.disabled = true;
   try {
-    const data = await apiJson("/api/setup/generate", {
-      config: valid,
-      mode: dom.compileModeInput.value,
-      export_enabled: dom.exportEnabledInput.checked,
-      export_dir: dom.exportDirInput.value.trim() || "exports",
-      overwrite_policy: "managed",
-    });
-    dom.generateReport.textContent = JSON.stringify(data, null, 2);
-    if (data.export_path) {
-      setStatus("ok", `Generation complete. Export created at ${data.export_path}.`);
-    } else {
-      setStatus("ok", "Generation complete.");
+    const valid = await validateCurrentConfig({ showSuccess: false });
+    if (!valid) {
+      dom.friendlyErrors.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+      dom.generateReport.textContent = "Validation failed. Fix the highlighted issues above, then try again.";
+      return;
     }
-  } catch (err) {
-    setStatus("error", err?.detail?.message || err?.detail || "Failed to generate project.");
+    await saveAIProviderConfig();
+    try {
+      const data = await apiJson("/api/setup/generate", {
+        config: valid,
+        mode: dom.compileModeInput.value,
+        export_enabled: dom.exportEnabledInput.checked,
+        export_dir: dom.exportDirInput.value.trim() || "exports",
+        overwrite_policy: "managed",
+      });
+      dom.generateReport.textContent = JSON.stringify(data, null, 2);
+      if (data.export_path) {
+        setStatus("ok", `Generation complete. Export created at ${data.export_path}.`);
+      } else {
+        setStatus("ok", "Generation complete.");
+      }
+    } catch (err) {
+      setStatus("error", err?.detail?.message || err?.detail || "Failed to generate project.");
+    }
+  } finally {
+    dom.generateBtn.disabled = false;
   }
 }
 
@@ -1077,6 +1113,10 @@ function applyJsonToGuided() {
 }
 
 function addParticipant() {
+  if (configState.participant_types.length >= 3) {
+    setStatus("warn", "Maximum 3 roles allowed for MVP. Remove an existing role first.");
+    return;
+  }
   const idx = configState.participant_types.length + 1;
   const slug = `role_${idx}`;
   configState.participant_types.push(createParticipant(slug, "supply"));
@@ -1337,6 +1377,16 @@ function bindEvents() {
         }
       } else {
         setAtPath(configState, bind, value);
+        if (bind.endsWith(".permissions.visible_in_search") && !value) {
+          const match = bind.match(/^participant_types\.(\d+)\.permissions\.visible_in_search$/);
+          if (match) {
+            const slug = configState.participant_types[Number(match[1])]?.slug;
+            if (slug) {
+              configState.discovery.searchable_types =
+                configState.discovery.searchable_types.filter(s => s !== slug);
+            }
+          }
+        }
       }
       renderAll();
       return;

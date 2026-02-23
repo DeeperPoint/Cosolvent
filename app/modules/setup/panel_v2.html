@@ -6,12 +6,11 @@
   <title>Marketplace Setup</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=Source+Serif+4:wght@400;600&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" />
   <link rel="stylesheet" href="/api/setup/assets/onboarding-v2.css" />
 </head>
 <body>
   <a class="skip-link" href="#wizardStepViewport">Skip to onboarding steps</a>
-  <div class="texture-layer" aria-hidden="true"></div>
 
   <main class="page onboarding-root" id="wizardMain">
     <section id="introScene" class="scene scene-intro" aria-labelledby="introTitle">
@@ -50,8 +49,8 @@
               <p id="activeStepHint" class="step-copy">Choose a use-case template and apply quick defaults.</p>
             </div>
             <div class="wizard-utility" role="toolbar" aria-label="Setup utility actions">
-              <button class="outline-btn" id="loadConfigBtn" type="button">Reload Current Config</button>
-              <button class="outline-btn" id="validateBtn" type="button">Validate Setup</button>
+              <button class="outline-btn" id="loadConfigBtn" type="button">Reload Config</button>
+              <button class="outline-btn" id="validateBtn" type="button">Validate</button>
               <button class="outline-btn" id="renderYamlBtn" type="button">Preview YAML</button>
               <button class="outline-btn" id="openAdvancedDrawerBtn" type="button" aria-controls="advancedPanel" aria-expanded="false">Advanced JSON</button>
             </div>
@@ -59,16 +58,18 @@
 
           <section class="status-strip" aria-live="polite">
             <p id="statusLine">Loading setup experience...</p>
-            <p class="wizard-source">Config source: <strong id="sourcePathWizard">Loading...</strong></p>
+            <p class="wizard-source">Config: <strong id="sourcePathWizard">Loading...</strong></p>
           </section>
-
-          <nav class="wizard-progress" aria-label="Step jump navigation">
-            <ol id="stepNav" class="step-list compact"></ol>
-          </nav>
         </header>
 
         <div id="friendlyErrors" class="error-panel hidden" aria-live="polite"></div>
 
+        <div class="wizard-layout">
+          <nav class="wizard-sidebar" aria-label="Step jump navigation">
+            <ol id="stepNav" class="step-list"></ol>
+          </nav>
+
+          <div class="wizard-main">
         <section class="wizard-body" id="wizardStepViewport" aria-label="Setup steps">
           <div class="step-scroll-region" id="stepScrollRegion">
             <section class="step-panel" data-step="0">
@@ -220,6 +221,7 @@
                     <span class="field-help">Filter fields (comma separated) <button type="button" class="help-dot" data-help-path="discovery.filter_fields" aria-label="Help for discovery.filter_fields" aria-describedby="helpPopover">?</button></span>
                     <input id="filterFieldsInput" type="text" />
                   </label>
+                  <p id="filterFieldsWarning" class="help-note" aria-live="polite"></p>
                   <div class="grid-2">
                     <label class="field">
                       <span class="field-help">Visibility for visitors <button type="button" class="help-dot" data-help-path="discovery.result_visibility.anonymous" aria-label="Help for discovery.result_visibility.anonymous" aria-describedby="helpPopover">?</button></span>
@@ -355,10 +357,12 @@
           </div>
         </section>
 
-        <footer class="wizard-footer" aria-label="Wizard step navigation">
-          <button class="outline-btn" id="prevStepBtn" type="button">Previous</button>
-          <button class="solid-btn" id="nextStepBtn" type="button">Next</button>
-        </footer>
+            <footer class="wizard-footer" aria-label="Wizard step navigation">
+              <button class="outline-btn" id="prevStepBtn" type="button">Previous</button>
+              <button class="solid-btn" id="nextStepBtn" type="button">Next</button>
+            </footer>
+          </div><!-- /.wizard-main -->
+        </div><!-- /.wizard-layout -->
       </div>
     </section>
   </main>
