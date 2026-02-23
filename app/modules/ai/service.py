@@ -29,6 +29,7 @@ async def query(
     thread_id: str | None,
     filters: dict | None,
     config: MarketplaceConfig,
+    use_case: str = "faq",
 ) -> dict[str, Any]:
     """RAG query: retrieve relevant context, generate answer."""
     if not config.discovery.ai.rag_query_enabled:
@@ -50,8 +51,10 @@ async def query(
     except Exception as exc:
         raise ServiceUnavailableError("AI retrieval unavailable: vector search failed") from exc
 
-    # Build prompt
-    template = await get_prompt_template("rag_query", config)
+    # Build prompt — try use_case template first, fall back to rag_query
+    template = await get_prompt_template(use_case, config)
+    if not template:
+        template = await get_prompt_template("rag_query", config)
     prompt = format_prompt(template, config, context=context, query=query_text)
 
     # Get conversation history
@@ -61,8 +64,8 @@ async def query(
         messages = thread["messages"]
     messages.append({"role": "user", "content": prompt})
 
-    # Generate
-    answer = await generate(messages, use_case="rag_query")
+    # Generate using per-use-case config
+    answer = await generate(messages, use_case=use_case)
 
     # Save to history
     messages.append({"role": "assistant", "content": answer})
@@ -101,8 +104,8 @@ async def follow_up(
     return {"suggestions": suggestions, "thread_id": thread_id}
 
 
-async def upload_document(filename: str, content: str) -> dict[str, Any]:
-    doc = await repo.create_document(filename, content)
+async def upload_document(filename: str, content: str, content_type: str = "text/plain") -> dict[str, Any]:
+    doc = await repo.create_document(filename, content, content_type)
     doc_id = str(doc["_id"])
     try:
         await enqueue_job(
@@ -198,6 +201,20 @@ async def get_llm_settings() -> dict:
             "embedding_dimensions": 1536,
             "enabled_providers": ["openai"],
             "use_case_overrides": {},
+            "use_case_configs": {
+                "faq":                {"provider": "openai", "model": "gpt-4o-mini", "temperature": 0.7,  "max_tokens": 1024},
+                "profile_chat":       {"provider": "openai", "model": "gpt-4o-mini", "temperature": 0.7,  "max_tokens": 2048},
+                "discovery":          {"provider": "openai", "model": "gpt-4o-mini", "temperature": 0.3,  "max_tokens": 512},
+                "profile_generation": {"provider": "openai", "model": "gpt-4o",      "temperature": 0.5,  "max_tokens": 2048},
+                "document_extraction":{"provider": "openai", "model": "gpt-4o-mini", "temperature": 0.1,  "max_tokens": 1024},
+                "follow_up":          {"provider": "openai", "model": "gpt-4o-mini", "temperature": 0.7,  "max_tokens": 512},
+            },
+            "multimodal": {
+                "provider": "openai",
+                "model": "gpt-4o",
+                "enabled": True,
+                "max_tokens": 1024,
+            },
         }
     return _serialize(settings)
 

@@ -25,7 +25,7 @@ async def query(
     user: dict = Depends(get_current_user),
     config: MarketplaceConfig = Depends(get_config),
 ):
-    return await service.query(user["_id"], body.query, body.thread_id, body.filters, config)
+    return await service.query(user["_id"], body.query, body.thread_id, body.filters, config, use_case=body.use_case)
 
 
 @router.post("/follow-up")
@@ -42,7 +42,7 @@ async def upload_document(
     body: DocumentUpload,
     user: dict = Depends(require_admin),
 ):
-    return await service.upload_document(body.filename, body.content)
+    return await service.upload_document(body.filename, body.content, body.content_type)
 
 
 @router.get("/documents")

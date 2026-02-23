@@ -7,6 +7,7 @@ class QueryRequest(BaseModel):
     query: str
     thread_id: str | None = None
     filters: dict | None = None
+    use_case: str = "faq"
 
 
 class FollowUpRequest(BaseModel):
@@ -16,6 +17,7 @@ class FollowUpRequest(BaseModel):
 class DocumentUpload(BaseModel):
     filename: str
     content: str
+    content_type: str = "text/plain"
 
 
 class PromptUpdate(BaseModel):
@@ -25,6 +27,20 @@ class PromptUpdate(BaseModel):
 class UseCaseOverride(BaseModel):
     provider: str
     model: str
+
+
+class UseCaseConfig(BaseModel):
+    provider: str
+    model: str
+    temperature: float = 0.7
+    max_tokens: int = 1024
+
+
+class MultimodalConfig(BaseModel):
+    provider: str = "openai"
+    model: str = "gpt-4o"
+    enabled: bool = True
+    max_tokens: int = 1024
 
 
 class LLMSettingsUpdate(BaseModel):
@@ -39,6 +55,8 @@ class LLMSettingsUpdate(BaseModel):
     embedding_dimensions: int | None = None
     enabled_providers: list[str] | None = None
     use_case_overrides: dict[str, UseCaseOverride | None] | None = None
+    use_case_configs: dict[str, UseCaseConfig | None] | None = None
+    multimodal: MultimodalConfig | None = None
 
 
 class ProviderValidateRequest(BaseModel):

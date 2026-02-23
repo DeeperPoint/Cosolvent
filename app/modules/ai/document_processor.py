@@ -17,6 +17,8 @@ logger = logging.getLogger("cosolvent.docproc")
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 
+IMAGE_MIME_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"}
+
 
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
     """Split text into overlapping chunks."""
@@ -29,6 +31,33 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
     return chunks
 
 
+async def extract_text_from_image(base64_content: str, content_type: str) -> str:
+    """Use multimodal model to extract text from an image document."""
+    from app.modules.ai.client_factory import get_chat_client
+
+    cfg = await repo.get_multimodal_config()
+    if not cfg["enabled"]:
+        return ""
+
+    client = get_chat_client(cfg["provider"])
+    try:
+        response = await client.chat.completions.create(
+            model=cfg["model"],
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Extract all text from this image. Return only the extracted text."},
+                    {"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{base64_content}"}},
+                ],
+            }],
+            max_tokens=cfg["max_tokens"],
+        )
+        return response.choices[0].message.content or ""
+    except Exception:
+        logger.error("Multimodal image extraction failed", exc_info=True)
+        return ""
+
+
 async def process_document(doc_id: str) -> None:
     """Process a queued document: chunk, embed, index to Postgres vectors."""
     doc = await repo.get_document(doc_id)
@@ -38,7 +67,11 @@ async def process_document(doc_id: str) -> None:
     await repo.update_document_status(doc_id, "PROCESSING")
 
     try:
-        text = doc.get("content", "")
+        content_type = doc.get("content_type", "text/plain")
+        if content_type in IMAGE_MIME_TYPES:
+            text = await extract_text_from_image(doc.get("content", ""), content_type)
+        else:
+            text = doc.get("content", "")
         chunks = chunk_text(text)
 
         document_uuid = uuid.UUID(doc_id)

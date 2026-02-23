@@ -9,10 +9,11 @@ from app.core.database import get_collection
 
 # ── AI Documents ──────────────────────────────────────────────────────────
 
-async def create_document(filename: str, content: str) -> dict[str, Any]:
+async def create_document(filename: str, content: str, content_type: str = "text/plain") -> dict[str, Any]:
     doc = {
         "filename": filename,
         "content": content,
+        "content_type": content_type,
         "status": "QUEUED",
         "chunk_count": 0,
         "created_at": datetime.now(timezone.utc),
@@ -97,13 +98,22 @@ async def get_resolved_chat_config(use_case: str | None = None) -> dict[str, Any
         temperature = s.get("temperature", temperature)
         max_tokens = s.get("max_tokens", max_tokens)
 
-        # Apply use-case override if present
+        # Apply per-use-case config (new-style) first
         if use_case:
-            overrides = s.get("use_case_overrides", {})
-            override = overrides.get(use_case)
-            if override and isinstance(override, dict):
-                provider = override.get("provider", provider)
-                model = override.get("model", model)
+            configs = s.get("use_case_configs", {})
+            cfg = configs.get(use_case)
+            if cfg and isinstance(cfg, dict):
+                provider = cfg.get("provider", provider)
+                model = cfg.get("model", model)
+                temperature = cfg.get("temperature", temperature)
+                max_tokens = cfg.get("max_tokens", max_tokens)
+            else:
+                # Fall back to legacy use_case_overrides (provider/model only)
+                overrides = s.get("use_case_overrides", {})
+                override = overrides.get(use_case)
+                if override and isinstance(override, dict):
+                    provider = override.get("provider", provider)
+                    model = override.get("model", model)
 
     return {
         "provider": provider,
@@ -111,6 +121,17 @@ async def get_resolved_chat_config(use_case: str | None = None) -> dict[str, Any
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+
+
+async def get_multimodal_config() -> dict[str, Any]:
+    """Return multimodal extraction config from settings."""
+    s = await get_llm_settings()
+    defaults: dict[str, Any] = {"provider": "openai", "model": "gpt-4o", "enabled": True, "max_tokens": 1024}
+    if s and "multimodal" in s:
+        mm = s["multimodal"]
+        if isinstance(mm, dict):
+            defaults.update({k: v for k, v in mm.items() if v is not None})
+    return defaults
 
 
 async def get_embedding_config() -> dict[str, Any]:
