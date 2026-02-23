@@ -22,7 +22,7 @@ export const STEPS = [
   {
     id: "ai_providers",
     title: "AI Providers",
-    hint: "Select and configure AI providers for chat and embeddings.",
+    hint: "Enable the providers you have API keys for. Model and quality settings are configured at runtime.",
   },
   {
     id: "communication",

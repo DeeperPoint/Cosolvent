@@ -31,17 +31,12 @@ let jsonValidationTimer = null;
 let helpHideTimer = null;
 
 let aiProviderConfig = {
-  chat_provider: "openai",
-  chat_model: "gpt-4o-mini",
-  temperature: 0.7,
-  max_tokens: 1024,
+  enabled_providers: ["openai"],
   embedding_provider: "openai",
   embedding_model: "text-embedding-3-small",
   embedding_dimensions: 1536,
-  enabled_providers: ["openai"],
 };
-let aiChatModels = [];
-let aiEmbeddingModels = [];
+let providers = [];
 
 const dom = {
   sourcePath: document.getElementById("sourcePath"),
@@ -106,14 +101,6 @@ const dom = {
   floatingGlossaryBtn: document.getElementById("floatingGlossaryBtn"),
   closeGlossaryBtn: document.getElementById("closeGlossaryBtn"),
   helpPopover: document.getElementById("helpPopover"),
-  aiChatProvider: document.getElementById("aiChatProvider"),
-  aiChatModel: document.getElementById("aiChatModel"),
-  aiTemperature: document.getElementById("aiTemperature"),
-  aiMaxTokens: document.getElementById("aiMaxTokens"),
-  validateProviderBtn: document.getElementById("validateProviderBtn"),
-  providerValidationStatus: document.getElementById("providerValidationStatus"),
-  aiEmbeddingProvider: document.getElementById("aiEmbeddingProvider"),
-  aiEmbeddingModel: document.getElementById("aiEmbeddingModel"),
   loadConfigBtn: document.getElementById("loadConfigBtn"),
   validateBtn: document.getElementById("validateBtn"),
   renderYamlBtn: document.getElementById("renderYamlBtn"),
@@ -273,7 +260,7 @@ function computeStepCompletion() {
     done: slugs.every((slug) => Boolean(configState.onboarding[slug])),
   };
   completion[4] = {
-    done: Boolean(aiProviderConfig.chat_provider) && Boolean(aiProviderConfig.embedding_provider),
+    done: (aiProviderConfig.enabled_providers || []).length > 0 && Boolean(aiProviderConfig.embedding_provider),
   };
   completion[5] = {
     done: Array.isArray(configState.communication.conversation_rules) && configState.communication.conversation_rules.length > 0,
@@ -612,72 +599,60 @@ function renderRisks() {
   dom.riskList.innerHTML = risks.map((risk) => `<p>Potential risk: ${htmlEscape(risk)}</p>`).join("");
 }
 
-async function fetchAIChatModels(provider) {
-  try {
-    const resp = await fetch(`/api/ai/models?provider=${encodeURIComponent(provider)}`);
-    if (!resp.ok) return [];
-    return await resp.json();
-  } catch {
-    return [];
-  }
-}
-
 function renderAIProviders() {
-  if (dom.aiChatProvider) {
-    dom.aiChatProvider.value = aiProviderConfig.chat_provider || "openai";
-  }
-  if (dom.aiChatModel) {
-    dom.aiChatModel.innerHTML = aiChatModels.length
-      ? aiChatModels.map((m) => `<option value="${htmlEscape(m.model)}" ${m.model === aiProviderConfig.chat_model ? "selected" : ""}>${htmlEscape(m.description || m.model)}</option>`).join("")
-      : `<option value="${htmlEscape(aiProviderConfig.chat_model)}">${htmlEscape(aiProviderConfig.chat_model)}</option>`;
-  }
-  if (dom.aiTemperature) {
-    dom.aiTemperature.value = String(aiProviderConfig.temperature ?? 0.7);
-  }
-  if (dom.aiMaxTokens) {
-    dom.aiMaxTokens.value = String(aiProviderConfig.max_tokens ?? 1024);
-  }
-  if (dom.aiEmbeddingProvider) {
-    dom.aiEmbeddingProvider.value = aiProviderConfig.embedding_provider || "openai";
-  }
-  if (dom.aiEmbeddingModel) {
-    const embModel = aiProviderConfig.embedding_model || "text-embedding-3-small";
-    const embeddingModels = aiEmbeddingModels.length
-      ? aiEmbeddingModels
-      : [{ model: embModel, description: embModel }];
-    dom.aiEmbeddingModel.innerHTML = embeddingModels
-      .map((m) => `<option value="${htmlEscape(m.model)}" ${m.model === embModel ? "selected" : ""}>${htmlEscape(m.description || m.model)}</option>`)
-      .join("");
-  }
-}
+  const container = document.getElementById("aiProvidersContainer");
+  if (!container) return;
 
-async function loadAIChatModels(provider) {
-  aiChatModels = await fetchAIChatModels(provider);
-  renderAIProviders();
-}
+  const enabled = aiProviderConfig.enabled_providers || [];
 
-async function validateAIProvider() {
-  const provider = aiProviderConfig.chat_provider || "openai";
-  if (dom.providerValidationStatus) {
-    dom.providerValidationStatus.textContent = "Validating...";
-  }
-  try {
-    const resp = await fetch("/api/ai/providers/validate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider }),
-    });
-    const data = await resp.json();
-    if (dom.providerValidationStatus) {
-      dom.providerValidationStatus.textContent = data.valid
-        ? "Connection valid."
-        : "Connection failed. Check your API key.";
-    }
-  } catch {
-    if (dom.providerValidationStatus) {
-      dom.providerValidationStatus.textContent = "Validation request failed.";
-    }
-  }
+  const cardsHtml = providers.length
+    ? providers.map((p) => {
+        const isOn = enabled.includes(p.id);
+        const keyLabel = p.configured ? "✓ found" : "✗ not set";
+        const keyClass = p.configured ? "key-ok" : "key-missing";
+        return `
+          <article class="config-card" style="flex:1;min-width:160px">
+            <strong>${htmlEscape(p.name)}</strong>
+            <p class="card-note"><span class="${keyClass}">Key: ${keyLabel}</span></p>
+            <button type="button" class="outline-btn" data-action="toggle-provider" data-provider-id="${htmlEscape(p.id)}" aria-pressed="${isOn}">
+              ${isOn ? "Enabled ✓" : "Disabled"}
+            </button>
+          </article>`;
+      }).join("")
+    : '<p class="card-note">Loading providers...</p>';
+
+  const embeddingProviders = providers.filter((p) => p.supports_embeddings);
+  const embSelectOpts = embeddingProviders.length
+    ? embeddingProviders.map((p) =>
+        `<option value="${htmlEscape(p.id)}" ${p.id === aiProviderConfig.embedding_provider ? "selected" : ""}>${htmlEscape(p.name)}</option>`
+      ).join("")
+    : `<option value="${htmlEscape(aiProviderConfig.embedding_provider || "openai")}">${htmlEscape(aiProviderConfig.embedding_provider || "OpenAI")}</option>`;
+
+  const embModel = htmlEscape(aiProviderConfig.embedding_model || "text-embedding-3-small");
+  const embDim = aiProviderConfig.embedding_dimensions || 1536;
+
+  container.innerHTML = `
+    <article class="config-card">
+      <h3 class="card-title">Enable providers ${helpButton("ai_providers.enabled")}</h3>
+      <p class="card-note">API keys are set in your .env file. Enable the providers you have keys for.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:1rem;margin-top:.75rem">${cardsHtml}</div>
+    </article>
+    <article class="config-card">
+      <h3 class="card-title">Embedding provider (universal) ${helpButton("ai_providers.embedding_provider")}</h3>
+      <p class="card-note">Used for all search and RAG features. Changing provider after launch requires re-indexing all documents and profiles.</p>
+      <div class="grid-2">
+        <label class="field">
+          <span>Provider</span>
+          <select id="aiEmbeddingProvider">${embSelectOpts}</select>
+        </label>
+        <div class="field">
+          <span>Model / dimensions</span>
+          <p class="card-note">${embModel} &middot; ${embDim}d</p>
+        </div>
+      </div>
+    </article>
+    <p class="card-note">&#x2139; Model selection and per-feature settings are configured via the Admin API after launch.</p>
+  `;
 }
 
 async function saveAIProviderConfig() {
@@ -685,7 +660,12 @@ async function saveAIProviderConfig() {
     await fetch("/api/setup/ai-providers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(aiProviderConfig),
+      body: JSON.stringify({
+        enabled_providers: aiProviderConfig.enabled_providers,
+        embedding_provider: aiProviderConfig.embedding_provider,
+        embedding_model: aiProviderConfig.embedding_model,
+        embedding_dimensions: aiProviderConfig.embedding_dimensions,
+      }),
     });
   } catch {
     // non-blocking — save errors don't prevent generation
@@ -697,20 +677,18 @@ async function loadAIProviderConfig() {
     const resp = await fetch("/api/setup/ai-providers");
     if (resp.ok) {
       const data = await resp.json();
+      if (data.providers) {
+        providers = data.providers;
+      }
       if (data.settings) {
         aiProviderConfig = {
-          chat_provider: data.settings.chat_provider || "openai",
-          chat_model: data.settings.chat_model || "gpt-4o-mini",
-          temperature: data.settings.temperature ?? 0.7,
-          max_tokens: data.settings.max_tokens ?? 1024,
+          enabled_providers: data.settings.enabled_providers || ["openai"],
           embedding_provider: data.settings.embedding_provider || "openai",
           embedding_model: data.settings.embedding_model || "text-embedding-3-small",
           embedding_dimensions: data.settings.embedding_dimensions ?? 1536,
-          enabled_providers: data.settings.enabled_providers || ["openai"],
         };
       }
       renderAIProviders();
-      loadAIChatModels(aiProviderConfig.chat_provider);
     }
   } catch {
     // non-blocking
@@ -1210,62 +1188,6 @@ function bindEvents() {
     renderAll();
   });
 
-  if (dom.aiChatProvider) {
-    dom.aiChatProvider.addEventListener("change", () => {
-      aiProviderConfig.chat_provider = dom.aiChatProvider.value;
-      // Auto-add to enabled providers
-      if (!aiProviderConfig.enabled_providers.includes(aiProviderConfig.chat_provider)) {
-        aiProviderConfig.enabled_providers.push(aiProviderConfig.chat_provider);
-      }
-      loadAIChatModels(aiProviderConfig.chat_provider);
-      if (dom.providerValidationStatus) {
-        dom.providerValidationStatus.textContent = "";
-      }
-      renderStepNav();
-    });
-  }
-  if (dom.aiChatModel) {
-    dom.aiChatModel.addEventListener("change", () => {
-      aiProviderConfig.chat_model = dom.aiChatModel.value;
-    });
-  }
-  if (dom.aiTemperature) {
-    dom.aiTemperature.addEventListener("change", () => {
-      aiProviderConfig.temperature = Number(dom.aiTemperature.value || 0.7);
-    });
-  }
-  if (dom.aiMaxTokens) {
-    dom.aiMaxTokens.addEventListener("change", () => {
-      aiProviderConfig.max_tokens = Number(dom.aiMaxTokens.value || 1024);
-    });
-  }
-  if (dom.validateProviderBtn) {
-    dom.validateProviderBtn.addEventListener("click", validateAIProvider);
-  }
-  if (dom.aiEmbeddingProvider) {
-    dom.aiEmbeddingProvider.addEventListener("change", () => {
-      aiProviderConfig.embedding_provider = dom.aiEmbeddingProvider.value;
-      if (!aiProviderConfig.enabled_providers.includes(aiProviderConfig.embedding_provider)) {
-        aiProviderConfig.enabled_providers.push(aiProviderConfig.embedding_provider);
-      }
-      // Update default embedding model based on provider
-      if (aiProviderConfig.embedding_provider === "gemini") {
-        aiProviderConfig.embedding_model = "text-embedding-004";
-        aiProviderConfig.embedding_dimensions = 768;
-      } else {
-        aiProviderConfig.embedding_model = "text-embedding-3-small";
-        aiProviderConfig.embedding_dimensions = 1536;
-      }
-      renderAIProviders();
-      renderStepNav();
-    });
-  }
-  if (dom.aiEmbeddingModel) {
-    dom.aiEmbeddingModel.addEventListener("change", () => {
-      aiProviderConfig.embedding_model = dom.aiEmbeddingModel.value;
-    });
-  }
-
   dom.loadConfigBtn.addEventListener("click", loadTemplateConfig);
   dom.validateBtn.addEventListener("click", () => validateCurrentConfig());
   dom.renderYamlBtn.addEventListener("click", renderYamlPreview);
@@ -1356,6 +1278,23 @@ function bindEvents() {
     if (target === dom.maxVectorCandidates) {
       configState.discovery.ai.max_vector_candidates = Number(dom.maxVectorCandidates.value || 1);
       renderStepNav();
+      return;
+    }
+    if (target.id === "aiEmbeddingProvider") {
+      aiProviderConfig.embedding_provider = target.value;
+      const embDefaults = {
+        gemini: { model: "text-embedding-004", dimensions: 768 },
+        openai: { model: "text-embedding-3-small", dimensions: 1536 },
+      };
+      const def = embDefaults[target.value] || embDefaults.openai;
+      aiProviderConfig.embedding_model = def.model;
+      aiProviderConfig.embedding_dimensions = def.dimensions;
+      renderAIProviders();
+      renderStepNav();
+      return;
+    }
+    if (target.id === "aiEmbeddingModel") {
+      aiProviderConfig.embedding_model = target.value;
       return;
     }
     const bind = target.dataset.bind;
@@ -1521,6 +1460,17 @@ function bindEvents() {
       return;
     }
     const action = actionBtn.dataset.action;
+    if (action === "toggle-provider") {
+      const pid = actionBtn.dataset.providerId;
+      const current = aiProviderConfig.enabled_providers || [];
+      const idx = current.indexOf(pid);
+      aiProviderConfig.enabled_providers = idx >= 0
+        ? current.filter((id) => id !== pid)
+        : [...current, pid];
+      renderAIProviders();
+      renderStepNav();
+      return;
+    }
     if (action === "apply-preset") {
       const preset = presets.find((p) => p.id === actionBtn.dataset.presetId);
       if (preset) {
