@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     # S3
     s3_bucket: str = "cosolvent-files"
     s3_region: str = "us-east-1"
+    s3_endpoint_url: str | None = None
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     files_max_upload_bytes: int = 26_214_400
