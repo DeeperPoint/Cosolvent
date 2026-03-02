@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Path, Body
 import logging
-logger = logging.getLogger("cosolvent")
-
+from fastapi import APIRouter, Depends, Path, Body
 from app.core.dependencies import get_config, get_current_user, get_optional_user, require_admin
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.profiles import service
 from app.modules.profiles.schemas import AIProfileActionResponse, DraftUpdateRequest
+
+logger = logging.getLogger("cosolvent")
 
 router = APIRouter()
 

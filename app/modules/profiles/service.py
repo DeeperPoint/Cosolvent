@@ -8,7 +8,6 @@ from pydantic import ValidationError
 from app.core.database import get_collection
 
 import logging
-logger = logging.getLogger("cosolvent")
 from app.core.exceptions import AppError, ConflictError, ForbiddenError, NotFoundError
 from app.core.marketplace_config import MarketplaceConfig
 from app.core.queue import enqueue_job
@@ -18,7 +17,6 @@ from app.modules.files import repository as files_repo
 from app.modules.profiles.ai_generation import generate_profile_content
 from app.modules.profiles import repository as repo
 
-import logging
 logger = logging.getLogger("cosolvent")
 
 
