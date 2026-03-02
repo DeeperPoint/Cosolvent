@@ -29,6 +29,13 @@ async def upload_file_stream(
 ) -> dict:
     normalized_privacy = _normalize_requested_privacy(privacy)
     await _ensure_private_upload_allowed(user, config, normalized_privacy)
+
+    user_id = str(user["_id"])
+    if not profile_id and user.get("role") != "admin":
+        draft = await profiles_repo.get_draft(user_id)
+        if draft:
+            profile_id = str(draft["_id"])
+
     await _ensure_profile_attachment_authorized(profile_id, user)
 
     uploaded = await storage.upload_fileobj(file_obj, filename, content_type)
