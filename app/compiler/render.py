@@ -393,11 +393,12 @@ def _render_role_alias_router(ir: CompilerIR) -> str:
                 f"""\
                 @router.post("/api/roles/{role.slug}/register", response_model={draft_response_model})
                 async def register_{fn_slug}(
+                    body: {request_model} | None = Body(None),
                     user: dict = Depends(get_current_user),
                     config: MarketplaceConfig = Depends(get_config),
                 ):
                     _ensure_role_user(user, "{role.slug}")
-                    return await service.register(user, config)
+                    return await service.register(user, config, _payload_fields(body.fields) if body else None)
 
 
                 @router.get("/api/roles/{role.slug}/draft", response_model={draft_response_model})
@@ -498,7 +499,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.dependencies import get_config, get_current_user, get_optional_user, require_admin

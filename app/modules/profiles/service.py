@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 from pydantic import ValidationError
 
 from app.core.database import get_collection
+
+import logging
+logger = logging.getLogger("cosolvent")
 from app.core.exceptions import AppError, ConflictError, ForbiddenError, NotFoundError
 from app.core.marketplace_config import MarketplaceConfig
 from app.core.queue import enqueue_job
@@ -15,9 +18,12 @@ from app.modules.files import repository as files_repo
 from app.modules.profiles.ai_generation import generate_profile_content
 from app.modules.profiles import repository as repo
 
+import logging
+logger = logging.getLogger("cosolvent")
 
-async def register(user: dict, config: MarketplaceConfig) -> dict:
-    """Create an empty draft for a newly registered user."""
+
+async def register(user: dict, config: MarketplaceConfig, fields: dict | None = None) -> dict:
+    """Create a draft for a newly registered user, optionally with fields."""
     user_id = str(user["_id"])
     pt = user.get("participant_type")
 
@@ -29,7 +35,22 @@ async def register(user: dict, config: MarketplaceConfig) -> dict:
     if existing_profile:
         raise ConflictError("Profile already exists")
 
-    draft = await repo.upsert_draft(user_id, pt, {})
+    validated = {}
+    if fields:
+        try:
+            validated = validate_profile_fields(config, pt, fields)
+        except ValidationError as exc:
+            messages = []
+            for err in exc.errors():
+                loc = ".".join(str(part) for part in err.get("loc", []))
+                msg = str(err.get("msg", "invalid field value"))
+                messages.append(f"{loc}: {msg}" if loc else msg)
+            raise AppError(
+                "Profile draft fields are invalid: " + "; ".join(messages),
+                status_code=422,
+            ) from exc
+
+    draft = await repo.upsert_draft(user_id, pt, validated)
     return _draft_response(draft)
 
 
