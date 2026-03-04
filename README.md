@@ -1,73 +1,86 @@
-# Cosolvent Beta
+<!-- Copyright © 2026 Mustafa Uzumeri. All rights reserved. -->
 
-Cosolvent Beta helps teams launch a marketplace backend for thin markets without starting from scratch.
+# Cosolvent
 
-## Why We Built Cosolvent
+An open-source, config-driven backend for launching marketplace platforms in thin markets.
 
-Most marketplaces fail early for the same reasons:
-- the right buyers and suppliers exist, but finding each other is hard,
-- trust signals are scattered,
-- onboarding is inconsistent,
+## The Problem
+
+Most marketplace platforms assume thick markets — many buyers, many sellers, frequent transactions. Thin markets are different:
+
+- the right participants exist, but finding each other is hard,
+- trust signals are scattered and unverifiable,
+- onboarding is inconsistent across participant types,
+- every transaction is high-stakes and structurally complex,
 - teams spend months wiring basic flows before learning if the market works.
 
-We built Cosolvent to shorten that path.
+Cosolvent shortens that path. You should be able to go from idea to a usable, policy-aware marketplace runtime in days, not quarters.
 
-You should be able to go from idea to a usable, policy-aware marketplace runtime in days, not quarters.
+## What Cosolvent Provides Today
 
-## Thin Markets, Simply
+Cosolvent is a Python/FastAPI backend with working implementations of core marketplace infrastructure:
 
-A thin market is a market where matches are possible but fragile.
+| Module | Capability |
+|---|---|
+| **YAML Compiler** | Deterministic config → artifacts pipeline with drift detection, managed output zones, spec hashing |
+| **Dynamic Profiles** | Runtime Pydantic models generated from marketplace config; completeness calculation |
+| **Three-Tier Visibility** | `public` / `protected` / `private` per field, enforcement by viewer context |
+| **Participant Roles** | Supply, demand, facilitator — config-driven participant types |
+| **AI Onboarding** | LLM-powered field extraction from documents + profile summary generation |
+| **Semantic Search** | pgvector cosine-distance search with metadata filtering, hybrid and RAG modes |
+| **Admin Oversight** | Dashboard, user management, application approval, LLM/prompt management, FAQ |
+| **Communication** | Conversations with lifecycle management, messaging, WebSocket, asset sharing |
+| **Permissions** | Config-driven permission checks, conversation initiation rights, onboarding gates |
+| **Document Processing** | Text chunking, embedding, indexing via background workers |
+| **File Management** | S3 backend, public/private privacy, presigned URLs |
+| **Deployment** | Docker Compose, Makefile, health checks, graceful shutdown, Redis-optional startup |
+| **CLI & Setup UI** | 7-step wizard + browser-based setup panel with presets, validation, YAML preview |
 
-People are willing to trade, but friction blocks outcomes:
-- not enough visibility,
-- unclear profile quality,
-- too much back-and-forth,
-- weak trust defaults.
+## Where AI Helps
 
-## Where AI Actually Helps
+AI is useful when it reduces operator and user effort:
 
-AI is useful here when it reduces operator and user effort:
-- better profile understanding,
-- better retrieval/discovery,
-- faster onboarding assistance,
-- clearer communication support.
+- better profile understanding through document extraction,
+- better retrieval and discovery through semantic search,
+- faster onboarding through automated field population,
+- clearer communication support through prompt-managed interactions.
 
-AI is not used as a magic replacement for your business rules.
-Your market logic still comes from explicit configuration and deterministic generation.
+AI is not a replacement for business rules. Market logic comes from explicit configuration and deterministic generation.
 
-## How Cosolvent Helps
+## Architecture
 
-Cosolvent gives you a guided system, not a blank framework:
+```
+marketplace.yaml
+       │
+       ▼
+  YAML Compiler (deterministic)
+       │
+       ├── Generated schemas, routes, migrations
+       ├── Managed output zones
+       └── Spec hash + drift detection
 
-1. Guided setup UI for operators
-- Define participant roles, permissions, onboarding rules, communication policy, discovery behavior.
-
-2. Deterministic compile pipeline
-- Same config in -> same artifacts out.
-- Drift checks tell you when runtime artifacts are stale.
-
-3. Safety by default
-- Validation-first setup.
-- Managed-zone generation and overwrite rules.
-- Auditable config-to-runtime translation.
-
-4. Usable day-to-day workflow
-- Edit setup in guided UI.
-- Validate.
-- Generate.
-- Run and iterate.
-
-## Who This Is For
-
-- founders validating a B2B marketplace concept,
-- product/ops teams that need a configurable backend quickly,
-- engineers who want clear extension points after baseline setup.
+  app/
+  ├── compiler/     Config → artifact pipeline
+  ├── core/         Database, settings, dependencies
+  ├── engine/       Schema engine, visibility engine, permission engine
+  ├── modules/
+  │   ├── admin/          Dashboard & oversight
+  │   ├── ai/             LLM client, extraction, generation, RAG, vectors
+  │   ├── auth/           Authentication
+  │   ├── communication/  Messaging & WebSocket
+  │   ├── discovery/      Search & matching
+  │   ├── files/          S3 file management
+  │   ├── notifications/  Notification plumbing
+  │   ├── profiles/       Profile CRUD & schemas
+  │   └── setup/          Onboarding wizard & setup panel
+  └── workers/      Background job processing (ARQ)
+```
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/DeeperPoint/cosolvent-beta.git
-cd cosolvent-beta
+git clone https://github.com/DeeperPoint/Cosolvent.git
+cd Cosolvent
 cp .env.example .env
 make setup-up
 make onboarding
@@ -87,7 +100,7 @@ API docs: `http://localhost:18000/docs`
 
 ## Daily Workflow
 
-1. Open onboarding.
+1. Open onboarding UI.
 2. Update setup decisions.
 3. Validate setup.
 4. Generate artifacts.
@@ -101,11 +114,30 @@ make unit
 make compile-check
 ```
 
-## Notes on Generated Artifacts
+## Generated Artifacts
 
-Generated artifacts are local build outputs and should not be hand-edited.
-Regenerate from config and compiler changes.
+Generated artifacts are local build outputs and should not be hand-edited. Regenerate from config and compiler changes.
+
+## Roadmap
+
+See [`Cosolvent-ROADMAP.md`](Cosolvent-ROADMAP.md) for the full development roadmap, including:
+
+- extension work needed to reach full whitepaper alignment,
+- phased implementation plan (estimated 14–20 weeks to demo-able state),
+- unresolved architectural decisions requiring judgment before proceeding.
+
+## Related Projects
+
+| Project | Description |
+|---|---|
+| [MarketForge](https://github.com/DeeperPoint/MarketForge) | Market configuration and deployment orchestration |
+| [KnowledgeSlot](https://github.com/DeeperPoint/KnowledgeSlot) | AI-curated reference library for domain knowledge |
+| [ClientSynth](https://github.com/DeeperPoint/ClientSynth) | Synthetic participant generation for testing and demos |
 
 ## Documentation
 
 Start with `docs/README.md` for a quick map.
+
+## License
+
+See [`LICENSE`](LICENSE).
