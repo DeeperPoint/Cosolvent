@@ -2,7 +2,7 @@
 
 # Cosolvent Roadmap
 
-> **Source whitepaper:** `tm-reference_CL4_V4.md` — *Thin Markets: A Deep Dive into Market Physics and Engineering*  
+> **Source whitepaper:** `MarketTheoryWP.md` — *Thin Markets: A Deep Dive into Market Physics and Engineering*  
 > **Architectural reference:** `CosolventAI/ROADMAP.md` — original whitepaper alignment roadmap *(deprecated — see note below)*  
 > **Comparative analysis:** `cosolventAI-vs-Cosolvent-analysis.md`  
 > **Codebase assessed:** Cosolvent (this repo)  
