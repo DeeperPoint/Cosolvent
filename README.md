@@ -47,6 +47,24 @@ AI is useful when it reduces operator and user effort:
 
 AI is not a replacement for business rules. Market logic comes from explicit configuration and deterministic generation.
 
+## Scope and Vertical Boundaries
+
+Cosolvent provides the foundational matching engine for thin markets, but it is strictly unopinionated about the specific business conducted over it. It deliberately defers domain-specific execution to **market vertical customizations**.
+
+**What Cosolvent Handles:**
+- AI document extraction and indexing
+- Semantic vector matching
+- Multilateral deal architecture
+- Baseline role and permission framing
+
+**What it Defers (The Proprietary/Vertical Layer):**
+- **Frontend Interfaces:** All user-facing web, mobile, and conversational UIs.
+- **Domain Ontology:** The specific rules and criteria (defined by the sponsor in `marketplace.yaml`).
+- **Trust & Verification:** Validating credentials, mediating disputes, and ensuring real-world safety.
+- **Business Add-Ons:** Payments, escrow, monetization engines, digital twin simulations (e.g., MarketForge & ClientSynth), and physical logistics.
+
+This functional boundary keeps the open-source Cosolvent engine lightweight, generalizable, and scalable, while the market sponsor retains total ownership and liability over their market's UX and revenue generation.
+
 ## Architecture
 
 ```
