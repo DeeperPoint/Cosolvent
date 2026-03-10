@@ -18,6 +18,7 @@ You are a founder or operator who wants to deploy Cosolvent to run your own mark
 | [Running](user/running.md) | Start, stop, monitor with Docker Compose; local dev alternative |
 | [Admin Guide](user/admin-guide.md) | Users, approvals, AI settings, prompts, FAQs |
 | [AI Features](user/ai-features.md) | Provider setup, RAG documents, semantic search, profile generation |
+| [Demo Guide](user/demo-guide.md) | Demo options: local walkthrough, read-only public demo, cost model |
 | [Troubleshooting](user/troubleshooting.md) | Startup failures, port conflicts, DB errors, AI 503s |
 | [FAQ](user/faq.md) | Quick answers to frequent operator questions |
 
