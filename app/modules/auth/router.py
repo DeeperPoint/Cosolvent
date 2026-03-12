@@ -60,6 +60,7 @@ async def logout(response: Response, session_token: str = Cookie(None)):
 
 
 @router.get("/verify", response_model=UserResponse)
+@router.get("/me", response_model=UserResponse)
 async def verify(user: dict = Depends(get_current_user)):
     return await service.verify(user)
 

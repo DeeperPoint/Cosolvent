@@ -27,12 +27,15 @@ class UploadedObject:
 
 
 def _get_client():
-    return boto3.client(
-        "s3",
-        region_name=settings.s3_region,
-        aws_access_key_id=settings.aws_access_key_id,
-        aws_secret_access_key=settings.aws_secret_access_key,
-    )
+    kwargs = {
+        "service_name": "s3",
+        "region_name": settings.s3_region,
+        "aws_access_key_id": settings.aws_access_key_id,
+        "aws_secret_access_key": settings.aws_secret_access_key,
+    }
+    if settings.s3_endpoint_url:
+        kwargs["endpoint_url"] = settings.s3_endpoint_url
+    return boto3.client(**kwargs)
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -58,15 +61,35 @@ def is_safe_upload_key(key: str) -> bool:
 
 
 def public_url_for_key(key: str) -> str:
+    if settings.s3_endpoint_url:
+        # Handle local MinIO style URLs
+        base = settings.s3_endpoint_url.rstrip("/")
+        # In docker-compose, internal endpoint is http://s3:9000
+        # Externally it might be http://localhost:19000
+        # If the endpoint contains 'localhost' or '127.0.0.1' or the s3 service name, 
+        # we might need to be smart, but for now let's just use the endpoint as provided.
+        # Often for local dev we want the URL to be accessible by the browser (localhost).
+        return f"{base}/{settings.s3_bucket}/{quote(key, safe='/')}"
     return f"https://{settings.s3_bucket}.s3.{settings.s3_region}.amazonaws.com/{quote(key, safe='/')}"
 
 
 def extract_upload_key_from_url(url: str) -> str | None:
     parsed = urlparse(url)
-    expected_host = f"{settings.s3_bucket}.s3.{settings.s3_region}.amazonaws.com"
-    if parsed.scheme != "https" or parsed.netloc != expected_host:
-        return None
-    key = unquote(parsed.path.lstrip("/"))
+    if settings.s3_endpoint_url:
+        endpoint_parsed = urlparse(settings.s3_endpoint_url)
+        if parsed.netloc != endpoint_parsed.netloc:
+            return None
+        # URL is likely {endpoint}/{bucket}/{key}
+        path = parsed.path.lstrip("/")
+        if not path.startswith(f"{settings.s3_bucket}/"):
+            return None
+        key = unquote(path[len(settings.s3_bucket) + 1 :])
+    else:
+        expected_host = f"{settings.s3_bucket}.s3.{settings.s3_region}.amazonaws.com"
+        if parsed.scheme != "https" or parsed.netloc != expected_host:
+            return None
+        key = unquote(parsed.path.lstrip("/"))
+
     if not is_safe_upload_key(key):
         return None
     return key

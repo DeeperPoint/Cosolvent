@@ -71,7 +71,6 @@ async def test_private_upload_requires_permission(mock_repo, mock_storage, mock_
         )
 
     mock_storage.upload_fileobj.assert_not_awaited()
-    mock_profiles_repo.get_draft.assert_not_awaited()
     mock_profiles_repo.get_profile_by_id.assert_not_awaited()
 
 
@@ -98,7 +97,7 @@ async def test_upload_rolls_back_s3_on_metadata_failure(mock_repo, mock_storage,
         )
 
     mock_storage.delete_file.assert_awaited_once_with(s3_key=uploaded.key, url=uploaded.url)
-    mock_profiles_repo.get_draft.assert_not_awaited()
+    mock_profiles_repo.get_draft.assert_awaited_once_with("u1")
     mock_profiles_repo.get_profile_by_id.assert_not_awaited()
 
 

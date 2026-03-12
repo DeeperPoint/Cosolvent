@@ -7,6 +7,9 @@ from typing import Any
 from app.core.database import get_collection
 
 
+import logging
+logger = logging.getLogger("cosolvent")
+
 # ── Drafts ────────────────────────────────────────────────────────────────
 
 async def get_draft(user_id: str) -> dict | None:

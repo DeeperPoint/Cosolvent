@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Path
-
+import logging
+from fastapi import APIRouter, Depends, Path, Body
 from app.core.dependencies import get_config, get_current_user, get_optional_user, require_admin
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.profiles import service
 from app.modules.profiles.schemas import AIProfileActionResponse, DraftUpdateRequest
+
+logger = logging.getLogger("cosolvent")
 
 router = APIRouter()
 
@@ -20,11 +22,14 @@ def _validate_type(type_slug: str, config: MarketplaceConfig) -> str:
 @router.post("/{type_slug}/register")
 async def register(
     type_slug: str = Path(...),
+    body: DraftUpdateRequest | None = Body(None),
     user: dict = Depends(get_current_user),
     config: MarketplaceConfig = Depends(get_config),
 ):
+    logger.info(f"DEBUG: router register body: {body}")
     _validate_type(type_slug, config)
-    return await service.register(user, config)
+    fields = body.fields if body else None
+    return await service.register(user, config, fields)
 
 
 @router.get("/{type_slug}/draft")
