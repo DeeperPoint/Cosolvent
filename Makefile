@@ -20,7 +20,7 @@ DOCKER_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
 
 .PHONY: help venv install lint lint-fix format type-check clean unit integration e2e live test-all \
 	docker-cache setup-up setup-down up down reset ps logs logs-api logs-worker wait-api bootstrap-admin \
-	api worker validate-config wizard onboarding smoke-setup compile compile-check export regenerate-auto
+	api worker validate-config wizard onboarding smoke-setup compile compile-check export postman-export regenerate-auto
 
 help: ## Show available commands
 	@echo "Cosolvent Make Targets"
@@ -164,6 +164,9 @@ compile-check: ## Verify generated artifacts are in sync with marketplace.yaml
 
 export: ## Generate artifacts and export deployable package
 	$(PYTHON) -m cli export --config marketplace.yaml --mode mvp --export-dir exports
+
+postman-export: ## Export Postman collection from OpenAPI (postman/Cosolvent-API.postman_collection.json)
+	$(PYTHON) scripts/export_postman_collection.py --out postman/Cosolvent-API.postman_collection.json
 
 regenerate-auto: ## Full reset + regenerate + health + core gates
 	$(MAKE) reset
