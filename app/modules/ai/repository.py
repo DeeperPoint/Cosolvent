@@ -87,8 +87,8 @@ async def get_resolved_chat_config(use_case: str | None = None) -> dict[str, Any
     """Resolve chat config for a given use case, falling back to global defaults."""
     s = await get_llm_settings()
 
-    provider = "openai"
-    model = "gpt-4o-mini"
+    provider = "openrouter"
+    model = "openai/gpt-4o-mini"
     temperature = 0.7
     max_tokens = 1024
 
@@ -126,7 +126,12 @@ async def get_resolved_chat_config(use_case: str | None = None) -> dict[str, Any
 async def get_multimodal_config() -> dict[str, Any]:
     """Return multimodal extraction config from settings."""
     s = await get_llm_settings()
-    defaults: dict[str, Any] = {"provider": "openai", "model": "gpt-4o", "enabled": True, "max_tokens": 1024}
+    defaults: dict[str, Any] = {
+        "provider": "openrouter",
+        "model": "openai/gpt-4o",
+        "enabled": True,
+        "max_tokens": 1024,
+    }
     if s and "multimodal" in s:
         mm = s["multimodal"]
         if isinstance(mm, dict):

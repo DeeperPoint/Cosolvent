@@ -37,8 +37,8 @@ class UseCaseConfig(BaseModel):
 
 
 class MultimodalConfig(BaseModel):
-    provider: str = "openai"
-    model: str = "gpt-4o"
+    provider: str = "openrouter"
+    model: str = "openai/gpt-4o"
     enabled: bool = True
     max_tokens: int = 1024
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import keyword
 import re
+from pathlib import Path
 from pprint import pformat
 from textwrap import dedent
 
@@ -9,10 +10,74 @@ from .ir import CompilerIR
 
 GENERATOR_VERSION = "1.0.0"
 
+_DEFAULT_ALEMBIC_BASE = "0001_postgres_pgvector"
+_ALEMBIC_REV_RE = re.compile(r"^revision\s*=\s*[\"']([^\"']+)[\"']", re.MULTILINE)
 
-def render_artifacts(ir: CompilerIR) -> tuple[dict[str, str], str, str]:
+
+def _parse_alembic_down_revision(text: str) -> str | None:
+    """Return down_revision string, or None if down_revision = None."""
+    m = re.search(r"^down_revision\s*=\s*(.+)$", text, re.MULTILINE)
+    if not m:
+        return None
+    rest = m.group(1).strip()
+    if rest == "None":
+        return None
+    if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in {'"', "'"}:
+        return rest[1:-1]
+    return None
+
+
+def resolve_alembic_down_revision(project_root: Path, new_revision: str) -> str:
+    """
+    Parent revision for a new auto_marketplace migration.
+
+    - If a migration with the same ``revision`` id already exists, reuse its
+      ``down_revision`` (idempotent regenerate).
+    - Otherwise append after the current Alembic head (linear chain).
+    """
+    versions_dir = (project_root / "alembic" / "versions").resolve()
+    if not versions_dir.is_dir():
+        return _DEFAULT_ALEMBIC_BASE
+
+    # Regenerating same revision: keep chain position
+    for path in sorted(versions_dir.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        m = _ALEMBIC_REV_RE.search(text)
+        if not m or m.group(1) != new_revision:
+            continue
+        down = _parse_alembic_down_revision(text)
+        return down if down is not None else _DEFAULT_ALEMBIC_BASE
+
+    # New revision: single head = all_revisions - revisions_that_are_someones_parent
+    all_revs: set[str] = set()
+    parent_downs: set[str] = set()
+    for path in sorted(versions_dir.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        m = _ALEMBIC_REV_RE.search(text)
+        if not m:
+            continue
+        all_revs.add(m.group(1))
+        down = _parse_alembic_down_revision(text)
+        if down:
+            parent_downs.add(down)
+
+    heads = all_revs - parent_downs
+    if len(heads) == 1:
+        return next(iter(heads))
+    if len(heads) == 0:
+        return _DEFAULT_ALEMBIC_BASE
+    # Multiple heads: prefer last mkt_* lexicographically for stable choice
+    mkt_heads = sorted(h for h in heads if h.startswith("mkt_"))
+    if mkt_heads:
+        return mkt_heads[-1]
+    return sorted(heads)[-1]
+
+
+def render_artifacts(ir: CompilerIR, project_root: Path | None = None) -> tuple[dict[str, str], str, str]:
+    root = (project_root or Path.cwd()).resolve()
     migration_revision = f"mkt_{ir.spec_hash[:12]}"
     migration_path = f"alembic/versions/auto_marketplace_{migration_revision}.py"
+    down_revision = resolve_alembic_down_revision(root, migration_revision)
 
     artifacts = {
         "app/generated/__init__.py": _render_generated_init(ir),
@@ -22,7 +87,7 @@ def render_artifacts(ir: CompilerIR) -> tuple[dict[str, str], str, str]:
         "app/generated/policy_matrix.py": _render_policy_matrix(ir),
         "app/generated/profile_models.py": _render_profile_models(ir),
         "app/generated/role_alias_router.py": _render_role_alias_router(ir),
-        migration_path: _render_migration(ir, migration_revision),
+        migration_path: _render_migration(ir, migration_revision, down_revision),
     }
     return artifacts, migration_revision, migration_path
 
@@ -533,7 +598,7 @@ def _payload_fields(value: Any) -> dict[str, Any]:
     return header.rstrip() + "\n\n" + rendered_models.rstrip() + "\n\n" + rendered_handlers.rstrip() + "\n"
 
 
-def _render_migration(ir: CompilerIR, migration_revision: str) -> str:
+def _render_migration(ir: CompilerIR, migration_revision: str, down_revision: str) -> str:
     roles = []
     permissions = []
     onboarding = []
@@ -600,7 +665,7 @@ def _render_migration(ir: CompilerIR, migration_revision: str) -> str:
         import sqlalchemy as sa
 
         revision = "{migration_revision}"
-        down_revision = "0001_postgres_pgvector"
+        down_revision = "{down_revision}"
         branch_labels = None
         depends_on = None
 

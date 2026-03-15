@@ -35,7 +35,7 @@ def compile_marketplace(
     _validate_compile_options(options)
 
     ir = normalize_to_ir(config, project_root=root, mode=options.mode)
-    artifacts, migration_revision, _migration_path = render_artifacts(ir)
+    artifacts, migration_revision, _migration_path = render_artifacts(ir, project_root=root)
     generated_files, removed_files = write_artifacts(
         root,
         artifacts,
@@ -94,7 +94,7 @@ def check_compile_sync(
     _validate_compile_options(options)
 
     ir = normalize_to_ir(config, project_root=root, mode=options.mode)
-    artifacts, migration_revision, _migration_path = render_artifacts(ir)
+    artifacts, migration_revision, _migration_path = render_artifacts(ir, project_root=root)
     include_generated_aliases = _can_include_generated_aliases(root)
     expected_openapi = json.dumps(
         _build_openapi_doc(MarketplaceConfig(**ir.config), include_generated_aliases=include_generated_aliases),

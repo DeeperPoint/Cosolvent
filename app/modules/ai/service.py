@@ -144,7 +144,7 @@ async def get_models(provider: str | None = None) -> list[dict]:
 
     # Fetch from all enabled providers
     settings = await repo.get_llm_settings()
-    enabled = ["openai"]
+    enabled = ["openrouter", "openai"]
     if settings:
         enabled = settings.get("enabled_providers", enabled)
 
@@ -192,26 +192,26 @@ async def get_llm_settings() -> dict:
     settings = await repo.get_llm_settings()
     if not settings:
         return {
-            "chat_provider": "openai",
-            "chat_model": "gpt-4o-mini",
+            "chat_provider": "openrouter",
+            "chat_model": "openai/gpt-4o-mini",
             "temperature": 0.7,
             "max_tokens": 1024,
             "embedding_provider": "openai",
             "embedding_model": "text-embedding-3-small",
             "embedding_dimensions": 1536,
-            "enabled_providers": ["openai"],
+            "enabled_providers": ["openrouter", "openai"],
             "use_case_overrides": {},
             "use_case_configs": {
-                "faq":                {"provider": "openai", "model": "gpt-4o-mini", "temperature": 0.7,  "max_tokens": 1024},
-                "profile_chat":       {"provider": "openai", "model": "gpt-4o-mini", "temperature": 0.7,  "max_tokens": 2048},
-                "discovery":          {"provider": "openai", "model": "gpt-4o-mini", "temperature": 0.3,  "max_tokens": 512},
-                "profile_generation": {"provider": "openai", "model": "gpt-4o",      "temperature": 0.5,  "max_tokens": 2048},
-                "document_extraction":{"provider": "openai", "model": "gpt-4o-mini", "temperature": 0.1,  "max_tokens": 1024},
-                "follow_up":          {"provider": "openai", "model": "gpt-4o-mini", "temperature": 0.7,  "max_tokens": 512},
+                "faq":                {"provider": "openrouter", "model": "openai/gpt-4o-mini", "temperature": 0.7,  "max_tokens": 1024},
+                "profile_chat":       {"provider": "openrouter", "model": "openai/gpt-4o-mini", "temperature": 0.7,  "max_tokens": 2048},
+                "discovery":          {"provider": "openrouter", "model": "openai/gpt-4o-mini", "temperature": 0.3,  "max_tokens": 512},
+                "profile_generation": {"provider": "openrouter", "model": "openai/gpt-4o",      "temperature": 0.5,  "max_tokens": 2048},
+                "document_extraction":{"provider": "openrouter", "model": "openai/gpt-4o-mini", "temperature": 0.1,  "max_tokens": 1024},
+                "follow_up":          {"provider": "openrouter", "model": "openai/gpt-4o-mini", "temperature": 0.7,  "max_tokens": 512},
             },
             "multimodal": {
-                "provider": "openai",
-                "model": "gpt-4o",
+                "provider": "openrouter",
+                "model": "openai/gpt-4o",
                 "enabled": True,
                 "max_tokens": 1024,
             },

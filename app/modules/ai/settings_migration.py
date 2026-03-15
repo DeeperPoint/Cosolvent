@@ -24,15 +24,19 @@ async def migrate_llm_settings() -> None:
     old_temperature = settings.get("temperature", 0.7)
     old_max_tokens = settings.get("max_tokens", 1024)
 
+    # Chat defaults to OpenRouter (OpenAI-compatible API). Embeddings stay on OpenAI
+    # because OpenRouter is not registered for embeddings in this codebase.
+    _chat_model = old_model if "/" in old_model else f"openai/{old_model}"
+
     update = {
-        "chat_provider": "openai",
-        "chat_model": old_model,
+        "chat_provider": "openrouter",
+        "chat_model": _chat_model,
         "temperature": old_temperature,
         "max_tokens": old_max_tokens,
         "embedding_provider": "openai",
         "embedding_model": "text-embedding-3-small",
         "embedding_dimensions": 1536,
-        "enabled_providers": ["openai"],
+        "enabled_providers": ["openrouter", "openai"],
         "use_case_overrides": {
             "rag_query": None,
             "follow_up": None,
