@@ -78,6 +78,8 @@ services:
       POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@postgres:5432/cosolvent
       REDIS_URL: redis://redis:6379
       MARKETPLACE_CONFIG_PATH: /app/marketplace.yaml
+      # Overrides marketplace auth.allow_public_signup when set (e.g. true for integration tests)
+      ALLOW_PUBLIC_SIGNUP: ${ALLOW_PUBLIC_SIGNUP:-}
       SESSION_SECRET: test-secret
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -116,6 +118,7 @@ services:
       POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@postgres:5432/cosolvent
       REDIS_URL: redis://redis:6379
       MARKETPLACE_CONFIG_PATH: /app/marketplace.yaml
+      ALLOW_PUBLIC_SIGNUP: ${ALLOW_PUBLIC_SIGNUP:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-noreply@example.com}

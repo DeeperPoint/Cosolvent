@@ -313,7 +313,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"provider\": \"\",\n  \"model\": \"\",\n  \"temperature\": 0.0,\n  \"max_tokens\": 0,\n  \"chat_provider\": \"\",\n  \"chat_model\": \"\",\n  \"embedding_provider\": \"\",\n  \"embedding_model\": \"\",\n  \"embedding_dimensions\": 0,\n  \"enabled_providers\": [\n    \"\"\n  ],\n  \"use_case_overrides\": {},\n  \"use_case_configs\": {},\n  \"multimodal\": {\n    \"provider\": \"openai\",\n    \"model\": \"gpt-4o\",\n    \"enabled\": true,\n    \"max_tokens\": 1024\n  }\n}",
+              "raw": "{\n  \"provider\": \"\",\n  \"model\": \"\",\n  \"temperature\": 0.0,\n  \"max_tokens\": 0,\n  \"chat_provider\": \"\",\n  \"chat_model\": \"\",\n  \"embedding_provider\": \"\",\n  \"embedding_model\": \"\",\n  \"embedding_dimensions\": 0,\n  \"enabled_providers\": [\n    \"\"\n  ],\n  \"use_case_overrides\": {},\n  \"use_case_configs\": {},\n  \"multimodal\": {\n    \"provider\": \"openrouter\",\n    \"model\": \"openai/gpt-4o\",\n    \"enabled\": true,\n    \"max_tokens\": 1024\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1416,7 +1416,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"provider\": \"\",\n  \"model\": \"\",\n  \"temperature\": 0.0,\n  \"max_tokens\": 0,\n  \"chat_provider\": \"\",\n  \"chat_model\": \"\",\n  \"embedding_provider\": \"\",\n  \"embedding_model\": \"\",\n  \"embedding_dimensions\": 0,\n  \"enabled_providers\": [\n    \"\"\n  ],\n  \"use_case_overrides\": {},\n  \"use_case_configs\": {},\n  \"multimodal\": {\n    \"provider\": \"openai\",\n    \"model\": \"gpt-4o\",\n    \"enabled\": true,\n    \"max_tokens\": 1024\n  }\n}",
+              "raw": "{\n  \"provider\": \"\",\n  \"model\": \"\",\n  \"temperature\": 0.0,\n  \"max_tokens\": 0,\n  \"chat_provider\": \"\",\n  \"chat_model\": \"\",\n  \"embedding_provider\": \"\",\n  \"embedding_model\": \"\",\n  \"embedding_dimensions\": 0,\n  \"enabled_providers\": [\n    \"\"\n  ],\n  \"use_case_overrides\": {},\n  \"use_case_configs\": {},\n  \"multimodal\": {\n    \"provider\": \"openrouter\",\n    \"model\": \"openai/gpt-4o\",\n    \"enabled\": true,\n    \"max_tokens\": 1024\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"

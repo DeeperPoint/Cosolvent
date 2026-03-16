@@ -192,6 +192,12 @@ class MarketplaceIdentity(StrictModel):
     industry: str = ""
 
 
+class AuthConfig(StrictModel):
+    """Public auth behaviour (self-service account creation)."""
+
+    allow_public_signup: bool = True
+
+
 # ── AI provider config ────────────────────────────────────────────────────
 
 class AIConfig(StrictModel):
@@ -208,6 +214,7 @@ class MarketplaceConfig(StrictModel):
     communication: CommunicationConfig
     discovery: DiscoveryConfig
     ai: AIConfig = AIConfig()
+    auth: AuthConfig = AuthConfig()
 
     # ── helpers ───────────────────────────────────────────────────────
     def get_type(self, slug: str) -> ParticipantType | None:

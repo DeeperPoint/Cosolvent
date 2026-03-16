@@ -3,6 +3,9 @@ marketplace:
   description: "Connecting specialty grain producers with global buyers"
   industry: "Specialty Agriculture"
 
+auth:
+  allow_public_signup: false
+
 participant_types:
   - name: "Producer"
     slug: "producer"
