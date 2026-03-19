@@ -41,7 +41,13 @@ async def signup(
 
 async def login(email: str, password: str) -> dict:
     user = await repo.find_user_by_email(email)
-    if not user or not verify_password(password, user["password_hash"]):
+    if not user:
+        raise UnauthorizedError("Invalid email or password")
+    if not user.get("password_hash"):
+        raise UnauthorizedError(
+            "No password set for this account yet. Use the credentials from your approval email when ready."
+        )
+    if not verify_password(password, user.get("password_hash")):
         raise UnauthorizedError("Invalid email or password")
 
     token = await repo.create_session(user["_id"])

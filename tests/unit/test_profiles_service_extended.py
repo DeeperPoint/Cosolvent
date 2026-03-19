@@ -198,7 +198,7 @@ class TestSubmitDraftAutoApprove:
         with patch("app.modules.profiles.service.compute_completeness", return_value=100), patch(
             "app.modules.profiles.service._queue_profile_index", new=AsyncMock()
         ), patch(
-            "app.modules.profiles.service._queue_welcome_email", new=AsyncMock()
+            "app.modules.profiles.service._ensure_password_and_notify_approval", new=AsyncMock()
         ):
             result = await service.submit_draft(
                 {"_id": "u1", "participant_type": "producer", "email": "test@example.com"},

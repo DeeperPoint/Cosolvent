@@ -1,6 +1,6 @@
 """Generated marketplace metadata migration.
 
-Revision ID: mkt_4b970e17aa23
+Revision ID: mkt_5ed8adda2d87
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import json
 from alembic import op
 import sqlalchemy as sa
 
-revision = "mkt_4b970e17aa23"
+revision = "mkt_5ed8adda2d87"
 down_revision = "mkt_cd0965b20114"
 branch_labels = None
 depends_on = None
@@ -20,7 +20,7 @@ ROLE_PERMISSIONS = [{'slug': 'producer', 'can_list': True, 'can_search': False, 
 ONBOARDING_RULES = [{'slug': 'producer', 'requires_approval': True, 'approval_type': 'manual', 'document_upload_required': True, 'ai_extraction_enabled': True, 'ai_profile_generation': True, 'welcome_email_on_approval': True, 'profile_completeness_threshold': 80}, {'slug': 'buyer', 'requires_approval': False, 'approval_type': 'auto', 'document_upload_required': False, 'ai_extraction_enabled': False, 'ai_profile_generation': False, 'welcome_email_on_approval': True, 'profile_completeness_threshold': 100}]
 COMMUNICATION_RULES = [{'initiator': 'buyer', 'receiver': 'producer', 'requires_approval': True}]
 PROFILE_FIELD_DEFS = [{'slug': 'producer', 'section_name': 'Basic Information', 'field_name': 'farm_name', 'field_label': 'Farm Name', 'field_type': 'text', 'visibility': 'public', 'required': True, 'searchable': True, 'options_json': None, 'accepted_types_json': None, 'ordinal': 1}, {'slug': 'producer', 'section_name': 'Basic Information', 'field_name': 'country', 'field_label': 'Country', 'field_type': 'select', 'visibility': 'public', 'required': True, 'searchable': True, 'options_json': ['Canada', 'USA', 'Brazil', 'Australia', 'Argentina'], 'accepted_types_json': None, 'ordinal': 2}, {'slug': 'producer', 'section_name': 'Basic Information', 'field_name': 'region', 'field_label': 'Region/Province', 'field_type': 'text', 'visibility': 'public', 'required': False, 'searchable': True, 'options_json': None, 'accepted_types_json': None, 'ordinal': 3}, {'slug': 'producer', 'section_name': 'Basic Information', 'field_name': 'primary_crops', 'field_label': 'Primary Crops', 'field_type': 'multi_select', 'visibility': 'public', 'required': True, 'searchable': True, 'options_json': ['Wheat', 'Barley', 'Canola', 'Oats', 'Lentils', 'Peas', 'Flax'], 'accepted_types_json': None, 'ordinal': 4}, {'slug': 'producer', 'section_name': 'Basic Information', 'field_name': 'description', 'field_label': 'Description', 'field_type': 'rich_text', 'visibility': 'public', 'required': False, 'searchable': True, 'options_json': None, 'accepted_types_json': None, 'ordinal': 5}, {'slug': 'producer', 'section_name': 'Production Details', 'field_name': 'annual_production', 'field_label': 'Annual Production (MT)', 'field_type': 'number', 'visibility': 'protected', 'required': False, 'searchable': True, 'options_json': None, 'accepted_types_json': None, 'ordinal': 6}, {'slug': 'producer', 'section_name': 'Production Details', 'field_name': 'certifications', 'field_label': 'Certifications', 'field_type': 'multi_select', 'visibility': 'public', 'required': False, 'searchable': True, 'options_json': ['Organic', 'Non-GMO', 'Fair Trade', 'ISO 22000'], 'accepted_types_json': None, 'ordinal': 7}, {'slug': 'producer', 'section_name': 'Production Details', 'field_name': 'protein_content', 'field_label': 'Protein Content Range (%)', 'field_type': 'text', 'visibility': 'protected', 'required': False, 'searchable': True, 'options_json': None, 'accepted_types_json': None, 'ordinal': 8}, {'slug': 'producer', 'section_name': 'Production Details', 'field_name': 'storage_capacity', 'field_label': 'Storage Capacity (MT)', 'field_type': 'number', 'visibility': 'protected', 'required': False, 'searchable': False, 'options_json': None, 'accepted_types_json': None, 'ordinal': 9}, {'slug': 'producer', 'section_name': 'Internal', 'field_name': 'financial_notes', 'field_label': 'Financial Notes', 'field_type': 'text', 'visibility': 'private', 'required': False, 'searchable': False, 'options_json': None, 'accepted_types_json': None, 'ordinal': 10}, {'slug': 'buyer', 'section_name': 'Organization', 'field_name': 'org_name', 'field_label': 'Organization Name', 'field_type': 'text', 'visibility': 'public', 'required': True, 'searchable': True, 'options_json': None, 'accepted_types_json': None, 'ordinal': 1}, {'slug': 'buyer', 'section_name': 'Organization', 'field_name': 'country', 'field_label': 'Country', 'field_type': 'select', 'visibility': 'public', 'required': True, 'searchable': True, 'options_json': ['Canada', 'USA', 'Brazil', 'Japan', 'South Korea', 'Germany', 'Italy'], 'accepted_types_json': None, 'ordinal': 2}, {'slug': 'buyer', 'section_name': 'Organization', 'field_name': 'business_type', 'field_label': 'Business Type', 'field_type': 'select', 'visibility': 'public', 'required': True, 'searchable': True, 'options_json': ['Mill', 'Brewery', 'Bakery', 'Trading Company', 'Food Manufacturer', 'Other'], 'accepted_types_json': None, 'ordinal': 3}, {'slug': 'buyer', 'section_name': 'Organization', 'field_name': 'description', 'field_label': 'Description', 'field_type': 'rich_text', 'visibility': 'public', 'required': False, 'searchable': True, 'options_json': None, 'accepted_types_json': None, 'ordinal': 4}, {'slug': 'buyer', 'section_name': 'Sourcing Needs', 'field_name': 'crops_of_interest', 'field_label': 'Crops of Interest', 'field_type': 'multi_select', 'visibility': 'protected', 'required': False, 'searchable': False, 'options_json': ['Wheat', 'Barley', 'Canola', 'Oats', 'Lentils', 'Peas', 'Flax'], 'accepted_types_json': None, 'ordinal': 5}, {'slug': 'buyer', 'section_name': 'Sourcing Needs', 'field_name': 'annual_volume_needed', 'field_label': 'Annual Volume Needed (MT)', 'field_type': 'number', 'visibility': 'protected', 'required': False, 'searchable': False, 'options_json': None, 'accepted_types_json': None, 'ordinal': 6}]
-SPEC_HASH = "4b970e17aa2350d689f9f26f8464b440084be857625a93469a8ba05af455914e"
+SPEC_HASH = "5ed8adda2d87b3e514aaa537c26a50b71d1188ea82700e2f49e8f972d0d6073c"
 BUILD_MODE = "mvp"
 GENERATOR_VERSION = "1.0.0"
 
@@ -294,5 +294,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DELETE FROM marketplace_builds WHERE spec_hash = '4b970e17aa2350d689f9f26f8464b440084be857625a93469a8ba05af455914e'")
+    op.execute("DELETE FROM marketplace_builds WHERE spec_hash = '5ed8adda2d87b3e514aaa537c26a50b71d1188ea82700e2f49e8f972d0d6073c'")
     # Keep metadata tables in place to avoid destructive behavior for previous builds.

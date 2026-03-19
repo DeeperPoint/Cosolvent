@@ -53,8 +53,10 @@ class Settings(BaseSettings):
 
     # If set, overrides marketplace.yaml `auth.allow_public_signup` (e.g. ALLOW_PUBLIC_SIGNUP=true for integration tests)
     allow_public_signup: bool | None = None
+    # If set, overrides marketplace.yaml `auth.allow_public_application`
+    allow_public_application: bool | None = None
 
-    @field_validator("allow_public_signup", mode="before")
+    @field_validator("allow_public_signup", "allow_public_application", mode="before")
     @classmethod
     def _empty_public_signup_to_none(cls, v: object) -> object:
         if v == "":

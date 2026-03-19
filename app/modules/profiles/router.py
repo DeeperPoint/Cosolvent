@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-import logging
-from fastapi import APIRouter, Depends, Path, Body
+from fastapi import APIRouter, Body, Depends, Path
 from app.core.dependencies import get_config, get_current_user, get_optional_user, require_admin
+from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.marketplace_config import MarketplaceConfig
+from app.modules.auth.signup_policy import public_application_allowed
 from app.modules.profiles import service
-from app.modules.profiles.schemas import AIProfileActionResponse, DraftUpdateRequest
-
-logger = logging.getLogger("cosolvent")
+from app.modules.profiles.register_helpers import ensure_role_matches_route
+from app.modules.profiles.schemas import (
+    AIProfileActionResponse,
+    DraftUpdateRequest,
+    ProfileRegisterRequest,
+)
 
 router = APIRouter()
 
@@ -22,14 +26,22 @@ def _validate_type(type_slug: str, config: MarketplaceConfig) -> str:
 @router.post("/{type_slug}/register")
 async def register(
     type_slug: str = Path(...),
-    body: DraftUpdateRequest | None = Body(None),
-    user: dict = Depends(get_current_user),
+    body: ProfileRegisterRequest | None = Body(None),
+    user: dict | None = Depends(get_optional_user),
     config: MarketplaceConfig = Depends(get_config),
 ):
-    logger.info(f"DEBUG: router register body: {body}")
     _validate_type(type_slug, config)
-    fields = body.fields if body else None
-    return await service.register(user, config, fields)
+    fields = body.fields if body and body.fields is not None else None
+    if user is not None:
+        ensure_role_matches_route(user, type_slug)
+        return await service.register(user, config, fields)
+    if not body or not body.email:
+        raise UnauthorizedError("email is required when no session is present")
+    if not public_application_allowed(config):
+        raise ForbiddenError("Public application submission is disabled")
+    return await service.submit_application_without_account(
+        str(body.email).strip(), type_slug, config, fields
+    )
 
 
 @router.get("/{type_slug}/draft")

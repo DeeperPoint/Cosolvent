@@ -5,6 +5,7 @@ marketplace:
 
 auth:
   allow_public_signup: false
+  allow_public_application: true
 
 participant_types:
   - name: "Producer"

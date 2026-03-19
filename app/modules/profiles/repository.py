@@ -102,17 +102,22 @@ async def list_profiles(
 # ── Applications ──────────────────────────────────────────────────────────
 
 async def create_application(
-    user_id: str,
     participant_type: str,
-    draft_id: str,
     submitted_fields: dict,
     submitted_completeness: int,
+    *,
+    user_id: str | None = None,
+    draft_id: str | None = None,
+    applicant_email: str | None = None,
 ) -> dict:
+    """Create a pending application.
+
+    - **Logged-in flow:** pass ``user_id`` and ``draft_id`` (submitted from a draft).
+    - **Public apply flow:** pass ``applicant_email`` only; no user account exists yet.
+    """
     now = datetime.now(timezone.utc)
-    doc = {
-        "user_id": user_id,
+    doc: dict[str, Any] = {
         "participant_type": participant_type,
-        "draft_id": str(draft_id),
         "submitted_fields": submitted_fields,
         "submitted_completeness": submitted_completeness,
         "submitted_at": now,
@@ -120,6 +125,18 @@ async def create_application(
         "admin_feedback": None,
         "created_at": now,
     }
+    if user_id is not None:
+        doc["user_id"] = user_id
+    if draft_id is not None:
+        doc["draft_id"] = str(draft_id)
+    if applicant_email is not None:
+        doc["applicant_email"] = applicant_email.strip().lower()
+
+    if user_id is not None and draft_id is None:
+        raise ValueError("draft_id is required when user_id is set")
+    if user_id is None and not applicant_email:
+        raise ValueError("applicant_email is required when user_id is not set")
+
     result = await get_collection("applications").insert_one(doc)
     doc["_id"] = result.inserted_id
     return doc
@@ -140,6 +157,14 @@ async def get_pending_application_by_user(user_id: str) -> dict | None:
     return await get_collection("applications").find_one(
         {"user_id": user_id, "status": "pending"},
         sort=[("created_at", -1)],
+    )
+
+
+async def get_pending_application_by_email(email: str) -> dict | None:
+    """Pending application for this applicant email (public apply flow)."""
+    normalized = email.strip().lower()
+    return await get_collection("applications").find_one(
+        {"status": "pending", "applicant_email": normalized},
     )
 
 

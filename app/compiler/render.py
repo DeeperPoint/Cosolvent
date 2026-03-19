@@ -351,6 +351,8 @@ def _render_role_alias_router(ir: CompilerIR) -> str:
         input_fields_model = f"{class_prefix}DraftFields"
         output_fields_model = f"{class_prefix}ProfileFields"
         request_model = f"{class_prefix}DraftUpdateRequest"
+        register_request_model = f"{class_prefix}RegisterRequest"
+        register_outcome_model = f"{class_prefix}RegisterOutcome"
         draft_response_model = f"{class_prefix}DraftResponse"
         profile_response_model = f"{class_prefix}ProfileResponse"
         submit_pending_response_model = f"{class_prefix}SubmitPendingResponse"
@@ -385,6 +387,9 @@ def _render_role_alias_router(ir: CompilerIR) -> str:
                     f"{output_fields_body}\n\n\n"
                     f"class {request_model}(BaseModel):\n"
                     f"    fields: {input_field_type}\n\n\n"
+                    f"class {register_request_model}(BaseModel):\n"
+                    f"    email: EmailStr | None = None\n"
+                    f"    fields: {input_field_type} | None = None\n\n\n"
                     f"class {draft_response_model}(BaseModel):\n"
                     f"    id: str\n"
                     f"    user_id: str\n"
@@ -413,6 +418,7 @@ def _render_role_alias_router(ir: CompilerIR) -> str:
                     f"    status: Literal[\"active\"]\n"
                     f"    profile_id: str\n\n\n"
                     f"{submit_response_model} = {submit_pending_response_model} | {submit_active_response_model}\n"
+                    f"\n\n{register_outcome_model} = {draft_response_model} | {submit_pending_response_model}\n"
                 )
             )
             payload_expr = "_payload_fields(body.fields)"
@@ -422,6 +428,9 @@ def _render_role_alias_router(ir: CompilerIR) -> str:
             role_model_blocks.append(
                 f"class {request_model}(BaseModel):\n"
                 f"    fields: {input_field_type}\n\n\n"
+                f"class {register_request_model}(BaseModel):\n"
+                f"    email: EmailStr | None = None\n"
+                f"    fields: {input_field_type} | None = None\n\n\n"
                 f"class {draft_response_model}(BaseModel):\n"
                 f"    id: str\n"
                 f"    user_id: str\n"
@@ -450,20 +459,38 @@ def _render_role_alias_router(ir: CompilerIR) -> str:
                 f"    status: Literal[\"active\"]\n"
                 f"    profile_id: str\n\n\n"
                 f"{submit_response_model} = {submit_pending_response_model} | {submit_active_response_model}\n"
+                f"\n\n{register_outcome_model} = {draft_response_model} | {submit_pending_response_model}\n"
             )
             payload_expr = "body.fields"
 
         role_handlers.append(
             dedent(
                 f"""\
-                @router.post("/api/roles/{role.slug}/register", response_model={draft_response_model})
+                @router.post("/api/roles/{role.slug}/register", response_model={register_outcome_model})
                 async def register_{fn_slug}(
-                    body: {request_model} | None = Body(None),
-                    user: dict = Depends(get_current_user),
+                    body: {register_request_model} | None = Body(None),
+                    user: dict | None = Depends(get_optional_user),
                     config: MarketplaceConfig = Depends(get_config),
                 ):
-                    _ensure_role_user(user, "{role.slug}")
-                    return await service.register(user, config, _payload_fields(body.fields) if body else None)
+                    from app.core.exceptions import ForbiddenError, UnauthorizedError
+                    from app.modules.auth.signup_policy import public_application_allowed
+
+                    fields_payload = None
+                    if body and body.fields is not None:
+                        fields_payload = _payload_fields(body.fields)
+                    if user is not None:
+                        _ensure_role_user(user, "{role.slug}")
+                        return await service.register(user, config, fields_payload)
+                    if not body or not body.email:
+                        raise UnauthorizedError("email is required when no session is present")
+                    if not public_application_allowed(config):
+                        raise ForbiddenError("Public application submission is disabled")
+                    return await service.submit_application_without_account(
+                        str(body.email).strip(),
+                        "{role.slug}",
+                        config,
+                        fields_payload,
+                    )
 
 
                 @router.get("/api/roles/{role.slug}/draft", response_model={draft_response_model})
@@ -565,7 +592,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 from app.core.dependencies import get_config, get_current_user, get_optional_user, require_admin
 from app.generated.enums import {enum_imports}
