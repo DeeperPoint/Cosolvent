@@ -442,6 +442,25 @@ class CollectionProxy:
                     return None, False
                 return text_expr.op(op)(pattern), True
 
+            if "$all" in expected:
+                # $all: stored JSON array must contain ALL of the given values.
+                # Implemented as AND of individual contains() checks.
+                options = expected.get("$all")
+                if not isinstance(options, list):
+                    return None, False
+                if not options:
+                    return text("true"), True
+                conditions_all: list[ColumnElement[bool]] = []
+                fully_supported_all = True
+                for value in options:
+                    cond, supported = self._compile_equality(key, value)
+                    fully_supported_all = fully_supported_all and supported
+                    if cond is not None:
+                        conditions_all.append(cond)
+                if not conditions_all:
+                    return None, False
+                return and_(*conditions_all), fully_supported_all
+
             return None, False
 
         return self._compile_equality(key, expected)

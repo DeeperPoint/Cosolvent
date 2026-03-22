@@ -19,20 +19,21 @@ async def find_user_by_id(user_id: str) -> dict | None:
 
 async def create_user(
     email: str,
-    password_hash: str,
+    password_hash: str | None,
     participant_type: str | None,
     role: str = "user",
     bootstrap_marker: str | None = None,
 ) -> dict[str, Any]:
     doc = {
         "email": email,
-        "password_hash": password_hash,
         "participant_type": participant_type,
         "role": role,
         "is_active": True,
         "has_onboarded": False,
         "created_at": datetime.now(timezone.utc),
     }
+    if password_hash is not None:
+        doc["password_hash"] = password_hash
     if bootstrap_marker is not None:
         doc["bootstrap_marker"] = bootstrap_marker
     result = await get_collection("users").insert_one(doc)

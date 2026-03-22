@@ -63,7 +63,7 @@ async def get_profiles_by_ids(
     if filters:
         for key, value in filters.items():
             if isinstance(value, list):
-                query[f"fields.{key}"] = {"$in": value}
+                query[f"fields.{key}"] = {"$all": value}
             else:
                 query[f"fields.{key}"] = value
     cursor = get_collection("profiles").find(query).sort("updated_at", -1).sort("_id", 1)
@@ -85,7 +85,7 @@ def _build_search_query(
     if filters:
         for key, value in filters.items():
             if isinstance(value, list):
-                query[f"fields.{key}"] = {"$in": value}
+                query[f"fields.{key}"] = {"$all": value}
             else:
                 query[f"fields.{key}"] = value
 

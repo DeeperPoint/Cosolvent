@@ -91,8 +91,8 @@ class TestResolvedChatConfig:
         from app.modules.ai.repository import get_resolved_chat_config
 
         config = await get_resolved_chat_config()
-        assert config["provider"] == "openai"
-        assert config["model"] == "gpt-4o-mini"
+        assert config["provider"] == "openrouter"
+        assert config["model"] == "openai/gpt-4o-mini"
         assert config["temperature"] == 0.7
         assert config["max_tokens"] == 1024
 
@@ -122,7 +122,7 @@ class TestResolvedChatConfig:
         from app.modules.ai.repository import get_resolved_chat_config
 
         config = await get_resolved_chat_config()
-        assert config["provider"] == "openai"
+        assert config["provider"] == "openrouter"
         assert config["model"] == "gpt-4o"
         assert config["temperature"] == 0.3
 
@@ -232,12 +232,12 @@ class TestSettingsMigration:
         await migrate_llm_settings()
         mock_repo.upsert_llm_settings.assert_called_once()
         args = mock_repo.upsert_llm_settings.call_args[0][0]
-        assert args["chat_provider"] == "openai"
-        assert args["chat_model"] == "gpt-4o"
+        assert args["chat_provider"] == "openrouter"
+        assert args["chat_model"] == "openai/gpt-4o"
         assert args["temperature"] == 0.5
         assert args["max_tokens"] == 2048
         assert args["embedding_provider"] == "openai"
-        assert args["enabled_providers"] == ["openai"]
+        assert args["enabled_providers"] == ["openrouter", "openai"]
 
 
 # ── LLM Client ───────────────────────────────────────────────────────────

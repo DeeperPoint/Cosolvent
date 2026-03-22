@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+import html
+import secrets
 from copy import deepcopy
 from datetime import datetime, timezone
 
 from pydantic import ValidationError
 
 from app.core.database import get_collection
+from app.core.exceptions import AppError, ConflictError, ForbiddenError, NotFoundError
+from app.core.marketplace_config import MarketplaceConfig, get_marketplace_config
+from app.core.security import hash_password
 
 import logging
-from app.core.exceptions import AppError, ConflictError, ForbiddenError, NotFoundError
-from app.core.marketplace_config import MarketplaceConfig
 from app.core.queue import enqueue_job
 from app.engine.schema_engine import compute_completeness, validate_profile_fields
 from app.engine.visibility_engine import ViewerTier, filter_fields, get_viewer_tier
+from app.modules.auth import repository as auth_repo
 from app.modules.files import repository as files_repo
 from app.modules.profiles.ai_generation import generate_profile_content
 from app.modules.profiles import repository as repo
@@ -50,6 +54,67 @@ async def register(user: dict, config: MarketplaceConfig, fields: dict | None = 
 
     draft = await repo.upsert_draft(user_id, pt, validated)
     return _draft_response(draft)
+
+
+async def submit_application_without_account(
+    email: str,
+    participant_type: str,
+    config: MarketplaceConfig,
+    fields: dict | None,
+) -> dict:
+    """
+    Public registration: store a pending application only (no user account, no session).
+    Admin approves via ``approve_application``, which creates the account and emails credentials.
+    """
+    if not email or not str(email).strip():
+        raise AppError("email is required", status_code=422)
+
+    normalized_email = str(email).strip().lower()
+
+    if await auth_repo.find_user_by_email(normalized_email):
+        raise ConflictError("Email already registered")
+
+    if await repo.get_pending_application_by_email(normalized_email):
+        raise ConflictError("A pending application already exists for this email")
+
+    if not fields:
+        raise AppError("Profile fields are required", status_code=422)
+
+    try:
+        validated = validate_profile_fields(config, participant_type, fields)
+    except ValidationError as exc:
+        messages = []
+        for err in exc.errors():
+            loc = ".".join(str(part) for part in err.get("loc", []))
+            msg = str(err.get("msg", "invalid field value"))
+            messages.append(f"{loc}: {msg}" if loc else msg)
+        raise AppError(
+            "Profile fields are invalid: " + "; ".join(messages),
+            status_code=422,
+        ) from exc
+
+    completeness = compute_completeness(config, participant_type, validated)
+
+    onboarding = config.onboarding.get(participant_type)
+    if not onboarding:
+        raise AppError(f"No onboarding config for type '{participant_type}'")
+
+    if completeness < onboarding.profile_completeness_threshold:
+        raise AppError(
+            f"Profile completeness {completeness}% below threshold "
+            f"{onboarding.profile_completeness_threshold}%",
+            status_code=422,
+        )
+
+    # No user yet — document uploads are not possible; admin verifies materials separately.
+
+    app = await repo.create_application(
+        participant_type=participant_type,
+        submitted_fields=deepcopy(validated),
+        submitted_completeness=completeness,
+        applicant_email=normalized_email,
+    )
+    return {"status": "pending_review", "application_id": str(app["_id"])}
 
 
 async def get_draft(user: dict) -> dict:
@@ -122,11 +187,11 @@ async def submit_draft(user: dict, config: MarketplaceConfig) -> dict:
     if onboarding.requires_approval and onboarding.approval_type == "manual":
         # Create application for admin review
         app = await repo.create_application(
-            user_id=user_id,
             participant_type=pt,
-            draft_id=draft_id,
             submitted_fields=deepcopy(draft["fields"]),
             submitted_completeness=completeness,
+            user_id=user_id,
+            draft_id=draft_id,
         )
         return {"status": "pending_review", "application_id": str(app["_id"])}
     else:
@@ -144,8 +209,13 @@ async def submit_draft(user: dict, config: MarketplaceConfig) -> dict:
             {"$set": {"has_onboarded": True}},
         )
         await _queue_profile_index(str(profile["_id"]))
-        if onboarding.welcome_email_on_approval and user.get("email"):
-            await _queue_welcome_email(user["email"], config.marketplace.name)
+        if user.get("email"):
+            await _ensure_password_and_notify_approval(
+                str(user["_id"]),
+                user["email"],
+                config.marketplace.name,
+                onboarding.welcome_email_on_approval,
+            )
         return {"status": "active", "profile_id": str(profile["_id"])}
 
 
@@ -223,6 +293,48 @@ async def approve_application(app_id: str, feedback: str = "") -> dict:
 
     submitted_fields = application.get("submitted_fields")
     submitted_completeness = application.get("submitted_completeness")
+
+    # Public apply flow: no user account yet — admin approval creates user + profile + credentials email.
+    if application.get("user_id") is None:
+        email = application.get("applicant_email")
+        if not email or not isinstance(submitted_fields, dict):
+            raise AppError("Invalid pre-account application")
+
+        if await auth_repo.find_user_by_email(email):
+            raise ConflictError("Email already registered")
+
+        approved_fields = deepcopy(submitted_fields)
+        completeness = int(submitted_completeness) if isinstance(submitted_completeness, int) else 0
+
+        plaintext = secrets.token_urlsafe(14)
+        user = await auth_repo.create_user(
+            email=email,
+            password_hash=hash_password(plaintext),
+            participant_type=application["participant_type"],
+        )
+        uid = str(user["_id"])
+        profile = await repo.create_profile(
+            user_id=uid,
+            participant_type=application["participant_type"],
+            fields=approved_fields,
+            status="active",
+            completeness=completeness,
+        )
+        await repo.update_application(
+            app_id,
+            {"status": "approved", "admin_feedback": feedback, "user_id": uid},
+        )
+        await get_collection("users").update_one(
+            {"_id": uid},
+            {"$set": {"has_onboarded": True}},
+        )
+        await _queue_profile_index(str(profile["_id"]))
+
+        config = get_marketplace_config()
+        await _queue_welcome_email_with_password(email, config.marketplace.name, plaintext)
+        return {"status": "approved", "profile_id": str(profile["_id"])}
+
+    # Logged-in flow: user and draft already existed at submission time.
     if isinstance(submitted_fields, dict):
         approved_fields = deepcopy(submitted_fields)
         completeness = int(submitted_completeness) if isinstance(submitted_completeness, int) else 0
@@ -249,9 +361,18 @@ async def approve_application(app_id: str, feedback: str = "") -> dict:
     )
     await _queue_profile_index(str(profile["_id"]))
 
+    config = get_marketplace_config()
     user = await get_collection("users").find_one({"_id": application["user_id"]})
     if user and user.get("email"):
-        await _queue_welcome_email(user["email"], "Cosolvent Marketplace")
+        pt = application.get("participant_type")
+        onboarding = config.onboarding.get(pt) if pt else None
+        welcome = onboarding.welcome_email_on_approval if onboarding else True
+        await _ensure_password_and_notify_approval(
+            application["user_id"],
+            user["email"],
+            config.marketplace.name,
+            welcome,
+        )
 
     return {"status": "approved", "profile_id": str(profile["_id"])}
 
@@ -390,7 +511,7 @@ async def _queue_profile_index(profile_id: str) -> None:
 
 async def _queue_welcome_email(to_email: str, marketplace_name: str) -> None:
     subject = f"Welcome to {marketplace_name}"
-    html = (
+    body_html = (
         "<p>Your profile has been approved and is now active.</p>"
         "<p>You can start discovering participants and conversations immediately.</p>"
     )
@@ -398,6 +519,55 @@ async def _queue_welcome_email(to_email: str, marketplace_name: str) -> None:
         "app.workers.email_sender.send_email_task",
         to_email,
         subject,
-        html,
+        body_html,
         required=False,
     )
+
+
+async def _queue_welcome_email_with_password(
+    to_email: str, marketplace_name: str, plaintext_password: str
+) -> None:
+    subject = f"Welcome to {marketplace_name}"
+    body_html = (
+        "<p>Your profile has been approved and is now active.</p>"
+        "<p>You can sign in with:</p>"
+        "<ul>"
+        f"<li>Email: {html.escape(to_email)}</li>"
+        f"<li>Password: {html.escape(plaintext_password)}</li>"
+        "</ul>"
+        "<p>Please change your password after signing in.</p>"
+    )
+    await enqueue_job(
+        "app.workers.email_sender.send_email_task",
+        to_email,
+        subject,
+        body_html,
+        required=False,
+    )
+
+
+async def _ensure_password_and_notify_approval(
+    user_id: str,
+    email: str | None,
+    marketplace_name: str,
+    welcome_email_on_approval: bool,
+) -> None:
+    """
+    If the user was created without a password (email-only registration), generate one
+    and email credentials. Otherwise send the standard welcome email when enabled.
+    """
+    if not email:
+        return
+    user = await get_collection("users").find_one({"_id": user_id})
+    if not user:
+        return
+    if user.get("password_hash"):
+        if welcome_email_on_approval:
+            await _queue_welcome_email(email, marketplace_name)
+        return
+    plaintext = secrets.token_urlsafe(14)
+    await get_collection("users").update_one(
+        {"_id": user_id},
+        {"$set": {"password_hash": hash_password(plaintext)}},
+    )
+    await _queue_welcome_email_with_password(email, marketplace_name, plaintext)

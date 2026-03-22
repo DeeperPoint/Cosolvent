@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -49,6 +50,18 @@ class Settings(BaseSettings):
     marketplace_config_path: str = "marketplace.yaml"
     cors_origins: list[str] = ["http://localhost:3000"]
     debug: bool = False
+
+    # If set, overrides marketplace.yaml `auth.allow_public_signup` (e.g. ALLOW_PUBLIC_SIGNUP=true for integration tests)
+    allow_public_signup: bool | None = None
+    # If set, overrides marketplace.yaml `auth.allow_public_application`
+    allow_public_application: bool | None = None
+
+    @field_validator("allow_public_signup", "allow_public_application", mode="before")
+    @classmethod
+    def _empty_public_signup_to_none(cls, v: object) -> object:
+        if v == "":
+            return None
+        return v
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import ConflictError
+from app.core.exceptions import ConflictError, UnauthorizedError
 from app.modules.auth import service
 
 
@@ -73,3 +73,14 @@ async def test_bootstrap_sets_marker_on_admin_user_creation():
 
         mock_repo.create_user.assert_awaited_once()
         assert mock_repo.create_user.await_args.kwargs["bootstrap_marker"] == "primary-admin"
+
+
+@pytest.mark.asyncio
+async def test_login_rejects_when_no_password_hash():
+    with patch("app.modules.auth.service.repo") as mock_repo:
+        mock_repo.find_user_by_email = AsyncMock(
+            return_value={"_id": "u1", "email": "a@b.com"}
+        )
+
+        with pytest.raises(UnauthorizedError, match="No password set"):
+            await service.login("a@b.com", "anything")
