@@ -245,6 +245,7 @@ Binary trust: admin approves or rejects applications. No graduated model, verifi
   5. Protected transaction → escrow / insurance / dispute resolution
   6. Post-transaction evaluation → bidirectional ratings
 - **9.4 — Transparent matching** — AI reasoning surfaced to participants while respecting privacy boundaries
+- **9.5 — Zero-Knowledge Credential Verification (future research)** — W3C Verifiable Credentials with BBS+ selective disclosure, enabling cryptographic proof of participant attributes at the match-introduction boundary without transmitting underlying documents. Gated behind Phase 2 trust infrastructure (§9.1–§9.3) and frontend (C5).
 
 ---
 
@@ -447,6 +448,7 @@ Docker Compose deployment, background job workers, database with vector search, 
 - Asynchronous conversation engine
 - Deal progression workflow → Handoff Artifact
 - Notification service expansion (email, SMS, push)
+- ZKP credential verification research spike (§9.5)
 
 **A2 — Pricing, Aggregation & Disputes**
 - Transaction history data model

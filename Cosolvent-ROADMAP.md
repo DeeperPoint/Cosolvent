@@ -292,6 +292,7 @@ Binary trust: admin approves or rejects applications. No graduated model, no ver
   5. Protected transaction → escrow/insurance/dispute resolution
   6. Post-transaction evaluation → bidirectional ratings
 - **9.4 — Transparent matching** — surface AI reasoning while respecting privacy boundaries.
+- **9.5 — Zero-Knowledge Credential Verification (future research)** — integrate W3C Verifiable Credentials and BBS+ selective disclosure to enable cryptographic proof of participant attributes (certifications, registrations, capacity ranges) at the match-introduction boundary. Participants prove claims without transmitting underlying documents. Requires: credential issuance authority (marketplace operator or trusted third party), BBS+ signature library (Rust FFI), proof generation/verification pipeline, and a resolved frontend (C5). Scoped initially to selective disclosure of verifiable credentials during guided introductions (§9.3, stage 3). ZKP is **not** a prerequisite for operational privacy — the three-layer architecture (§2) and visibility engine provide application-level privacy. ZKP adds a **cryptographic trust layer** for scenarios where "trust the platform" is insufficient (regulated sectors, cross-border transactions, defence procurement). See also: W3C Verifiable Credentials Data Model <https://www.w3.org/TR/vc-data-model/>, Data Integrity BBS Cryptosuites <https://www.w3.org/TR/vc-di-bbs/>.
 
 ---
 
@@ -524,6 +525,7 @@ This phasing assumes Cosolvent's existing codebase and architecture. Conflict de
 | A1.6 | Asynchronous conversation engine                  | A1.5       |
 | A1.7 | Deal progression workflow → Handoff Artifact      | A1.6, 1.11 |
 | A1.8 | Notification service expansion (email, SMS, push) | §1.12      |
+| A1.9 | ZKP credential verification research spike (§9.5) | 2.1, 2.3   |
 
 #### A2 — Pricing, Aggregation & Disputes
 
