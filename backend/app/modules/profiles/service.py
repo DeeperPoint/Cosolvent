@@ -4,9 +4,11 @@ import html
 import secrets
 from copy import deepcopy
 from datetime import datetime, timezone
+from io import BytesIO
 
 from pydantic import ValidationError
 
+from app.core.config import settings
 from app.core.database import get_collection
 from app.core.exceptions import AppError, ConflictError, ForbiddenError, NotFoundError
 from app.core.marketplace_config import MarketplaceConfig, get_marketplace_config
@@ -18,8 +20,10 @@ from app.engine.schema_engine import compute_completeness, validate_profile_fiel
 from app.engine.visibility_engine import ViewerTier, filter_fields, get_viewer_tier
 from app.modules.auth import repository as auth_repo
 from app.modules.files import repository as files_repo
+from app.modules.files import service as files_service
 from app.modules.profiles.ai_generation import generate_profile_content
 from app.modules.profiles import repository as repo
+from app.modules.profiles.register_request import MAX_REGISTER_UPLOAD_FILES
 
 logger = logging.getLogger("cosolvent")
 
@@ -61,9 +65,11 @@ async def submit_application_without_account(
     participant_type: str,
     config: MarketplaceConfig,
     fields: dict | None,
+    file_parts: list[tuple[str, str, bytes]] | None = None,
 ) -> dict:
     """
     Public registration: store a pending application only (no user account, no session).
+    Optional multipart file payloads ``file_parts`` as (filename, content_type, bytes).
     Admin approves via ``approve_application``, which creates the account and emails credentials.
     """
     if not email or not str(email).strip():
@@ -79,6 +85,13 @@ async def submit_application_without_account(
 
     if not fields:
         raise AppError("Profile fields are required", status_code=422)
+
+    uploads = file_parts or []
+    if len(uploads) > MAX_REGISTER_UPLOAD_FILES:
+        raise AppError(
+            f"At most {MAX_REGISTER_UPLOAD_FILES} files may be attached to an application",
+            status_code=422,
+        )
 
     try:
         validated = validate_profile_fields(config, participant_type, fields)
@@ -106,7 +119,11 @@ async def submit_application_without_account(
             status_code=422,
         )
 
-    # No user yet — document uploads are not possible; admin verifies materials separately.
+    if onboarding.document_upload_required and len(uploads) < 1:
+        raise AppError(
+            "At least one onboarding document must be uploaded with this application",
+            status_code=422,
+        )
 
     app = await repo.create_application(
         participant_type=participant_type,
@@ -114,7 +131,27 @@ async def submit_application_without_account(
         submitted_completeness=completeness,
         applicant_email=normalized_email,
     )
-    return {"status": "pending_review", "application_id": str(app["_id"])}
+    app_id = str(app["_id"])
+
+    try:
+        for filename, content_type, raw in uploads:
+            if len(raw) > settings.files_max_upload_bytes:
+                raise AppError("File exceeds upload size limit", status_code=413)
+            await files_service.upload_file_for_application(
+                app_id,
+                config,
+                BytesIO(raw),
+                filename,
+                content_type,
+                len(raw),
+                category="onboarding",
+            )
+    except Exception:
+        await files_service.delete_stored_files_for_application(app_id)
+        await repo.delete_application(app_id)
+        raise
+
+    return {"status": "pending_review", "application_id": app_id}
 
 
 async def get_draft(user: dict) -> dict:
@@ -332,7 +369,9 @@ async def approve_application(app_id: str, feedback: str = "") -> dict:
 
         config = get_marketplace_config()
         await _queue_welcome_email_with_password(email, config.marketplace.name, plaintext)
-        return {"status": "approved", "profile_id": str(profile["_id"])}
+        pid = str(profile["_id"])
+        await files_repo.reassign_application_files_to_profile(app_id, uid, pid)
+        return {"status": "approved", "profile_id": pid}
 
     # Logged-in flow: user and draft already existed at submission time.
     if isinstance(submitted_fields, dict):

@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
 
 FIXTURES_DIR = Path(__file__).parent / "test_config"
+
+# Ensure marketplace.yaml is resolvable when tests run from backend/
+if "MARKETPLACE_CONFIG_PATH" not in os.environ:
+    _root_yaml = Path(__file__).resolve().parent.parent.parent / "marketplace.yaml"
+    _example_yaml = _root_yaml.with_name("marketplace.example.yaml")
+    if _root_yaml.exists():
+        os.environ["MARKETPLACE_CONFIG_PATH"] = str(_root_yaml)
+    elif _example_yaml.exists():
+        os.environ["MARKETPLACE_CONFIG_PATH"] = str(_example_yaml)
 
 
 @pytest.fixture(scope="session")

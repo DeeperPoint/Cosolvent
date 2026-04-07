@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, Path
+from fastapi import APIRouter, Depends, Path, Request
 from app.core.dependencies import get_config, get_current_user, get_optional_user, require_admin
-from app.core.exceptions import ForbiddenError, UnauthorizedError
+from app.core.exceptions import AppError, ForbiddenError, UnauthorizedError
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.auth.signup_policy import public_application_allowed
 from app.modules.profiles import service
 from app.modules.profiles.register_helpers import ensure_role_matches_route
-from app.modules.profiles.schemas import (
-    AIProfileActionResponse,
-    DraftUpdateRequest,
-    ProfileRegisterRequest,
-)
+from app.modules.profiles.register_request import parse_anonymous_register, parse_authenticated_register_body
+from app.modules.profiles.schemas import AIProfileActionResponse, DraftUpdateRequest
 
 router = APIRouter()
 
@@ -25,22 +22,31 @@ def _validate_type(type_slug: str, config: MarketplaceConfig) -> str:
 
 @router.post("/{type_slug}/register")
 async def register(
+    request: Request,
     type_slug: str = Path(...),
-    body: ProfileRegisterRequest | None = Body(None),
     user: dict | None = Depends(get_optional_user),
     config: MarketplaceConfig = Depends(get_config),
 ):
     _validate_type(type_slug, config)
-    fields = body.fields if body and body.fields is not None else None
     if user is not None:
+        ct = (request.headers.get("content-type") or "").lower()
+        if "multipart/form-data" in ct:
+            raise AppError("Use application/json when authenticated", status_code=415)
+        fields_payload = await parse_authenticated_register_body(request)
         ensure_role_matches_route(user, type_slug)
-        return await service.register(user, config, fields)
-    if not body or not body.email:
+        return await service.register(user, config, fields_payload)
+
+    email, fields_payload, file_parts = await parse_anonymous_register(request)
+    if not email:
         raise UnauthorizedError("email is required when no session is present")
     if not public_application_allowed(config):
         raise ForbiddenError("Public application submission is disabled")
     return await service.submit_application_without_account(
-        str(body.email).strip(), type_slug, config, fields
+        email,
+        type_slug,
+        config,
+        fields_payload,
+        file_parts=file_parts or None,
     )
 
 

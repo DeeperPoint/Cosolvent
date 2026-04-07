@@ -176,6 +176,10 @@ async def update_application(app_id: str, updates: dict) -> dict | None:
     )
 
 
+async def delete_application(app_id: str) -> None:
+    await get_collection("applications").delete_one({"_id": app_id})
+
+
 async def list_applications(
     status: str | None = None,
     skip: int = 0,

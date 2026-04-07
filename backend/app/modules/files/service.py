@@ -41,12 +41,12 @@ async def upload_file_stream(
     uploaded = await storage.upload_fileobj(file_obj, filename, content_type)
     try:
         file_doc = await repo.create_file(
-            user_id=str(user["_id"]),
             filename=filename,
             s3_key=uploaded.key,
             url=uploaded.url,
             size_bytes=size_bytes,
             content_type=content_type,
+            user_id=str(user["_id"]),
             privacy=normalized_privacy,
             category=category,
             profile_id=profile_id,
@@ -85,6 +85,54 @@ async def upload_file(
     )
 
 
+async def upload_file_for_application(
+    application_id: str,
+    config: MarketplaceConfig,
+    file_obj: BinaryIO,
+    filename: str,
+    content_type: str,
+    size_bytes: int,
+    category: str = "onboarding",
+) -> dict:
+    """
+    Store a file for a pending public application (no user account yet).
+    Forced public privacy; reassigned to the new profile when the application is approved.
+    """
+    normalized_privacy = _normalize_requested_privacy("public")
+    uploaded = await storage.upload_fileobj(file_obj, filename, content_type)
+    try:
+        file_doc = await repo.create_file(
+            filename=filename,
+            s3_key=uploaded.key,
+            url=uploaded.url,
+            size_bytes=size_bytes,
+            content_type=content_type,
+            application_id=application_id,
+            privacy=normalized_privacy,
+            category=category,
+        )
+    except Exception:
+        try:
+            await storage.delete_file(s3_key=uploaded.key, url=uploaded.url)
+        except Exception:
+            logger.exception("Failed to rollback application upload after metadata error")
+        raise
+
+    response_url = await _resolve_file_url(file_doc, normalized_privacy)
+    return _file_response(file_doc, privacy=normalized_privacy, url=response_url)
+
+
+async def delete_stored_files_for_application(application_id: str) -> None:
+    """Remove S3 objects and DB rows for files linked to a pending application (rollback)."""
+    files_list = await repo.list_files_for_application(application_id)
+    for f in files_list:
+        try:
+            await storage.delete_file(s3_key=f.get("s3_key"), url=f.get("url"))
+        except Exception:
+            logger.exception("S3 delete failed during application file cleanup", extra={"file_id": f.get("_id")})
+        await repo.delete_file(str(f["_id"]))
+
+
 async def get_file(file_id: str, user: dict) -> dict:
     file_doc = await repo.get_file(file_id)
     if not file_doc:
@@ -92,7 +140,7 @@ async def get_file(file_id: str, user: dict) -> dict:
 
     normalized_privacy = _normalize_stored_privacy(file_doc.get("privacy"))
     if normalized_privacy == "private":
-        if file_doc["user_id"] != str(user["_id"]) and user.get("role") != "admin":
+        if user.get("role") != "admin" and file_doc.get("user_id") != str(user["_id"]):
             raise ForbiddenError("Access denied")
 
     response_url = await _resolve_file_url(file_doc, normalized_privacy)
@@ -103,7 +151,7 @@ async def delete_file(file_id: str, user: dict) -> None:
     file_doc = await repo.get_file(file_id)
     if not file_doc:
         raise NotFoundError("File not found")
-    if file_doc["user_id"] != str(user["_id"]) and user.get("role") != "admin":
+    if file_doc.get("user_id") != str(user["_id"]) and user.get("role") != "admin":
         raise ForbiddenError("Not your file")
 
     try:
@@ -240,7 +288,8 @@ async def _ensure_private_upload_allowed(
 def _file_response(doc: dict, *, privacy: FilePrivacy, url: str) -> dict:
     return {
         "id": str(doc["_id"]),
-        "user_id": doc["user_id"],
+        "user_id": doc.get("user_id"),
+        "application_id": doc.get("application_id"),
         "profile_id": doc.get("profile_id"),
         "filename": doc["filename"],
         "s3_key": doc.get("s3_key"),

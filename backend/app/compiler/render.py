@@ -351,7 +351,6 @@ def _render_role_alias_router(ir: CompilerIR) -> str:
         input_fields_model = f"{class_prefix}DraftFields"
         output_fields_model = f"{class_prefix}ProfileFields"
         request_model = f"{class_prefix}DraftUpdateRequest"
-        register_request_model = f"{class_prefix}RegisterRequest"
         register_outcome_model = f"{class_prefix}RegisterOutcome"
         draft_response_model = f"{class_prefix}DraftResponse"
         profile_response_model = f"{class_prefix}ProfileResponse"
@@ -387,9 +386,6 @@ def _render_role_alias_router(ir: CompilerIR) -> str:
                     f"{output_fields_body}\n\n\n"
                     f"class {request_model}(BaseModel):\n"
                     f"    fields: {input_field_type}\n\n\n"
-                    f"class {register_request_model}(BaseModel):\n"
-                    f"    email: EmailStr | None = None\n"
-                    f"    fields: {input_field_type} | None = None\n\n\n"
                     f"class {draft_response_model}(BaseModel):\n"
                     f"    id: str\n"
                     f"    user_id: str\n"
@@ -428,9 +424,6 @@ def _render_role_alias_router(ir: CompilerIR) -> str:
             role_model_blocks.append(
                 f"class {request_model}(BaseModel):\n"
                 f"    fields: {input_field_type}\n\n\n"
-                f"class {register_request_model}(BaseModel):\n"
-                f"    email: EmailStr | None = None\n"
-                f"    fields: {input_field_type} | None = None\n\n\n"
                 f"class {draft_response_model}(BaseModel):\n"
                 f"    id: str\n"
                 f"    user_id: str\n"
@@ -468,28 +461,35 @@ def _render_role_alias_router(ir: CompilerIR) -> str:
                 f"""\
                 @router.post("/api/roles/{role.slug}/register", response_model={register_outcome_model})
                 async def register_{fn_slug}(
-                    body: {register_request_model} | None = Body(None),
+                    request: Request,
                     user: dict | None = Depends(get_optional_user),
                     config: MarketplaceConfig = Depends(get_config),
                 ):
-                    from app.core.exceptions import ForbiddenError, UnauthorizedError
+                    from app.core.exceptions import AppError, ForbiddenError, UnauthorizedError
                     from app.modules.auth.signup_policy import public_application_allowed
+                    from app.modules.profiles.register_request import (
+                        parse_anonymous_register,
+                        parse_authenticated_register_body,
+                    )
 
-                    fields_payload = None
-                    if body and body.fields is not None:
-                        fields_payload = _payload_fields(body.fields)
                     if user is not None:
+                        ct = (request.headers.get("content-type") or "").lower()
+                        if "multipart/form-data" in ct:
+                            raise AppError("Use application/json when authenticated", status_code=415)
+                        fields_payload = await parse_authenticated_register_body(request)
                         _ensure_role_user(user, "{role.slug}")
                         return await service.register(user, config, fields_payload)
-                    if not body or not body.email:
+                    email, fields_payload, file_parts = await parse_anonymous_register(request)
+                    if not email:
                         raise UnauthorizedError("email is required when no session is present")
                     if not public_application_allowed(config):
                         raise ForbiddenError("Public application submission is disabled")
                     return await service.submit_application_without_account(
-                        str(body.email).strip(),
+                        email,
                         "{role.slug}",
                         config,
                         fields_payload,
+                        file_parts=file_parts or None,
                     )
 
 
@@ -591,8 +591,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 from app.core.dependencies import get_config, get_current_user, get_optional_user, require_admin
 from app.generated.enums import {enum_imports}

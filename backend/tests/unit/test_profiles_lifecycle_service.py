@@ -187,6 +187,9 @@ async def test_approve_application_pre_account_creates_user_and_profile(mock_rep
             mock_cfg.return_value = SimpleNamespace(marketplace=SimpleNamespace(name="Test Market"))
             with patch("app.modules.profiles.service._queue_profile_index", new=AsyncMock()), patch(
                 "app.modules.profiles.service._queue_welcome_email_with_password", new=AsyncMock()
+            ), patch(
+                "app.modules.profiles.service.files_repo.reassign_application_files_to_profile",
+                new=AsyncMock(),
             ):
                 result = await service.approve_application("app-1")
 

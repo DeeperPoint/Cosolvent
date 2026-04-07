@@ -2,21 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr
-
-
-class ProfileRegisterPendingResponse(BaseModel):
-    """Public apply flow: no account yet — waiting for admin approval."""
-
-    status: Literal["pending_review"]
-    application_id: str
-
-
-class ProfileRegisterRequest(BaseModel):
-    """With session: create/update draft. Without session: submit email + fields as a pending application only."""
-
-    email: EmailStr | None = None
-    fields: dict | None = None
+from pydantic import BaseModel
 
 
 class RegisterRequest(BaseModel):

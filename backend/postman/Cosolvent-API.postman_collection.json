@@ -2474,7 +2474,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fields\": {\n    \"org_name\": \"\",\n    \"country\": \"\",\n    \"business_type\": \"\",\n    \"description\": \"\",\n    \"crops_of_interest\": [\n      \"\"\n    ],\n    \"annual_volume_needed\": 0.0\n  }\n}",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"fields\": {\n    \"org_name\": \"\",\n    \"country\": \"\",\n    \"business_type\": \"\",\n    \"description\": \"\",\n    \"crops_of_interest\": [\n      \"\"\n    ],\n    \"annual_volume_needed\": 0.0\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2807,7 +2807,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fields\": {\n    \"farm_name\": \"\",\n    \"country\": \"\",\n    \"region\": \"\",\n    \"primary_crops\": [\n      \"\"\n    ],\n    \"description\": \"\",\n    \"annual_production\": 0.0,\n    \"certifications\": [\n      \"\"\n    ],\n    \"protein_content\": \"\",\n    \"storage_capacity\": 0.0,\n    \"financial_notes\": \"\"\n  }\n}",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"fields\": {\n    \"farm_name\": \"\",\n    \"country\": \"\",\n    \"region\": \"\",\n    \"primary_crops\": [\n      \"\"\n    ],\n    \"description\": \"\",\n    \"annual_production\": 0.0,\n    \"certifications\": [\n      \"\"\n    ],\n    \"protein_content\": \"\",\n    \"storage_capacity\": 0.0,\n    \"financial_notes\": \"\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
