@@ -24,11 +24,13 @@ services:
   setup:
     build:
       context: .
+      dockerfile: backend/Dockerfile
     command: uvicorn app.setup_app:app --host 0.0.0.0 --port 8080
     environment:
-      MARKETPLACE_CONFIG_PATH: marketplace.yaml
+      MARKETPLACE_CONFIG_PATH: /project/marketplace.yaml
     volumes:
-      - ./:/app
+      - ./:/project
+    working_dir: /project/backend
     ports:
       - "${SETUP_HOST_PORT:-18080}:8080"
     healthcheck:
@@ -68,17 +70,18 @@ services:
   api:
     build:
       context: .
+      dockerfile: backend/Dockerfile
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
       - type: bind
         source: ./
-        target: /app
-        read_only: true
+        target: /project
+        read_only: false
+    working_dir: /project/backend
     environment:
       POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@postgres:5432/cosolvent
       REDIS_URL: redis://redis:6379
-      MARKETPLACE_CONFIG_PATH: /app/marketplace.yaml
-      # Overrides marketplace auth.* when set (e.g. true for integration tests)
+      MARKETPLACE_CONFIG_PATH: /project/marketplace.yaml
       ALLOW_PUBLIC_SIGNUP: ${ALLOW_PUBLIC_SIGNUP:-}
       ALLOW_PUBLIC_APPLICATION: ${ALLOW_PUBLIC_APPLICATION:-}
       SESSION_SECRET: test-secret
@@ -109,16 +112,18 @@ services:
   worker:
     build:
       context: .
+      dockerfile: backend/Dockerfile
     command: arq app.workers.settings.WorkerSettings
     volumes:
       - type: bind
         source: ./
-        target: /app
+        target: /project
         read_only: true
+    working_dir: /project/backend
     environment:
       POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@postgres:5432/cosolvent
       REDIS_URL: redis://redis:6379
-      MARKETPLACE_CONFIG_PATH: /app/marketplace.yaml
+      MARKETPLACE_CONFIG_PATH: /project/marketplace.yaml
       ALLOW_PUBLIC_SIGNUP: ${ALLOW_PUBLIC_SIGNUP:-}
       ALLOW_PUBLIC_APPLICATION: ${ALLOW_PUBLIC_APPLICATION:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
