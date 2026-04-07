@@ -10,9 +10,23 @@ venv/
 .ruff_cache/
 .docker-cache/
 exports/
-app/generated/
+backend/app/generated/
 generated/
 openapi/generated_openapi.json
+
+# Generated frontend output
+frontend/src/
+frontend/package.json
+frontend/package-lock.json
+frontend/tsconfig.json
+frontend/next.config.mjs
+frontend/tailwind.config.ts
+frontend/postcss.config.mjs
+frontend/.eslintrc.json
+frontend/components.json
+frontend/.generated-manifest.json
+frontend/node_modules/
+frontend/.next/
 
 # Local workspace artifacts
 marketplace.yaml
