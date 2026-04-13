@@ -190,7 +190,7 @@ export default function LoginPage() {{
     setLoading(true);
     try {{
       await authApi.login_api_auth_login_post({{ email, password }});
-      router.push("/");
+      router.push("/profile");
     }} catch (err: unknown) {{
       setError(err instanceof Error ? err.message : "Login failed");
     }} finally {{
@@ -277,7 +277,7 @@ export default function SignupPage() {{
         password,
         participant_type: participantType,
       }});
-      router.push("/");
+      router.push("/profile");
     }} catch (err: unknown) {{
       setError(err instanceof Error ? err.message : "Signup failed");
     }} finally {{
