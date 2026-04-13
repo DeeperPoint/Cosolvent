@@ -1,12 +1,9 @@
 .git
 .gitignore
-.venv
-.pytest_cache
-.ruff_cache
-__pycache__
-tests
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/__pycache__
+backend/tests
 docs
-OLD.md
-SYSTEM_SPEC.md
-WHITEPAPER.md
 .docker-cache
