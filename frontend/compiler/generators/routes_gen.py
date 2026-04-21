@@ -42,7 +42,7 @@ def emit_routes(ir: FrontendIR) -> dict[str, str]:
         files["src/app/(auth)/signup/page.tsx"] = _signup_page(ir)
 
     files["src/app/(dashboard)/layout.tsx"] = _dashboard_layout(ir)
-    files["src/app/(dashboard)/page.tsx"] = _dashboard_page(ir)
+    files["src/app/(dashboard)/dashboard/page.tsx"] = _dashboard_page(ir)
 
     files["src/app/(dashboard)/profile/page.tsx"] = _profile_view_page(ir)
     files["src/app/(dashboard)/profile/edit/page.tsx"] = _profile_edit_page(ir)
@@ -60,6 +60,9 @@ def emit_routes(ir: FrontendIR) -> dict[str, str]:
 
     if "notifications" in page_ids:
         files["src/app/(dashboard)/notifications/page.tsx"] = _notifications_page(ir)
+
+    if "admin-dashboard" in page_ids:
+        files["src/app/(dashboard)/admin/page.tsx"] = _admin_dashboard_page(ir)
 
     if "register" in page_ids:
         files["src/app/register/[type]/page.tsx"] = _register_page(ir)
@@ -159,7 +162,7 @@ def _landing_page(ir: FrontendIR) -> str:
 import {{ redirect }} from "next/navigation";
 
 export default function LandingPage() {{
-  redirect("/login");
+  redirect("/dashboard");
 }}
 """
 
@@ -590,10 +593,11 @@ def _conversation_detail_page(ir: FrontendIR) -> str:
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
-import {{ use }} from "react";
+import {{ use, useMemo, useState }} from "react";
 import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
 import {{ Input }} from "@/components/ui/input";
 import {{ Button }} from "@/components/ui/button";
+import {{ useConversationWebSocket }} from "@/generated/hooks/use-websocket";
 
 export default function ConversationDetailPage({{
   params,
@@ -601,20 +605,83 @@ export default function ConversationDetailPage({{
   params: Promise<{{ id: string }}>
 }}) {{
   const {{ id }} = use(params);
+  const [draft, setDraft] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [events, setEvents] = useState<Array<{{ id: string; text: string }}>>([]);
+
+  const socket = useConversationWebSocket(id, {{
+    enabled: true,
+    onEvent: (event) => {{
+      if (event.type === "new_message") {{
+        const message = event.message as {{ _id?: string; content?: string }} | undefined;
+        setEvents((prev) => [
+          ...prev,
+          {{
+            id: String(message?._id ?? `msg-${{prev.length + 1}}`),
+            text: String(message?.content ?? ""),
+          }},
+        ]);
+      }}
+    }},
+  }});
+
+  const statusText = useMemo(() => {{
+    if (socket.state === "connected") return "Live";
+    if (socket.state === "connecting") return "Connecting…";
+    if (socket.state === "error") return "Connection error";
+    return "Offline";
+  }}, [socket.state]);
+
+  function handleSend() {{
+    const content = draft.trim();
+    if (!content) return;
+    const ok = socket.sendMessage(content);
+    if (!ok) {{
+      setLocalError("Chat socket is not connected yet.");
+      return;
+    }}
+    setLocalError(null);
+    setDraft("");
+  }}
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col">
       <div className="border-b p-4">
         <h1 className="text-lg font-semibold">Conversation</h1>
         <p className="text-sm text-muted-foreground">ID: {{id}}</p>
+        <p className="text-xs text-muted-foreground">Status: {{statusText}}</p>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
-        <p className="text-center text-muted-foreground">Messages will appear here.</p>
+        {{events.length === 0 ? (
+          <p className="text-center text-muted-foreground">Messages will appear here.</p>
+        ) : (
+          <div className="space-y-2">
+            {{events.map((item) => (
+              <div key={{item.id}} className="rounded-md border p-2 text-sm">
+                {{item.text}}
+              </div>
+            ))}}
+          </div>
+        )}}
       </div>
       <div className="border-t p-4">
+        {{(localError || socket.error) && (
+          <p className="mb-2 text-sm text-destructive">{{localError ?? socket.error}}</p>
+        )}}
         <div className="flex gap-2">
-          <Input placeholder="Type a message..." className="flex-1" />
-          <Button>Send</Button>
+          <Input
+            placeholder="Type a message..."
+            className="flex-1"
+            value={{draft}}
+            onChange={{(e) => setDraft(e.target.value)}}
+            onKeyDown={{(e) => {{
+              if (e.key === "Enter") {{
+                e.preventDefault();
+                handleSend();
+              }}
+            }}}}
+          />
+          <Button onClick={{handleSend}}>Send</Button>
         </div>
       </div>
     </div>
@@ -653,19 +720,183 @@ export default function NotificationsPage() {{
 """
 
 
-# ── Registration page ─────────────────────────────────────────────────
-
-
-def _register_page(ir: FrontendIR) -> str:
+def _admin_dashboard_page(ir: FrontendIR) -> str:
     return f"""\
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
-import {{ use }} from "react";
+import {{ useMemo }} from "react";
+import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ useDashboard_api_admin_dashboard_get, useList_applications_api_admin_applications_get }} from "@/generated/hooks/use-admin";
+
+function valueOf(obj: Record<string, unknown>, key: string): string {{
+  const v = obj[key];
+  if (typeof v === "number" || typeof v === "string") return String(v);
+  return "—";
+}}
+
+export default function AdminDashboardPage() {{
+  const dashboard = useDashboard_api_admin_dashboard_get();
+  const applications = useList_applications_api_admin_applications_get();
+
+  const pendingCount = useMemo(() => {{
+    const rows = Array.isArray(applications.data) ? applications.data : [];
+    return rows.filter((r) => r && typeof r === "object" && (r as Record<string, unknown>).status === "pending").length;
+  }}, [applications.data]);
+
+  if (dashboard.isLoading) {{
+    return <p className="text-sm text-muted-foreground">Loading admin dashboard…</p>;
+  }}
+
+  if (dashboard.error) {{
+    const msg = dashboard.error instanceof Error ? dashboard.error.message : "Failed to load admin dashboard";
+    return (
+      <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+        {{msg}}
+      </div>
+    );
+  }}
+
+  const data = (dashboard.data && typeof dashboard.data === "object")
+    ? (dashboard.data as Record<string, unknown>)
+    : {{}};
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
+        <p className="text-muted-foreground">Operational overview for {ir.marketplace.name}</p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Pending Applications</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{{pendingCount}}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Users</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{{valueOf(data, "total_users")}}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Active Profiles</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{{valueOf(data, "active_profiles")}}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Open Conversations</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{{valueOf(data, "open_conversations")}}</p>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}}
+"""
+
+
+# ── Registration page ─────────────────────────────────────────────────
+
+
+def _build_register_sections_switch(ir: FrontendIR) -> str:
+    """TypeScript switch cases: slug -> SectionDef[] (same field metadata as ProfileForm)."""
+    entity_branches: list[str] = []
+    for entity in ir.entities:
+        sections_def = "[\n"
+        for section in entity.sections:
+            fields_arr = "[\n"
+            for f in section.fields:
+                opts = ""
+                if f.options:
+                    opts_str = ", ".join(f'"{o}"' for o in f.options)
+                    opts = f", options: [{opts_str}]"
+                fields_arr += (
+                    f'          {{ name: "{f.name}", label: "{f.label}", '
+                    f'type: "{f.field_type}", required: {str(f.required).lower()}'
+                    f"{opts} }},\n"
+                )
+            fields_arr += "        ]"
+            sections_def += (
+                f'      {{ name: "{section.name}", fields: {fields_arr} }},\n'
+            )
+        sections_def += "    ]"
+
+        entity_branches.append(
+            f'    case "{entity.slug}":\n'
+            f"      return {sections_def};"
+        )
+
+    return "\n".join(entity_branches)
+
+
+def _build_register_needs_upload_switch(ir: FrontendIR) -> str:
+    lines: list[str] = []
+    for entity in ir.entities:
+        lines.append(
+            f'    case "{entity.slug}":\n'
+            f'      return {str(entity.onboarding.document_upload_required).lower()};'
+        )
+    return "\n".join(lines)
+
+
+def _register_page(ir: FrontendIR) -> str:
+    sections_switch = _build_register_sections_switch(ir)
+    upload_switch = _build_register_needs_upload_switch(ir)
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ use, useState }} from "react";
 import {{ Card, CardContent, CardHeader, CardTitle, CardDescription }} from "@/components/ui/card";
 import {{ Button }} from "@/components/ui/button";
 import {{ Input }} from "@/components/ui/input";
 import {{ Label }} from "@/components/ui/label";
+import {{ FieldRenderer }} from "@/components/forms/field-renderer";
+
+interface SectionDef {{
+  name: string;
+  fields: {{
+    name: string;
+    label: string;
+    type: string;
+    required: boolean;
+    options?: string[];
+  }}[];
+}}
+
+function getSectionsForType(participantType: string): SectionDef[] {{
+  switch (participantType) {{
+{sections_switch}
+    default:
+      return [];
+  }}
+}}
+
+function needsUploadForType(participantType: string): boolean {{
+  switch (participantType) {{
+{upload_switch}
+    default:
+      return false;
+  }}
+}}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:18000";
 
 export default function RegisterPage({{
   params,
@@ -673,10 +904,79 @@ export default function RegisterPage({{
   params: Promise<{{ type: string }}>
 }}) {{
   const {{ type }} = use(params);
+  /** Normalize so /register/Producer still matches YAML slugs and multipart rules. */
+  const slug = type.trim().toLowerCase();
+  const [email, setEmail] = useState("");
+  const [fields, setFields] = useState<Record<string, unknown>>({{}});
+  const [activeTab, setActiveTab] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+
+  const sections = getSectionsForType(slug);
+  const uploadRequired = needsUploadForType(slug);
+
+  function handleFieldChange(name: string, value: unknown) {{
+    setFields((prev) => ({{ ...prev, [name]: value }}));
+  }}
+
+  async function handleSubmit(e: React.FormEvent) {{
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+    if (!email.trim()) {{
+      setError("Email is required");
+      return;
+    }}
+    if (sections.length === 0) {{
+      setError("Unknown participant type");
+      return;
+    }}
+    if (uploadRequired && !file) {{
+      setError("At least one onboarding document is required for this role");
+      return;
+    }}
+    setLoading(true);
+    try {{
+      const url = `${{API_BASE}}/api/profiles/${{encodeURIComponent(slug)}}/register`;
+      /** Registration page submits anonymous applications; always send multipart. */
+      const fd = new FormData();
+      fd.append("email", email.trim());
+      fd.append("fields", JSON.stringify(fields));
+      if (file) {{
+        fd.append("file", file, file.name || "onboarding-upload");
+      }}
+      const res = await fetch(url, {{ method: "POST", body: fd }});
+      const text = await res.text();
+      let detail: unknown = text;
+      try {{
+        detail = text ? JSON.parse(text) : null;
+      }} catch {{
+        detail = text;
+      }}
+      if (!res.ok) {{
+        const msg =
+          typeof detail === "object" && detail !== null && "detail" in detail
+            ? String((detail as {{ detail: unknown }}).detail)
+            : text || res.statusText;
+        throw new Error(msg);
+      }}
+      setSuccess(
+        typeof detail === "object" && detail !== null
+          ? JSON.stringify(detail, null, 2)
+          : String(detail ?? "Submitted"),
+      );
+    }} catch (err: unknown) {{
+      setError(err instanceof Error ? err.message : "Request failed");
+    }} finally {{
+      setLoading(false);
+    }}
+  }}
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
-      <Card className="w-full max-w-lg">
+      <Card className="w-full max-w-2xl">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Register as {{type}}</CardTitle>
           <CardDescription>
@@ -684,13 +984,83 @@ export default function RegisterPage({{
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="space-y-4">
+          <form onSubmit={{handleSubmit}} className="space-y-6">
+            {{error && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {{error}}
+              </div>
+            )}}
+            {{success && (
+              <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-800 dark:text-emerald-200">
+                <pre className="whitespace-pre-wrap font-mono text-xs">{{success}}</pre>
+              </div>
+            )}}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" required />
+              <Input
+                id="email"
+                type="email"
+                value={{email}}
+                onChange={{(e) => setEmail(e.target.value)}}
+                required
+                autoComplete="email"
+              />
             </div>
-            <Button type="submit" className="w-full">
-              Submit Application
+
+            {{sections.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Unknown participant type. Use a valid URL such as /register/producer
+              </p>
+            ) : (
+              <>
+                {{sections.length > 1 && (
+                  <div className="flex gap-2 border-b">
+                    {{sections.map((section, idx) => (
+                      <button
+                        key={{section.name}}
+                        type="button"
+                        className={{`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${{
+                          idx === activeTab
+                            ? "border-primary text-foreground"
+                            : "border-transparent text-muted-foreground hover:text-foreground"
+                        }}`}}
+                        onClick={{() => setActiveTab(idx)}}
+                      >
+                        {{section.name}}
+                      </button>
+                    ))}}
+                  </div>
+                )}}
+                {{sections[activeTab] && (
+                  <div className="space-y-4 rounded-lg border p-4">
+                    <h3 className="font-semibold">{{sections[activeTab].name}}</h3>
+                    {{sections[activeTab].fields.map((field) => (
+                      <FieldRenderer
+                        key={{field.name}}
+                        field={{field}}
+                        value={{fields[field.name]}}
+                        onChange={{handleFieldChange}}
+                      />
+                    ))}}
+                  </div>
+                )}}
+              </>
+            )}}
+
+            {{uploadRequired && (
+              <div className="space-y-2">
+                <Label htmlFor="onboarding-file">Onboarding document (required)</Label>
+                <Input
+                  id="onboarding-file"
+                  type="file"
+                  onChange={{(e) => setFile(e.target.files?.[0] ?? null)}}
+                  required
+                />
+              </div>
+            )}}
+
+            <Button type="submit" className="w-full" disabled={{loading || sections.length === 0}}>
+              {{loading ? "Submitting…" : "Submit Application"}}
             </Button>
           </form>
         </CardContent>

@@ -12,6 +12,56 @@ from app.core.exceptions import AppError
 MAX_REGISTER_UPLOAD_FILES = 10
 
 
+async def _extract_file_parts_from_form(form) -> list[tuple[str, str, bytes]]:
+    """Collect uploaded bytes from multipart form.
+
+    Prefer ``files`` / ``file`` keys; if none, scan other keys (some clients use
+    different field names). Deduplicate by ``UploadFile`` object id.
+    """
+    file_parts: list[tuple[str, str, bytes]] = []
+    seen_ids: set[int] = set()
+
+    async def consume(item: object) -> None:
+        # Starlette/FastAPI can surface file parts as different UploadFile classes.
+        # Accept either explicit UploadFile instances or duck-typed upload objects.
+        is_upload = isinstance(item, UploadFile) or (
+            hasattr(item, "read") and hasattr(item, "filename") and hasattr(item, "content_type")
+        )
+        if not is_upload:
+            return
+        oid = id(item)
+        if oid in seen_ids:
+            return
+        seen_ids.add(oid)
+        data = await item.read()
+        if not data:
+            return
+        raw_name = getattr(item, "filename", None)
+        filename = (raw_name or "").strip() or "upload"
+        if len(data) > settings.files_max_upload_bytes:
+            raise AppError("File exceeds upload size limit", status_code=413)
+        file_parts.append(
+            (
+                filename,
+                item.content_type or "application/octet-stream",
+                data,
+            )
+        )
+
+    for key in ("files", "file"):
+        for item in form.getlist(key):
+            await consume(item)
+
+    if not file_parts:
+        for key in form.keys():
+            if key in ("email", "fields"):
+                continue
+            for item in form.getlist(key):
+                await consume(item)
+
+    return file_parts
+
+
 async def parse_authenticated_register_body(request: Request) -> dict | None:
     """Session cookie present: expect JSON ``{ \"fields\": { ... } }``."""
     raw = await request.body()
@@ -52,23 +102,7 @@ async def parse_anonymous_register(
                 raise AppError('Invalid JSON in form field "fields"', status_code=422) from exc
             fields = parsed if isinstance(parsed, dict) else None
 
-        file_parts: list[tuple[str, str, bytes]] = []
-        for key in ("files", "file"):
-            for item in form.getlist(key):
-                if not isinstance(item, UploadFile):
-                    continue
-                if not getattr(item, "filename", None):
-                    continue
-                data = await item.read()
-                if len(data) > settings.files_max_upload_bytes:
-                    raise AppError("File exceeds upload size limit", status_code=413)
-                file_parts.append(
-                    (
-                        item.filename or "upload",
-                        item.content_type or "application/octet-stream",
-                        data,
-                    )
-                )
+        file_parts = await _extract_file_parts_from_form(form)
 
         if len(file_parts) > MAX_REGISTER_UPLOAD_FILES:
             raise AppError(

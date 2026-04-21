@@ -26,6 +26,10 @@ ADMIN_EMAIL = "admin@example.com"
 ADMIN_PASSWORD = "ChangeMe123!"
 USER_PASSWORD = "UserPass123!"
 
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = _BACKEND_ROOT.parent
+_MARKETPLACE_EXAMPLE = _REPO_ROOT / "marketplace.example.yaml"
+
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
@@ -35,7 +39,8 @@ async def test_local_full_stack_flow():
     ws_base = http_to_ws(base_url)
 
     validate = subprocess.run(
-        [sys.executable, "-m", "cli", "validate", str(Path("marketplace.example.yaml"))],
+        [sys.executable, "-m", "cli", "validate", str(_MARKETPLACE_EXAMPLE)],
+        cwd=_BACKEND_ROOT,
         capture_output=True,
         text=True,
         check=False,

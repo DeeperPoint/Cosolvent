@@ -7,6 +7,12 @@ from tests.e2e.helpers import get_base_url, new_client, random_email, require_mo
 USER_PASSWORD = "UserPass123!"
 
 
+def _assert_presigned_url(url: str) -> None:
+    """Presigned URLs may use SigV4 query params (AWS S3) or legacy v2-style (common with MinIO)."""
+    assert url.startswith("http")
+    assert "X-Amz-" in url or "AWSAccessKeyId=" in url or "Signature=" in url
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_private_upload_permissions_and_signed_urls():
@@ -34,11 +40,11 @@ async def test_private_upload_permissions_and_signed_urls():
         producer_upload.raise_for_status()
         producer_file = producer_upload.json()
         assert producer_file["privacy"] == "private"
-        assert "X-Amz-" in producer_file["url"]
+        _assert_presigned_url(producer_file["url"])
 
         producer_get = await producer.get(f"/api/files/{producer_file['id']}")
         producer_get.raise_for_status()
-        assert "X-Amz-" in producer_get.json()["url"]
+        _assert_presigned_url(producer_get.json()["url"])
 
         await signup_user(
             buyer,

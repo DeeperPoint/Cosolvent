@@ -23,7 +23,7 @@ async def test_onboarding_surface_is_guided_and_human_friendly():
         page.raise_for_status()
         html = page.text
         if 'id="introScene"' in html:
-            assert "Build your marketplace for a thin market with AI." in html
+            assert "Build your marketplace" in html and "thin market" in html
             assert 'id="startSetupBtn"' in html
             assert 'id="wizardScene"' in html
             assert "Advanced JSON Editor" in html

@@ -71,6 +71,8 @@ def compile_frontend(
     from .generators.navigation_gen import emit_navigation
     from .generators.routes_gen import emit_routes
     from .generators.components_gen import emit_components
+    from .generators.operations_manifest_gen import emit_operations_manifest
+    from .generators.api_explorer_gen import emit_api_explorer_page
 
     artifacts.update(emit_types(ir))
     artifacts.update(emit_schemas(ir))
@@ -79,6 +81,8 @@ def compile_frontend(
     artifacts.update(emit_navigation(ir))
     artifacts.update(emit_routes(ir))
     artifacts.update(emit_components(ir))
+    artifacts.update(emit_operations_manifest(ir))
+    artifacts.update(emit_api_explorer_page(ir))
 
     logger.info("Generated %d artifacts", len(artifacts))
 

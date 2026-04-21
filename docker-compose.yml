@@ -82,9 +82,11 @@ services:
       POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@postgres:5432/cosolvent
       REDIS_URL: redis://redis:6379
       MARKETPLACE_CONFIG_PATH: /project/marketplace.yaml
-      ALLOW_PUBLIC_SIGNUP: ${ALLOW_PUBLIC_SIGNUP:-}
+      # Defaults favor local HTTP + integration tests; override in .env for production-like behavior.
+      ALLOW_PUBLIC_SIGNUP: ${ALLOW_PUBLIC_SIGNUP:-true}
       ALLOW_PUBLIC_APPLICATION: ${ALLOW_PUBLIC_APPLICATION:-}
       SESSION_SECRET: test-secret
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-noreply@example.com}

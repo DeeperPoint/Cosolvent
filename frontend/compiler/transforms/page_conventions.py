@@ -58,8 +58,8 @@ def derive_pages(
     pages.append(
         PageIR(
             id="dashboard",
-            route="/",
-            file_path="src/app/(dashboard)/page.tsx",
+            route="/dashboard",
+            file_path="src/app/(dashboard)/dashboard/page.tsx",
             title="Dashboard",
             kind="dashboard",
             entity_slug=None,
@@ -67,6 +67,19 @@ def derive_pages(
             layout="dashboard",
         )
     )
+    if any(op.module == "admin" for op in operations):
+        pages.append(
+            PageIR(
+                id="admin-dashboard",
+                route="/admin",
+                file_path="src/app/(dashboard)/admin/page.tsx",
+                title="Admin Dashboard",
+                kind="dashboard",
+                entity_slug=None,
+                operation_ids=_find_op_ids(operations, module="admin"),
+                layout="dashboard",
+            )
+        )
 
     # ── Profile pages ─────────────────────────────────────────────
     pages.append(

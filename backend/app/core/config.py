@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Session
     session_secret: str = "change-me"
     session_ttl_hours: int = 72
+    # When False, Set-Cookie omits Secure (needed for HTTP clients e.g. httpx integration tests on localhost).
+    # Production behind HTTPS should set SESSION_COOKIE_SECURE=true (default).
+    session_cookie_secure: bool = True
 
     # S3
     s3_bucket: str = "cosolvent-files"

@@ -384,6 +384,30 @@ class TestNavigationGenerator:
         assert "Dashboard" in content
         assert "Search" in content
         assert '"seller"' in content
+        assert "API explorer" in content
+        assert "Terminal" in content
+
+
+class TestOperationsManifestGenerator:
+    def test_emits_operations_manifest(self):
+        from compiler.generators.operations_manifest_gen import emit_operations_manifest
+
+        ir = _build_test_ir()
+        files = emit_operations_manifest(ir)
+        assert "src/generated/operations-manifest.ts" in files
+        c = files["src/generated/operations-manifest.ts"]
+        assert "export const operationsManifest" in c
+        assert "OperationManifestEntry" in c
+
+
+class TestApiExplorerGenerator:
+    def test_emits_api_explorer_page(self):
+        from compiler.generators.api_explorer_gen import emit_api_explorer_page
+
+        ir = _build_test_ir()
+        files = emit_api_explorer_page(ir)
+        assert "src/app/(dashboard)/dev/api-explorer/page.tsx" in files
+        assert "operationsManifest" in files["src/app/(dashboard)/dev/api-explorer/page.tsx"]
 
 
 # ── Writer tests ──────────────────────────────────────────────────────

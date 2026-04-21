@@ -32,6 +32,9 @@ def emit_hooks(ir: FrontendIR) -> dict[str, str]:
         filename = hook_filename(module)
         files[f"src/generated/hooks/{filename}"] = _module_hooks(ir, module, ops)
 
+    if "communication" in ops_by_module:
+        files["src/generated/hooks/use-websocket.ts"] = _websocket_hooks(ir)
+
     return files
 
 
@@ -175,3 +178,164 @@ def _derive_hook_name(op: OperationIR) -> str:
         body = base[3:]
         return f"use{body}"
     return f"use{base[0].upper()}{base[1:]}"
+
+
+def _websocket_hooks(ir: FrontendIR) -> str:
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ useCallback, useEffect, useMemo, useRef, useState }} from "react";
+
+export type SocketConnectionState = "idle" | "connecting" | "connected" | "closed" | "error";
+
+export type ConversationSocketEvent = {{
+  type: string;
+  [key: string]: unknown;
+}};
+
+export interface ConversationWebSocketOptions {{
+  enabled?: boolean;
+  reconnect?: boolean;
+  reconnectDelayMs?: number;
+  onEvent?: (event: ConversationSocketEvent) => void;
+}}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:18000";
+
+function toWebSocketBase(apiBase: string): string {{
+  if (apiBase.startsWith("https://")) return apiBase.replace("https://", "wss://");
+  if (apiBase.startsWith("http://")) return apiBase.replace("http://", "ws://");
+  return apiBase;
+}}
+
+export function useConversationWebSocket(
+  conversationId: string | null | undefined,
+  options: ConversationWebSocketOptions = {{}},
+) {{
+  const {{
+    enabled = true,
+    reconnect = true,
+    reconnectDelayMs = 1500,
+    onEvent,
+  }} = options;
+
+  const socketRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shouldReconnectRef = useRef(reconnect);
+
+  const [state, setState] = useState<SocketConnectionState>("idle");
+  const [lastEvent, setLastEvent] = useState<ConversationSocketEvent | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const wsUrl = useMemo(() => {{
+    if (!conversationId) return null;
+    const base = toWebSocketBase(API_BASE);
+    return `${{base}}/api/communication/ws/${{encodeURIComponent(conversationId)}}`;
+  }}, [conversationId]);
+
+  const clearReconnectTimer = useCallback(() => {{
+    if (reconnectTimerRef.current) {{
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }}
+  }}, []);
+
+  const closeSocket = useCallback(() => {{
+    if (socketRef.current) {{
+      socketRef.current.close();
+      socketRef.current = null;
+    }}
+  }}, []);
+
+  const connect = useCallback(() => {{
+    if (!enabled || !wsUrl) return;
+    setState("connecting");
+    setError(null);
+
+    const ws = new WebSocket(wsUrl);
+    socketRef.current = ws;
+
+    ws.onopen = () => {{
+      setState("connected");
+      ws.send(JSON.stringify({{ type: "auth" }}));
+    }};
+
+    ws.onmessage = (evt: MessageEvent) => {{
+      try {{
+        const parsed = JSON.parse(evt.data) as ConversationSocketEvent;
+        setLastEvent(parsed);
+        onEvent?.(parsed);
+      }} catch {{
+        // Ignore non-JSON frames.
+      }}
+    }};
+
+    ws.onerror = () => {{
+      setState("error");
+      setError("WebSocket connection error");
+    }};
+
+    ws.onclose = () => {{
+      setState("closed");
+      socketRef.current = null;
+      if (shouldReconnectRef.current && reconnect) {{
+        clearReconnectTimer();
+        reconnectTimerRef.current = setTimeout(() => {{
+          connect();
+        }}, reconnectDelayMs);
+      }}
+    }};
+  }}, [enabled, wsUrl, onEvent, reconnect, reconnectDelayMs, clearReconnectTimer]);
+
+  useEffect(() => {{
+    shouldReconnectRef.current = reconnect;
+  }}, [reconnect]);
+
+  useEffect(() => {{
+    if (!enabled || !wsUrl) {{
+      clearReconnectTimer();
+      closeSocket();
+      setState("idle");
+      return;
+    }}
+
+    connect();
+    return () => {{
+      shouldReconnectRef.current = false;
+      clearReconnectTimer();
+      closeSocket();
+    }};
+  }}, [enabled, wsUrl, connect, clearReconnectTimer, closeSocket]);
+
+  const sendEvent = useCallback((event: ConversationSocketEvent) => {{
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return false;
+    socketRef.current.send(JSON.stringify(event));
+    return true;
+  }}, []);
+
+  const sendMessage = useCallback(
+    (content: string, contentType = "text") => sendEvent({{ type: "message", content, content_type: contentType }}),
+    [sendEvent],
+  );
+
+  const ping = useCallback(() => sendEvent({{ type: "ping" }}), [sendEvent]);
+
+  const reconnectNow = useCallback(() => {{
+    shouldReconnectRef.current = reconnect;
+    clearReconnectTimer();
+    closeSocket();
+    connect();
+  }}, [reconnect, clearReconnectTimer, closeSocket, connect]);
+
+  return {{
+    state,
+    lastEvent,
+    error,
+    sendEvent,
+    sendMessage,
+    ping,
+    reconnect: reconnectNow,
+  }};
+}}
+"""

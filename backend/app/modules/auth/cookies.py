@@ -13,7 +13,16 @@ def set_session_cookie(response: Response, token: str) -> None:
         "session_token",
         token,
         httponly=True,
-        secure=True,
+        secure=settings.session_cookie_secure,
         samesite="lax",
         max_age=max_age_seconds,
+    )
+
+
+def clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(
+        "session_token",
+        secure=settings.session_cookie_secure,
+        httponly=True,
+        samesite="lax",
     )
