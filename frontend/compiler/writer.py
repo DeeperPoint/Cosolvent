@@ -12,6 +12,13 @@ MANAGED_PREFIXES = (
     "src/generated/",
 )
 
+AGENT_MANAGED_PREFIXES = (
+    "src/app/",
+    "src/components/layouts/",
+    "src/components/forms/",
+    "src/components/shared/",
+)
+
 
 def write_frontend(
     output_dir: Path,
@@ -20,6 +27,8 @@ def write_frontend(
     spec_hash: str,
     generator_version: str,
     clean: bool = False,
+    force_overwrite_paths: set[str] | None = None,
+    manifest_extra: dict | None = None,
 ) -> dict[str, list[str]]:
     """Write generated artifacts and update manifest.
 
@@ -38,13 +47,20 @@ def write_frontend(
     generated: list[str] = []
     skipped: list[str] = []
 
+    force_paths = force_overwrite_paths or set()
+    for rel in force_paths:
+        _validate_relative_path(rel)
+        if not any(rel.startswith(prefix) for prefix in AGENT_MANAGED_PREFIXES):
+            raise ValueError(f"Force overwrite path is not agent-managed: {rel}")
+
     for rel, content in sorted(artifacts.items()):
         _validate_relative_path(rel)
         target = (output_dir / rel).resolve()
         if output_dir not in target.parents and target != output_dir:
             raise ValueError(f"Refusing to write outside output dir: {rel}")
 
-        if not _is_managed(rel) and target.exists() and not clean:
+        forced = rel in force_paths
+        if not _is_managed(rel) and target.exists() and not clean and not forced:
             skipped.append(rel)
             continue
 
@@ -66,6 +82,7 @@ def write_frontend(
         spec_hash=spec_hash,
         generator_version=generator_version,
         generated_files=sorted(set(generated) | set(skipped)),
+        extra=manifest_extra or {},
     )
 
     return {
@@ -95,6 +112,7 @@ def _write_manifest(
     spec_hash: str,
     generator_version: str,
     generated_files: list[str],
+    extra: dict,
 ) -> None:
     manifest = {
         "generator": "cosolvent-frontend-compiler",
@@ -103,6 +121,7 @@ def _write_manifest(
         "spec_hash": spec_hash,
         "generated_files": sorted(generated_files),
     }
+    manifest.update(extra)
     path = output_dir / MANIFEST_FILENAME
     path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
@@ -116,3 +135,20 @@ def _validate_relative_path(relative_path: str) -> None:
         raise ValueError(f"Absolute paths are not allowed: {relative_path}")
     if ".." in rel.parts:
         raise ValueError(f"Parent directory traversal is not allowed: {relative_path}")
+
+
+def check_manifest_sync(output_dir: Path, expected_spec_hash: str) -> tuple[bool, str]:
+    """Check whether existing manifest matches the given spec hash."""
+    output_dir = output_dir.resolve()
+    manifest = _load_manifest(output_dir)
+    if manifest is None:
+        return False, f"Manifest not found in {output_dir}. Run generate first."
+    current = str(manifest.get("spec_hash") or "").strip()
+    if not current:
+        return False, "Manifest exists but has no spec_hash."
+    if current != expected_spec_hash:
+        return (
+            False,
+            f"Spec hash mismatch: manifest={current[:12]} expected={expected_spec_hash[:12]}. Re-run generate.",
+        )
+    return True, "ok"

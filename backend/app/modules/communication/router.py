@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, WebSocket, WebSocketDisconnect, status
 
 from app.core.dependencies import get_config, get_current_user, get_current_user_from_token
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.marketplace_config import MarketplaceConfig
+from app.core.response_models import DetailResponse, JSONList
 from app.modules.communication import service
 from app.modules.communication.schemas import (
+    ConversationResponse,
     CreateConversationRequest,
     EditMessageRequest,
+    MessageResponse,
     SendMessageRequest,
     ShareAssetsRequest,
 )
@@ -25,7 +28,12 @@ WS_CLOSE_NOT_FOUND = 4004
 WS_CLOSE_POLICY = 4008
 
 
-@router.post("/conversations")
+@router.post(
+    "/conversations",
+    response_model=ConversationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create conversation",
+)
 async def create_conversation(
     body: CreateConversationRequest,
     user: dict = Depends(get_current_user),
@@ -34,32 +42,32 @@ async def create_conversation(
     return await service.create_conversation(user, body.receiver_user_id, body.initial_message, config)
 
 
-@router.get("/conversations")
+@router.get("/conversations", response_model=JSONList)
 async def list_conversations(user: dict = Depends(get_current_user)):
     return await service.list_conversations(user)
 
 
-@router.get("/conversations/{conv_id}")
+@router.get("/conversations/{conv_id}", response_model=ConversationResponse)
 async def get_conversation(conv_id: str = Path(...), user: dict = Depends(get_current_user)):
     return await service.get_conversation(conv_id, user)
 
 
-@router.post("/conversations/{conv_id}/accept")
+@router.post("/conversations/{conv_id}/accept", response_model=ConversationResponse)
 async def accept_conversation(conv_id: str = Path(...), user: dict = Depends(get_current_user)):
     return await service.accept_conversation(conv_id, user)
 
 
-@router.post("/conversations/{conv_id}/reject")
+@router.post("/conversations/{conv_id}/reject", response_model=ConversationResponse)
 async def reject_conversation(conv_id: str = Path(...), user: dict = Depends(get_current_user)):
     return await service.reject_conversation(conv_id, user)
 
 
-@router.post("/conversations/{conv_id}/close")
+@router.post("/conversations/{conv_id}/close", response_model=ConversationResponse)
 async def close_conversation(conv_id: str = Path(...), user: dict = Depends(get_current_user)):
     return await service.close_conversation(conv_id, user)
 
 
-@router.get("/conversations/{conv_id}/messages")
+@router.get("/conversations/{conv_id}/messages", response_model=JSONList)
 async def list_messages(
     conv_id: str = Path(...),
     skip: int = Query(0),
@@ -69,19 +77,26 @@ async def list_messages(
     return await service.list_messages(conv_id, user, skip, limit)
 
 
-@router.post("/conversations/{conv_id}/messages")
+@router.post(
+    "/conversations/{conv_id}/messages",
+    response_model=MessageResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create message",
+)
 async def send_message(
     body: SendMessageRequest,
     conv_id: str = Path(...),
     user: dict = Depends(get_current_user),
 ):
     msg = await service.send_message(conv_id, user, body.content, body.content_type)
-    # Broadcast via WebSocket
     await manager.broadcast(conv_id, {"type": "new_message", "message": msg})
     return msg
 
 
-@router.put("/conversations/{conv_id}/messages/{msg_id}")
+@router.put(
+    "/conversations/{conv_id}/messages/{msg_id}",
+    response_model=MessageResponse,
+)
 async def edit_message(
     body: EditMessageRequest,
     conv_id: str = Path(...),
@@ -93,7 +108,10 @@ async def edit_message(
     return msg
 
 
-@router.delete("/conversations/{conv_id}/messages/{msg_id}")
+@router.delete(
+    "/conversations/{conv_id}/messages/{msg_id}",
+    response_model=DetailResponse,
+)
 async def delete_message(
     conv_id: str = Path(...),
     msg_id: str = Path(...),
@@ -104,7 +122,7 @@ async def delete_message(
     return {"detail": "Deleted"}
 
 
-@router.post("/conversations/{conv_id}/share-assets")
+@router.post("/conversations/{conv_id}/share-assets", response_model=DetailResponse)
 async def share_assets(
     body: ShareAssetsRequest,
     conv_id: str = Path(...),
@@ -119,7 +137,6 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
 
     Client must send an auth message first: {"type": "auth", "token": "session_token"}
     """
-    # Accept and wait for auth message
     await websocket.accept()
     session_token: str | None = None
     user_id = ""
@@ -149,7 +166,6 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
 
         await websocket.send_text(json.dumps({"type": "connected", "user_id": user_id}))
 
-        # Message loop
         while True:
             raw = await websocket.receive_text()
             try:

@@ -6,13 +6,14 @@ from fastapi import APIRouter, Depends
 
 from app.core.dependencies import get_config, get_optional_user
 from app.core.marketplace_config import MarketplaceConfig
+from app.core.response_models import JSONObject
 from app.modules.discovery import service
 from app.modules.discovery.schemas import SearchRequest
 
 router = APIRouter()
 
 
-@router.post("")
+@router.post("", response_model=JSONObject)
 async def search(
     body: SearchRequest,
     config: MarketplaceConfig = Depends(get_config),
@@ -28,7 +29,7 @@ async def search(
     )
 
 
-@router.post("/{type_slug}")
+@router.post("/{type_slug}", response_model=JSONObject)
 async def search_type(
     type_slug: str,
     body: SearchRequest,

@@ -64,7 +64,21 @@ async def onboarding_panel() -> HTMLResponse:
     return HTMLResponse(_PANEL_HTML)
 
 
-@router.get("/api/setup/assets/{asset_name}")
+@router.get(
+    "/api/setup/assets/{asset_name}",
+    response_class=FileResponse,
+    responses={
+        200: {
+            "description": "Static asset",
+            "content": {
+                "application/javascript": {},
+                "text/css": {},
+                "text/plain": {},
+            },
+        },
+        404: {"description": "Unknown or missing asset"},
+    },
+)
 async def setup_asset(asset_name: str) -> FileResponse:
     if asset_name not in _ALLOWED_ASSETS:
         raise HTTPException(status_code=404, detail="Unknown setup asset")

@@ -459,7 +459,12 @@ def _render_role_alias_router(ir: CompilerIR) -> str:
         role_handlers.append(
             dedent(
                 f"""\
-                @router.post("/api/roles/{role.slug}/register", response_model={register_outcome_model})
+                @router.post(
+                    "/api/roles/{role.slug}/register",
+                    response_model={register_outcome_model},
+                    status_code=201,
+                    summary="Register {role.slug} profile",
+                )
                 async def register_{fn_slug}(
                     request: Request,
                     user: dict | None = Depends(get_optional_user),

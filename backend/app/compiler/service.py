@@ -235,15 +235,21 @@ def _assert_generated_alias_contracts(openapi_doc: dict[str, Any], role_slugs: l
         operation = _op(path, method)
         if operation is None:
             return
-        schema = (
-            operation.get("responses", {})
-            .get("200", {})
-            .get("content", {})
-            .get("application/json", {})
-            .get("schema")
-        )
-        if not schema:
-            missing.append(f"{method.upper()} {path}: 200 response schema missing")
+        responses = operation.get("responses", {})
+        success_codes = [code for code in responses if str(code).startswith("2")]
+        if not success_codes:
+            missing.append(f"{method.upper()} {path}: no 2xx response declared")
+            return
+        for code in success_codes:
+            schema = (
+                responses.get(code, {})
+                .get("content", {})
+                .get("application/json", {})
+                .get("schema")
+            )
+            if schema:
+                return
+        missing.append(f"{method.upper()} {path}: success response schema missing")
 
     def _require_request_schema(path: str, method: str) -> None:
         operation = _op(path, method)

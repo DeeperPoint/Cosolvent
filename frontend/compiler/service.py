@@ -22,6 +22,12 @@ def compile_frontend(
     marketplace_path: str | Path,
     output_dir: str | Path = "frontend",
     clean: bool = False,
+    agent_fill: bool = False,
+    agent_model: str = "anthropic/claude-3.5-sonnet",
+    agent_timeout_seconds: int = 120,
+    agent_max_attempts: int = 2,
+    verify_build: bool = False,
+    check: bool = False,
 ) -> dict[str, Any]:
     """Run the full frontend compiler pipeline.
 
@@ -51,6 +57,25 @@ def compile_frontend(
     raw_openapi = parse_openapi(openapi_doc)
     raw_marketplace = parse_marketplace(config)
     ir = build_frontend_ir(raw_openapi, raw_marketplace, generator_version=GENERATOR_VERSION)
+
+    if check:
+        from .writer import check_manifest_sync
+
+        ok, reason = check_manifest_sync(output, ir.spec_hash)
+        if not ok:
+            raise ValueError(reason)
+        return {
+            "ok": True,
+            "spec_hash": ir.spec_hash,
+            "generator_version": GENERATOR_VERSION,
+            "output_dir": str(output),
+            "generated": [],
+            "removed": [],
+            "skipped": [],
+            "agent_fill_enabled": bool(agent_fill),
+            "agent_model": agent_model,
+            "verified": False,
+        }
 
     logger.info(
         "IR built: %d entities, %d operations, %d pages",
@@ -86,6 +111,50 @@ def compile_frontend(
 
     logger.info("Generated %d artifacts", len(artifacts))
 
+    filled_files: list[str] = []
+    prompt_hash: str | None = None
+    verified = False
+    verification_errors: str | None = None
+
+    fill_attempts = max(1, int(agent_max_attempts))
+    feedback: str | None = None
+    current_artifacts = artifacts
+    for attempt in range(1, fill_attempts + 1):
+        if agent_fill:
+            from .frontend_agent import AgentFillOptions, run_agent_fill
+
+            fill_result = run_agent_fill(
+                current_artifacts,
+                ir,
+                AgentFillOptions(
+                    enabled=True,
+                    model=agent_model,
+                    timeout_seconds=agent_timeout_seconds,
+                ),
+                feedback=feedback,
+            )
+            current_artifacts = fill_result.artifacts
+            filled_files = sorted(set(filled_files) | set(fill_result.filled_files))
+            prompt_hash = fill_result.prompt_hash or prompt_hash
+
+        if not verify_build:
+            break
+
+        from .verify import run_frontend_verification
+
+        verify_result = run_frontend_verification(output, current_artifacts)
+        verified = verify_result.ok
+        if verified:
+            verification_errors = None
+            break
+        verification_errors = verify_result.summary
+        feedback = verify_result.summary
+        logger.warning("Agent fill verification failed on attempt %d: %s", attempt, verification_errors)
+        if not agent_fill:
+            break
+
+    artifacts = current_artifacts
+
     # ── Stage 5: Write ────────────────────────────────────────────────
     result = write_frontend(
         output,
@@ -93,6 +162,15 @@ def compile_frontend(
         spec_hash=ir.spec_hash,
         generator_version=GENERATOR_VERSION,
         clean=clean,
+        force_overwrite_paths=set(filled_files),
+        manifest_extra={
+            "agent_fill_enabled": bool(agent_fill),
+            "agent_model": agent_model if agent_fill else None,
+            "agent_filled_files": filled_files,
+            "agent_prompt_hash": prompt_hash,
+            "verified": verified,
+            "verification_errors": verification_errors,
+        },
     )
 
     logger.info(
@@ -107,6 +185,12 @@ def compile_frontend(
         "spec_hash": ir.spec_hash,
         "generator_version": GENERATOR_VERSION,
         "output_dir": str(output),
+        "agent_fill_enabled": bool(agent_fill),
+        "agent_model": agent_model if agent_fill else None,
+        "agent_filled_files": filled_files,
+        "verify_requested": bool(verify_build),
+        "verified": verified,
+        "verification_errors": verification_errors,
         **result,
     }
 

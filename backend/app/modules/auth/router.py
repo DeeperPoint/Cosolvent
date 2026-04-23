@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Cookie, Depends, Response
+from fastapi import APIRouter, Cookie, Depends, Response, status
+from pydantic import BaseModel
 
 from app.core.dependencies import get_config, get_current_user
 from app.core.exceptions import ForbiddenError
@@ -23,7 +24,12 @@ def _public_auth_response(result: dict) -> dict:
     return {k: v for k, v in result.items() if k != "session_token"}
 
 
-@router.post("/signup", response_model=AuthResponse)
+@router.post(
+    "/signup",
+    response_model=AuthResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create user account",
+)
 async def signup(
     body: SignupRequest,
     response: Response,
@@ -43,7 +49,11 @@ async def login(body: LoginRequest, response: Response):
     return _public_auth_response(result)
 
 
-@router.post("/logout")
+class _DetailResponse(BaseModel):
+    detail: str
+
+
+@router.post("/logout", response_model=_DetailResponse)
 async def logout(response: Response, session_token: str = Cookie(None)):
     if session_token:
         await service.logout(session_token)
@@ -51,8 +61,16 @@ async def logout(response: Response, session_token: str = Cookie(None)):
     return {"detail": "Logged out"}
 
 
-@router.get("/verify", response_model=UserResponse)
-@router.get("/me", response_model=UserResponse)
+@router.get(
+    "/verify",
+    response_model=UserResponse,
+    responses={401: {"description": "Not authenticated"}},
+)
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    responses={401: {"description": "Not authenticated"}},
+)
 async def verify(user: dict = Depends(get_current_user)):
     return await service.verify(user)
 

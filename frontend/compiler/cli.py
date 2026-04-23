@@ -14,6 +14,11 @@ def run_generate_frontend(
     marketplace_path: str,
     output_dir: str = "frontend",
     clean: bool = False,
+    agent_fill: bool = False,
+    agent_model: str = "anthropic/claude-3.5-sonnet",
+    agent_timeout_seconds: int = 120,
+    verify_build: bool = False,
+    check: bool = False,
 ) -> bool:
     """Execute the frontend compiler and print results."""
     from .service import compile_frontend
@@ -24,6 +29,11 @@ def run_generate_frontend(
             marketplace_path=marketplace_path,
             output_dir=output_dir,
             clean=clean,
+            agent_fill=agent_fill,
+            agent_model=agent_model,
+            agent_timeout_seconds=agent_timeout_seconds,
+            verify_build=verify_build,
+            check=check,
         )
     except FileNotFoundError as exc:
         console.print(f"[red]Error:[/red] {exc}")
@@ -36,9 +46,17 @@ def run_generate_frontend(
         return False
 
     console.print()
-    console.print("[green]Frontend compiled successfully[/green]")
+    status = "Frontend check passed" if check else "Frontend compiled successfully"
+    console.print(f"[green]{status}[/green]")
     console.print(f"  spec_hash: {result['spec_hash'][:16]}...")
     console.print(f"  output:    {result['output_dir']}")
+    if result.get("agent_fill_enabled"):
+        console.print(f"  agent_fill: enabled ({result.get('agent_model', 'unknown model')})")
+    if result.get("verify_requested"):
+        status = "passed" if result.get("verified") else "failed"
+        console.print(f"  verification: {status}")
+    if (not result.get("verified")) and result.get("verification_errors"):
+        console.print(f"  verification_errors: {result['verification_errors']}")
     console.print()
 
     table = Table(title="Generated Files")

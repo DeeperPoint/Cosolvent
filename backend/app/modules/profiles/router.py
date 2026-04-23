@@ -1,14 +1,20 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Path, Request
+from fastapi import APIRouter, Depends, Path, Request, status
+
 from app.core.dependencies import get_config, get_current_user, get_optional_user, require_admin
 from app.core.exceptions import AppError, ForbiddenError, UnauthorizedError
 from app.core.marketplace_config import MarketplaceConfig
+from app.core.response_models import JSONObject
 from app.modules.auth.signup_policy import public_application_allowed
 from app.modules.profiles import service
 from app.modules.profiles.register_helpers import ensure_role_matches_route
 from app.modules.profiles.register_request import parse_anonymous_register, parse_authenticated_register_body
-from app.modules.profiles.schemas import AIProfileActionResponse, DraftUpdateRequest
+from app.modules.profiles.schemas import (
+    AIProfileActionResponse,
+    DraftUpdateRequest,
+    ProfileResponse,
+)
 
 router = APIRouter()
 
@@ -20,7 +26,12 @@ def _validate_type(type_slug: str, config: MarketplaceConfig) -> str:
     return type_slug
 
 
-@router.post("/{type_slug}/register")
+@router.post(
+    "/{type_slug}/register",
+    response_model=JSONObject,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register participant profile",
+)
 async def register(
     request: Request,
     type_slug: str = Path(...),
@@ -50,7 +61,7 @@ async def register(
     )
 
 
-@router.get("/{type_slug}/draft")
+@router.get("/{type_slug}/draft", response_model=JSONObject)
 async def get_draft(
     type_slug: str = Path(...),
     user: dict = Depends(get_current_user),
@@ -60,7 +71,7 @@ async def get_draft(
     return await service.get_draft(user)
 
 
-@router.put("/{type_slug}/draft")
+@router.put("/{type_slug}/draft", response_model=JSONObject)
 async def update_draft(
     body: DraftUpdateRequest,
     type_slug: str = Path(...),
@@ -71,7 +82,7 @@ async def update_draft(
     return await service.update_draft(user, body.fields, config)
 
 
-@router.post("/{type_slug}/draft/submit")
+@router.post("/{type_slug}/draft/submit", response_model=JSONObject)
 async def submit_draft(
     type_slug: str = Path(...),
     user: dict = Depends(get_current_user),
@@ -81,7 +92,7 @@ async def submit_draft(
     return await service.submit_draft(user, config)
 
 
-@router.get("/{type_slug}/me")
+@router.get("/{type_slug}/me", response_model=ProfileResponse)
 async def get_my_profile(
     type_slug: str = Path(...),
     user: dict = Depends(get_current_user),
@@ -91,7 +102,7 @@ async def get_my_profile(
     return await service.get_my_profile(user, config)
 
 
-@router.get("/{type_slug}/{profile_id}")
+@router.get("/{type_slug}/{profile_id}", response_model=ProfileResponse)
 async def get_profile(
     type_slug: str = Path(...),
     profile_id: str = Path(...),
@@ -102,7 +113,7 @@ async def get_profile(
     return await service.get_profile(profile_id, type_slug, config, user)
 
 
-@router.put("/{type_slug}/{profile_id}")
+@router.put("/{type_slug}/{profile_id}", response_model=ProfileResponse)
 async def update_profile(
     body: DraftUpdateRequest,
     type_slug: str = Path(...),

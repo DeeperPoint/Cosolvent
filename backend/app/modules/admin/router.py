@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 
 from app.core.dependencies import get_config, require_admin
 from app.core.marketplace_config import MarketplaceConfig
+from app.core.response_models import DeletedResponse, JSONList, JSONObject
 from app.modules.admin import service
 from app.modules.admin.schemas import (
     ApplicationDecisionResponse,
@@ -17,12 +18,20 @@ from app.modules.admin.schemas import (
 )
 from app.modules.ai.schemas import LLMSettingsUpdate, PromptUpdate, ProviderValidateRequest
 
-router = APIRouter()
+# Declare auth failure modes once at router scope so every admin operation
+# surfaces 401 / 403 in the generated OpenAPI spec (they all pass through
+# ``require_admin``).
+_AUTH_RESPONSES: dict[int | str, dict[str, object]] = {
+    401: {"description": "Not authenticated"},
+    403: {"description": "Admin access required"},
+}
+
+router = APIRouter(responses=_AUTH_RESPONSES)
 
 
 # ── Dashboard & Config ───────────────────────────────────────────────────
 
-@router.get("/dashboard")
+@router.get("/dashboard", response_model=JSONObject)
 async def dashboard(
     user: dict = Depends(require_admin),
     config: MarketplaceConfig = Depends(get_config),
@@ -30,7 +39,7 @@ async def dashboard(
     return await service.get_dashboard(config)
 
 
-@router.get("/config")
+@router.get("/config", response_model=JSONObject)
 async def get_config_summary(
     user: dict = Depends(require_admin),
     config: MarketplaceConfig = Depends(get_config),
@@ -40,7 +49,7 @@ async def get_config_summary(
 
 # ── User Management ─────────────────────────────────────────────────────
 
-@router.get("/users")
+@router.get("/users", response_model=JSONList)
 async def list_users(
     skip: int = Query(0),
     limit: int = Query(50),
@@ -49,7 +58,7 @@ async def list_users(
     return await service.list_users(skip, limit)
 
 
-@router.get("/users/{user_id}")
+@router.get("/users/{user_id}", response_model=JSONObject)
 async def get_user(
     user_id: str,
     user: dict = Depends(require_admin),
@@ -57,7 +66,7 @@ async def get_user(
     return await service.get_user(user_id)
 
 
-@router.put("/users/{user_id}/role")
+@router.put("/users/{user_id}/role", response_model=JSONObject)
 async def update_user_role(
     user_id: str,
     body: UserRoleUpdate,
@@ -66,7 +75,7 @@ async def update_user_role(
     return await service.update_user_role(user_id, body.role)
 
 
-@router.post("/users/{user_id}/deactivate")
+@router.post("/users/{user_id}/deactivate", response_model=JSONObject)
 async def deactivate_user(
     user_id: str,
     user: dict = Depends(require_admin),
@@ -74,7 +83,7 @@ async def deactivate_user(
     return await service.deactivate_user(user_id)
 
 
-@router.post("/users/{user_id}/activate")
+@router.post("/users/{user_id}/activate", response_model=JSONObject)
 async def activate_user(
     user_id: str,
     user: dict = Depends(require_admin),
@@ -84,7 +93,7 @@ async def activate_user(
 
 # ── Applications ─────────────────────────────────────────────────────────
 
-@router.get("/applications")
+@router.get("/applications", response_model=JSONList)
 async def list_applications(
     status: str | None = Query(None),
     user: dict = Depends(require_admin),
@@ -111,7 +120,7 @@ async def reject_application(
 
 # ── Profile Override ─────────────────────────────────────────────────────
 
-@router.get("/profiles/{profile_id}")
+@router.get("/profiles/{profile_id}", response_model=JSONObject)
 async def get_profile(
     profile_id: str,
     user: dict = Depends(require_admin),
@@ -119,7 +128,7 @@ async def get_profile(
     return await service.get_profile_full(profile_id)
 
 
-@router.put("/profiles/{profile_id}/status")
+@router.put("/profiles/{profile_id}/status", response_model=JSONObject)
 async def update_profile_status(
     profile_id: str,
     body: ProfileStatusUpdate,
@@ -130,7 +139,7 @@ async def update_profile_status(
 
 # ── Conversation Oversight ───────────────────────────────────────────────
 
-@router.get("/conversations")
+@router.get("/conversations", response_model=JSONList)
 async def list_conversations(
     skip: int = Query(0),
     limit: int = Query(50),
@@ -140,7 +149,7 @@ async def list_conversations(
     return await service.list_all_conversations(skip, limit, status)
 
 
-@router.get("/conversations/{conversation_id}/messages")
+@router.get("/conversations/{conversation_id}/messages", response_model=JSONList)
 async def get_conversation_messages(
     conversation_id: str,
     skip: int = Query(0),
@@ -152,14 +161,14 @@ async def get_conversation_messages(
 
 # ── AI / LLM ────────────────────────────────────────────────────────────
 
-@router.get("/ai/providers")
+@router.get("/ai/providers", response_model=JSONList)
 async def get_ai_providers(
     user: dict = Depends(require_admin),
 ):
     return await service.get_providers()
 
 
-@router.post("/ai/providers/validate")
+@router.post("/ai/providers/validate", response_model=JSONObject)
 async def validate_ai_provider(
     body: ProviderValidateRequest,
     user: dict = Depends(require_admin),
@@ -167,7 +176,7 @@ async def validate_ai_provider(
     return await service.validate_provider(body.provider)
 
 
-@router.get("/ai/models")
+@router.get("/ai/models", response_model=JSONList)
 async def get_ai_models(
     provider: str | None = Query(None),
     user: dict = Depends(require_admin),
@@ -175,14 +184,14 @@ async def get_ai_models(
     return await service.get_models(provider)
 
 
-@router.get("/ai/settings")
+@router.get("/ai/settings", response_model=JSONObject)
 async def get_ai_settings(
     user: dict = Depends(require_admin),
 ):
     return await service.get_llm_settings()
 
 
-@router.put("/ai/settings")
+@router.put("/ai/settings", response_model=JSONObject)
 async def update_ai_settings(
     body: LLMSettingsUpdate,
     user: dict = Depends(require_admin),
@@ -190,14 +199,14 @@ async def update_ai_settings(
     return await service.update_llm_settings(body.model_dump(exclude_none=True))
 
 
-@router.get("/ai/prompts")
+@router.get("/ai/prompts", response_model=JSONList)
 async def list_prompts(
     user: dict = Depends(require_admin),
 ):
     return await service.list_prompts()
 
 
-@router.put("/ai/prompts/{intent}")
+@router.put("/ai/prompts/{intent}", response_model=JSONObject)
 async def update_prompt(
     intent: str,
     body: PromptUpdate,
@@ -206,7 +215,7 @@ async def update_prompt(
     return await service.update_prompt(intent, body.template)
 
 
-@router.get("/ai/documents")
+@router.get("/ai/documents", response_model=JSONList)
 async def list_documents(
     skip: int = Query(0),
     limit: int = Query(50),
@@ -215,7 +224,7 @@ async def list_documents(
     return await service.list_documents(skip, limit)
 
 
-@router.delete("/ai/documents/{doc_id}")
+@router.delete("/ai/documents/{doc_id}", response_model=DeletedResponse)
 async def delete_document(
     doc_id: str,
     user: dict = Depends(require_admin),
@@ -226,7 +235,7 @@ async def delete_document(
 
 # ── FAQ ──────────────────────────────────────────────────────────────────
 
-@router.get("/faqs")
+@router.get("/faqs", response_model=JSONList)
 async def list_faqs(
     active_only: bool = Query(False),
     user: dict = Depends(require_admin),
@@ -234,7 +243,12 @@ async def list_faqs(
     return await service.list_faqs(active_only)
 
 
-@router.post("/faqs")
+@router.post(
+    "/faqs",
+    response_model=JSONObject,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create FAQ",
+)
 async def create_faq(
     body: FAQCreate,
     user: dict = Depends(require_admin),
@@ -242,7 +256,7 @@ async def create_faq(
     return await service.create_faq(body.model_dump())
 
 
-@router.get("/faqs/{faq_id}")
+@router.get("/faqs/{faq_id}", response_model=JSONObject)
 async def get_faq(
     faq_id: str,
     user: dict = Depends(require_admin),
@@ -250,7 +264,7 @@ async def get_faq(
     return await service.get_faq(faq_id)
 
 
-@router.put("/faqs/{faq_id}")
+@router.put("/faqs/{faq_id}", response_model=JSONObject)
 async def update_faq(
     faq_id: str,
     body: FAQUpdate,
@@ -259,7 +273,7 @@ async def update_faq(
     return await service.update_faq(faq_id, body.model_dump(exclude_none=True))
 
 
-@router.delete("/faqs/{faq_id}")
+@router.delete("/faqs/{faq_id}", response_model=JSONObject)
 async def delete_faq(
     faq_id: str,
     user: dict = Depends(require_admin),

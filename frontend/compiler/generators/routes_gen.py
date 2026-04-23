@@ -208,6 +208,7 @@ export default function LoginPage() {{
         <CardDescription>Sign in to your account</CardDescription>
       </CardHeader>
       <CardContent>
+        {{/* AGENT_FILL:login_form:start */}}
         <form onSubmit={{handleSubmit}} className="space-y-4">
           {{error && (
             <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
@@ -238,6 +239,7 @@ export default function LoginPage() {{
             {{loading ? "Signing in..." : "Sign In"}}
           </Button>
         </form>
+        {{/* AGENT_FILL:login_form:end */}}
       </CardContent>
     </Card>
   );
@@ -295,6 +297,7 @@ export default function SignupPage() {{
         <CardDescription>Join {ir.marketplace.name}</CardDescription>
       </CardHeader>
       <CardContent>
+        {{/* AGENT_FILL:signup_form:start */}}
         <form onSubmit={{handleSubmit}} className="space-y-4">
           {{error && (
             <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
@@ -339,6 +342,7 @@ export default function SignupPage() {{
             {{loading ? "Creating account..." : "Create Account"}}
           </Button>
         </form>
+        {{/* AGENT_FILL:signup_form:end */}}
       </CardContent>
     </Card>
   );
@@ -378,6 +382,7 @@ def _dashboard_page(ir: FrontendIR) -> str:
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 export default function DashboardPage() {{
   return (
+    {{/* AGENT_FILL:dashboard_main:start */}}
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
@@ -400,6 +405,7 @@ export default function DashboardPage() {{
         </div>
       </div>
     </div>
+    {{/* AGENT_FILL:dashboard_main:end */}}
   );
 }}
 """
@@ -652,6 +658,7 @@ export default function ConversationDetailPage({{
         <p className="text-xs text-muted-foreground">Status: {{statusText}}</p>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
+        {{/* AGENT_FILL:conversation_messages:start */}}
         {{events.length === 0 ? (
           <p className="text-center text-muted-foreground">Messages will appear here.</p>
         ) : (
@@ -663,6 +670,7 @@ export default function ConversationDetailPage({{
             ))}}
           </div>
         )}}
+        {{/* AGENT_FILL:conversation_messages:end */}}
       </div>
       <div className="border-t p-4">
         {{(localError || socket.error) && (
@@ -702,6 +710,7 @@ import {{ Card, CardContent }} from "@/components/ui/card";
 
 export default function NotificationsPage() {{
   return (
+    {{/* AGENT_FILL:notifications_page:start */}}
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Notifications</h1>
@@ -715,6 +724,7 @@ export default function NotificationsPage() {{
         </CardContent>
       </Card>
     </div>
+    {{/* AGENT_FILL:notifications_page:end */}}
   );
 }}
 """
@@ -762,6 +772,7 @@ export default function AdminDashboardPage() {{
     : {{}};
 
   return (
+    {{/* AGENT_FILL:admin_dashboard_main:start */}}
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
@@ -806,6 +817,7 @@ export default function AdminDashboardPage() {{
         </Card>
       </div>
     </div>
+    {{/* AGENT_FILL:admin_dashboard_main:end */}}
   );
 }}
 """
@@ -984,6 +996,7 @@ export default function RegisterPage({{
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {{/* AGENT_FILL:register_form:start */}}
           <form onSubmit={{handleSubmit}} className="space-y-6">
             {{error && (
               <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
@@ -1063,6 +1076,7 @@ export default function RegisterPage({{
               {{loading ? "Submitting…" : "Submit Application"}}
             </Button>
           </form>
+          {{/* AGENT_FILL:register_form:end */}}
         </CardContent>
       </Card>
     </div>

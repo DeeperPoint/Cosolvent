@@ -111,7 +111,11 @@ def test_generated_role_alias_router_has_explicit_models(tmp_path: Path):
     router_text = (tmp_path / "app" / "generated" / "role_alias_router.py").read_text(encoding="utf-8")
 
     for role_slug in ("seller", "buyer"):
-        assert f'@router.post("/api/roles/{role_slug}/register", response_model=' in router_text
+        # Register is rendered as a multi-line decorator (response_model +
+        # status_code=201 + summary). Assert the important tokens are present.
+        assert f'"/api/roles/{role_slug}/register"' in router_text
+        assert "status_code=201" in router_text
+        assert f'summary="Register {role_slug} profile"' in router_text
         assert f'@router.get("/api/roles/{role_slug}/draft", response_model=' in router_text
         assert f'@router.put("/api/roles/{role_slug}/draft", response_model=' in router_text
         assert f'@router.post("/api/roles/{role_slug}/draft/submit", response_model=' in router_text

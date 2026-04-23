@@ -3,17 +3,23 @@ from __future__ import annotations
 import asyncio
 from typing import BinaryIO
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Request, UploadFile, status
 
 from app.core.config import settings
 from app.core.dependencies import get_config, get_current_user
 from app.core.marketplace_config import MarketplaceConfig
+from app.core.response_models import DetailResponse, JSONObject
 from app.modules.files import service
 
 router = APIRouter()
 
 
-@router.post("/upload")
+@router.post(
+    "/upload",
+    response_model=JSONObject,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload file",
+)
 async def upload_file(
     request: Request,
     file: UploadFile = File(...),
@@ -52,12 +58,12 @@ async def upload_file(
     )
 
 
-@router.get("/{file_id}")
+@router.get("/{file_id}", response_model=JSONObject)
 async def get_file(file_id: str = Path(...), user: dict = Depends(get_current_user)):
     return await service.get_file(file_id, user)
 
 
-@router.delete("/{file_id}")
+@router.delete("/{file_id}", response_model=DetailResponse)
 async def delete_file(file_id: str = Path(...), user: dict = Depends(get_current_user)):
     await service.delete_file(file_id, user)
     return {"detail": "Deleted"}

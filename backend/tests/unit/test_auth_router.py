@@ -48,21 +48,21 @@ def client_signup_disabled() -> TestClient:
 
 
 @pytest.mark.parametrize(
-    "path,payload,service_fn",
+    "path,payload,service_fn,expected_status",
     [
-        ("/api/auth/signup", {"email": "user@example.com", "password": "Password123!", "participant_type": "producer"}, "signup"),
-        ("/api/auth/login", {"email": "user@example.com", "password": "Password123!"}, "login"),
-        ("/api/auth/bootstrap", {"email": "admin@example.com", "password": "Password123!"}, "bootstrap_admin"),
+        ("/api/auth/signup", {"email": "user@example.com", "password": "Password123!", "participant_type": "producer"}, "signup", 201),
+        ("/api/auth/login", {"email": "user@example.com", "password": "Password123!"}, "login", 200),
+        ("/api/auth/bootstrap", {"email": "admin@example.com", "password": "Password123!"}, "bootstrap_admin", 200),
     ],
 )
-def test_auth_endpoints_hide_token_and_set_secure_cookie(client: TestClient, path: str, payload: dict, service_fn: str):
+def test_auth_endpoints_hide_token_and_set_secure_cookie(client: TestClient, path: str, payload: dict, service_fn: str, expected_status: int):
     with patch(
         f"app.modules.auth.router.service.{service_fn}",
         new=AsyncMock(return_value=_auth_result()),
     ):
         response = client.post(path, json=payload)
 
-    assert response.status_code == 200
+    assert response.status_code == expected_status
     assert "session_token" not in response.json()
 
     cookie = response.headers["set-cookie"]

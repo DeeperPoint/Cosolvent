@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 
 from app.core.dependencies import get_config, get_current_user, require_admin
 from app.core.marketplace_config import MarketplaceConfig
+from app.core.response_models import DetailResponse, JSONList, JSONObject
 from app.modules.ai import service
 from app.modules.ai.schemas import (
     DocumentUpload,
@@ -19,7 +20,7 @@ from app.modules.ai.schemas import (
 router = APIRouter()
 
 
-@router.post("/query")
+@router.post("/query", response_model=JSONObject)
 async def query(
     body: QueryRequest,
     user: dict = Depends(get_current_user),
@@ -28,7 +29,7 @@ async def query(
     return await service.query(user["_id"], body.query, body.thread_id, body.filters, config, use_case=body.use_case)
 
 
-@router.post("/follow-up")
+@router.post("/follow-up", response_model=JSONObject)
 async def follow_up(
     body: FollowUpRequest,
     config: MarketplaceConfig = Depends(get_config),
@@ -37,7 +38,12 @@ async def follow_up(
     return await service.follow_up(body.thread_id, config)
 
 
-@router.post("/documents")
+@router.post(
+    "/documents",
+    response_model=JSONObject,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload document",
+)
 async def upload_document(
     body: DocumentUpload,
     user: dict = Depends(require_admin),
@@ -45,7 +51,7 @@ async def upload_document(
     return await service.upload_document(body.filename, body.content, body.content_type)
 
 
-@router.get("/documents")
+@router.get("/documents", response_model=JSONList)
 async def list_documents(
     skip: int = Query(0),
     limit: int = Query(50),
@@ -54,13 +60,13 @@ async def list_documents(
     return await service.list_documents(skip, limit)
 
 
-@router.delete("/documents/{doc_id}")
+@router.delete("/documents/{doc_id}", response_model=DetailResponse)
 async def delete_document(doc_id: str, user: dict = Depends(require_admin)):
     await service.delete_document(doc_id)
     return {"detail": "Deleted"}
 
 
-@router.get("/models")
+@router.get("/models", response_model=JSONList)
 async def get_models(
     provider: str | None = Query(None),
     user: dict = Depends(require_admin),
@@ -68,12 +74,12 @@ async def get_models(
     return await service.get_models(provider)
 
 
-@router.get("/providers")
+@router.get("/providers", response_model=JSONList)
 async def get_providers(user: dict = Depends(require_admin)):
     return await service.get_providers()
 
 
-@router.post("/providers/validate")
+@router.post("/providers/validate", response_model=JSONObject)
 async def validate_provider(
     body: ProviderValidateRequest,
     user: dict = Depends(require_admin),
@@ -81,12 +87,12 @@ async def validate_provider(
     return await service.validate_provider(body.provider)
 
 
-@router.get("/settings")
+@router.get("/settings", response_model=JSONObject)
 async def get_settings(user: dict = Depends(require_admin)):
     return await service.get_llm_settings()
 
 
-@router.put("/settings")
+@router.put("/settings", response_model=JSONObject)
 async def update_settings(
     body: LLMSettingsUpdate,
     user: dict = Depends(require_admin),
@@ -94,12 +100,12 @@ async def update_settings(
     return await service.update_llm_settings(body.model_dump(exclude_none=True))
 
 
-@router.get("/prompts")
+@router.get("/prompts", response_model=JSONList)
 async def list_prompts(user: dict = Depends(require_admin)):
     return await service.list_prompts()
 
 
-@router.put("/prompts/{intent}")
+@router.put("/prompts/{intent}", response_model=JSONObject)
 async def update_prompt(
     intent: str,
     body: PromptUpdate,

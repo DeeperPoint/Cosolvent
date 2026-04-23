@@ -100,6 +100,7 @@ export function AppSidebar() {{
           {{marketplaceName}}
         </Link>
       </div>
+      {{/* AGENT_FILL:sidebar_nav:start */}}
       <nav className="space-y-1 p-3">
         {{visibleItems.map((item) => {{
           const Icon = item.icon;
@@ -123,6 +124,7 @@ export function AppSidebar() {{
           );
         }})}}
       </nav>
+      {{/* AGENT_FILL:sidebar_nav:end */}}
     </aside>
   );
 }}
@@ -153,6 +155,7 @@ export function Header() {{
   }}
 
   return (
+    {{/* AGENT_FILL:app_header:start */}}
     <header className="flex h-14 items-center justify-between border-b px-6">
       <div className="lg:hidden text-lg font-semibold">{ir.marketplace.name}</div>
       <div className="flex items-center gap-2 ml-auto">
@@ -161,6 +164,7 @@ export function Header() {{
         </Button>
       </div>
     </header>
+    {{/* AGENT_FILL:app_header:end */}}
   );
 }}
 """
@@ -413,6 +417,7 @@ export function ProfileForm() {{
   }}
 
   return (
+    {{/* AGENT_FILL:profile_form:start */}}
     <div className="space-y-4">
       {{sections.length > 1 && (
         <div className="flex gap-2 border-b">
@@ -456,6 +461,7 @@ export function ProfileForm() {{
         <Button>Submit Profile</Button>
       </div>
     </div>
+    {{/* AGENT_FILL:profile_form:end */}}
   );
 }}
 """
