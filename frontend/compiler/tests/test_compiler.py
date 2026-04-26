@@ -724,7 +724,10 @@ class TestMergeTransform:
         ir = _build_test_ir()
         labels = {item.label for item in ir.navigation.items}
         assert "Dashboard" in labels
-        assert "Search" in labels
+        # Search label is now derived from ``discovery.searchable_types`` —
+        # e.g. seller-only → "Search Sellers". Match by prefix so the test
+        # doesn't break if the discoverable types change.
+        assert any(label.startswith("Search") for label in labels)
         assert "My Profile" in labels
 
     def test_spec_hash_is_stable(self):
@@ -864,6 +867,8 @@ class TestF1PageStubs:
             "src/app/page.tsx",
             # Role-router that redirects to /dashboard/{supply,demand} or /admin
             "src/app/(dashboard)/dashboard/page.tsx",
+            # Lightweight account page — fully deterministic, no agent fill
+            "src/app/(dashboard)/account/page.tsx",
         }
 
         missing: list[str] = []

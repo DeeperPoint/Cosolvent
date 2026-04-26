@@ -107,3 +107,24 @@ def _auth_response(user: dict, token: str) -> dict:
 def _is_unique_violation(exc: IntegrityError, constraint_name: str) -> bool:
     message = str(getattr(exc, "orig", exc))
     return constraint_name in message
+
+
+async def change_password(user: dict, current_password: str, new_password: str) -> None:
+    """Update the caller's password.
+
+    Verifies ``current_password`` against the stored hash, then writes a new
+    bcrypt hash. Raises ``UnauthorizedError`` if the current password is wrong;
+    raises ``ValueError`` for invalid new passwords (caller maps to 422).
+    """
+    if not verify_password(current_password, user.get("password_hash")):
+        raise UnauthorizedError("Current password is incorrect")
+    if not new_password or len(new_password) < 8:
+        raise ValueError("New password must be at least 8 characters")
+    if new_password == current_password:
+        raise ValueError("New password must differ from the current one")
+
+    from app.core.database import get_collection
+    await get_collection("users").update_one(
+        {"_id": user["_id"]},
+        {"$set": {"password_hash": hash_password(new_password)}},
+    )

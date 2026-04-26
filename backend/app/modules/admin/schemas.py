@@ -13,6 +13,12 @@ class ApplicationDecisionResponse(BaseModel):
     status: Literal["approved", "rejected"]
     profile_id: str | None = None
     feedback: str | None = None
+    # Public-application approve flow generates a one-shot password for the
+    # new account. Returned here so the admin UI can show it (since email
+    # delivery depends on Resend domain verification) and logged on the
+    # backend for fallback access via ``docker compose logs api``.
+    applicant_email: str | None = None
+    temporary_password: str | None = None
 
 
 class UserRoleUpdate(BaseModel):

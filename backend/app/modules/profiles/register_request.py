@@ -10,6 +10,10 @@ from app.core.config import settings
 from app.core.exceptions import AppError
 
 MAX_REGISTER_UPLOAD_FILES = 10
+# Total bytes a single registration submission may carry across all uploaded
+# files. Per-file limit (``settings.files_max_upload_bytes``) still applies;
+# this is the *aggregate* cap so a producer can't upload e.g. ten 9 MB images.
+MAX_REGISTER_UPLOAD_TOTAL_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 async def _extract_file_parts_from_form(form) -> list[tuple[str, str, bytes]]:

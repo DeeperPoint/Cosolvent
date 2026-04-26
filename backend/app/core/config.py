@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     s3_bucket: str = "cosolvent-files"
     s3_region: str = "us-east-1"
     s3_endpoint_url: str | None = None
+    # Browser-facing URL for the same S3-compatible store. The internal
+    # endpoint (e.g. ``http://s3:9000`` inside docker-compose) is unreachable
+    # from a user's browser; ``s3_public_url`` is used when emitting URLs
+    # the frontend renders ("View" links, profile photo src, etc.).
+    # Defaults to ``s3_endpoint_url`` when unset (single-host setups).
+    s3_public_url: str | None = None
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     files_max_upload_bytes: int = 26_214_400

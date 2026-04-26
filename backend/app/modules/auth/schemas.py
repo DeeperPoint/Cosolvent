@@ -33,3 +33,8 @@ class UserResponse(BaseModel):
     participant_type: str | None = None
     role: str
     has_onboarded: bool
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str

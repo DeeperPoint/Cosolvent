@@ -23,7 +23,10 @@ from app.modules.files import repository as files_repo
 from app.modules.files import service as files_service
 from app.modules.profiles.ai_generation import generate_profile_content
 from app.modules.profiles import repository as repo
-from app.modules.profiles.register_request import MAX_REGISTER_UPLOAD_FILES
+from app.modules.profiles.register_request import (
+    MAX_REGISTER_UPLOAD_FILES,
+    MAX_REGISTER_UPLOAD_TOTAL_BYTES,
+)
 
 logger = logging.getLogger("cosolvent")
 
@@ -91,6 +94,15 @@ async def submit_application_without_account(
         raise AppError(
             f"At most {MAX_REGISTER_UPLOAD_FILES} files may be attached to an application",
             status_code=422,
+        )
+    total_bytes = sum(len(raw) for _, _, raw in uploads)
+    if total_bytes > MAX_REGISTER_UPLOAD_TOTAL_BYTES:
+        cap_mb = MAX_REGISTER_UPLOAD_TOTAL_BYTES // (1024 * 1024)
+        used_mb = total_bytes / (1024 * 1024)
+        raise AppError(
+            f"Total upload size {used_mb:.1f} MB exceeds the {cap_mb} MB cap "
+            f"for a registration submission",
+            status_code=413,
         )
 
     try:
@@ -371,7 +383,25 @@ async def approve_application(app_id: str, feedback: str = "") -> dict:
         await _queue_welcome_email_with_password(email, config.marketplace.name, plaintext)
         pid = str(profile["_id"])
         await files_repo.reassign_application_files_to_profile(app_id, uid, pid)
-        return {"status": "approved", "profile_id": pid}
+
+        # Log + surface the generated credentials in the approve response.
+        # The admin needs them when Resend can't deliver to arbitrary
+        # recipients (sandbox mode without a verified domain). Logging at
+        # WARNING level is intentional so the line stands out in
+        # ``docker compose logs api``; the response carries the same data
+        # so the admin UI can render a one-time credentials panel.
+        logger.warning(
+            "Application %s approved — applicant credentials generated. "
+            "email=%s temporary_password=%s (welcome email queued; deliver-or-fail "
+            "depends on Resend account state)",
+            app_id, email, plaintext,
+        )
+        return {
+            "status": "approved",
+            "profile_id": pid,
+            "applicant_email": email,
+            "temporary_password": plaintext,
+        }
 
     # Logged-in flow: user and draft already existed at submission time.
     if isinstance(submitted_fields, dict):
@@ -610,3 +640,30 @@ async def _ensure_password_and_notify_approval(
         {"$set": {"password_hash": hash_password(plaintext)}},
     )
     await _queue_welcome_email_with_password(email, marketplace_name, plaintext)
+
+
+async def list_public_files_for_profile(profile_id: str) -> list[dict]:
+    """Return the public files attached to a profile, with browser-resolvable URLs.
+
+    Used by the buyer-facing profile detail page and as a thumbnail source
+    for the search cards. Filters out private files at the boundary.
+    """
+    rows = await files_repo.list_files_for_profile(profile_id)
+    public: list[dict] = []
+    for doc in rows:
+        if str(doc.get("privacy", "public")) != "public":
+            continue
+        try:
+            url = await files_service._resolve_file_url(doc, "public")  # noqa: SLF001
+        except Exception:
+            url = doc.get("url")
+        public.append({
+            "id": str(doc.get("_id")),
+            "filename": doc.get("filename"),
+            "size_bytes": doc.get("size_bytes"),
+            "content_type": doc.get("content_type"),
+            "category": doc.get("category"),
+            "created_at": doc.get("created_at"),
+            "url": url,
+        })
+    return public

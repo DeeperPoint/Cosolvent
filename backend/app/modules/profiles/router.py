@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Path, Request, status
 from app.core.dependencies import get_config, get_current_user, get_optional_user, require_admin
 from app.core.exceptions import AppError, ForbiddenError, UnauthorizedError
 from app.core.marketplace_config import MarketplaceConfig
-from app.core.response_models import JSONObject
+from app.core.response_models import JSONList, JSONObject
 from app.modules.auth.signup_policy import public_application_allowed
 from app.modules.profiles import service
 from app.modules.profiles.register_helpers import ensure_role_matches_route
@@ -111,6 +111,25 @@ async def get_profile(
 ):
     _validate_type(type_slug, config)
     return await service.get_profile(profile_id, type_slug, config, user)
+
+
+@router.get(
+    "/{type_slug}/{profile_id}/files",
+    response_model=JSONList,
+    summary="List public files attached to a participant profile",
+)
+async def list_profile_files(
+    type_slug: str = Path(...),
+    profile_id: str = Path(...),
+    user: dict | None = Depends(get_optional_user),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Public files attached to ``profile_id``. Anonymous viewers see only
+    public-privacy files; authenticated viewers see the same set (private
+    files require explicit owner / admin access via the files module).
+    """
+    _validate_type(type_slug, config)
+    return await service.list_public_files_for_profile(profile_id)
 
 
 @router.put("/{type_slug}/{profile_id}", response_model=ProfileResponse)

@@ -6,6 +6,8 @@ from app.core.exceptions import NotFoundError
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.admin import repository as repo
 from app.modules.ai import service as ai_service
+from app.modules.files import repository as files_repo
+from app.modules.files import service as files_service
 from app.modules.profiles import repository as profiles_repo
 from app.modules.profiles import service as profiles_service
 
@@ -44,6 +46,53 @@ async def reject_application(
     app_id: str, feedback: str | None = None
 ) -> dict[str, Any]:
     return await profiles_service.reject_application(app_id, feedback or "")
+
+
+async def list_application_files(app_id: str) -> list[dict]:
+    """List uploaded files attached to a pending or approved application.
+
+    For pending applications the link is ``application_id``; once an admin
+    approves, files are reassigned to the new ``profile_id``. We surface
+    both so the admin sees the same file regardless of where it sits in
+    the lifecycle.
+    """
+    by_app = await files_repo.list_files_for_application(app_id)
+    application = await profiles_repo.get_application(app_id)
+    by_profile: list[dict] = []
+    if application and application.get("status") == "approved":
+        # ``approve_application`` stores the resulting profile id on the
+        # application as ``user_id`` (the resulting account); the matching
+        # profile id is what the file points to. Look it up by user.
+        user_id = application.get("user_id")
+        if user_id:
+            cursor = files_repo.get_collection("files").find({"user_id": user_id})
+            by_profile = await cursor.to_list(length=200)
+
+    seen_ids: set[str] = set()
+    merged: list[dict] = []
+    for doc in (*by_app, *by_profile):
+        fid = str(doc.get("_id"))
+        if fid in seen_ids:
+            continue
+        seen_ids.add(fid)
+        # Resolve a downloadable URL even for private files (presigned).
+        try:
+            url = await files_service._resolve_file_url(  # noqa: SLF001
+                doc, doc.get("privacy", "public")
+            )
+        except Exception:
+            url = doc.get("url")
+        merged.append({
+            "id": fid,
+            "filename": doc.get("filename"),
+            "size_bytes": doc.get("size_bytes"),
+            "content_type": doc.get("content_type"),
+            "category": doc.get("category"),
+            "privacy": doc.get("privacy"),
+            "created_at": doc.get("created_at"),
+            "url": url,
+        })
+    return merged
 
 
 # ── Config Summary ───────────────────────────────────────────────────────

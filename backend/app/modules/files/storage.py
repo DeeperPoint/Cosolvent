@@ -27,6 +27,11 @@ class UploadedObject:
 
 
 def _get_client():
+    """Client for backend-side operations (uploads, deletes, listings).
+
+    Uses the *internal* endpoint so backend ↔ MinIO traffic stays inside the
+    docker network.
+    """
     kwargs = {
         "service_name": "s3",
         "region_name": settings.s3_region,
@@ -35,6 +40,27 @@ def _get_client():
     }
     if settings.s3_endpoint_url:
         kwargs["endpoint_url"] = settings.s3_endpoint_url
+    return boto3.client(**kwargs)
+
+
+def _get_public_client():
+    """Client for generating browser-facing URLs (e.g. presigned GETs).
+
+    Points at ``S3_PUBLIC_URL`` (defaulting to ``S3_ENDPOINT_URL``) so the
+    URLs it produces resolve from the user's browser, not from inside the
+    container network. Credentials are the same; SigV4 signs the path +
+    canonical headers, MinIO accepts the signature when the public host
+    receives the request.
+    """
+    public_endpoint = settings.s3_public_url or settings.s3_endpoint_url
+    kwargs = {
+        "service_name": "s3",
+        "region_name": settings.s3_region,
+        "aws_access_key_id": settings.aws_access_key_id,
+        "aws_secret_access_key": settings.aws_secret_access_key,
+    }
+    if public_endpoint:
+        kwargs["endpoint_url"] = public_endpoint
     return boto3.client(**kwargs)
 
 
@@ -60,26 +86,38 @@ def is_safe_upload_key(key: str) -> bool:
     return True
 
 
+def _browser_facing_endpoint() -> str | None:
+    """Resolve the URL the browser should use to reach the S3-compatible store.
+
+    Prefers ``S3_PUBLIC_URL`` (e.g. ``http://localhost:19000`` for docker-compose
+    MinIO). Falls back to ``S3_ENDPOINT_URL`` for single-host setups where the
+    backend and the browser see the same hostname.
+    """
+    public = settings.s3_public_url or settings.s3_endpoint_url
+    return public.rstrip("/") if public else None
+
+
 def public_url_for_key(key: str) -> str:
-    if settings.s3_endpoint_url:
-        # Handle local MinIO style URLs
-        base = settings.s3_endpoint_url.rstrip("/")
-        # In docker-compose, internal endpoint is http://s3:9000
-        # Externally it might be http://localhost:19000
-        # If the endpoint contains 'localhost' or '127.0.0.1' or the s3 service name, 
-        # we might need to be smart, but for now let's just use the endpoint as provided.
-        # Often for local dev we want the URL to be accessible by the browser (localhost).
+    base = _browser_facing_endpoint()
+    if base:
         return f"{base}/{settings.s3_bucket}/{quote(key, safe='/')}"
     return f"https://{settings.s3_bucket}.s3.{settings.s3_region}.amazonaws.com/{quote(key, safe='/')}"
 
 
 def extract_upload_key_from_url(url: str) -> str | None:
+    """Reverse of ``public_url_for_key`` — accepts either the internal or
+    public endpoint, so URLs stored in the DB before ``S3_PUBLIC_URL`` was
+    introduced still parse cleanly during deletes/cleanup.
+    """
     parsed = urlparse(url)
-    if settings.s3_endpoint_url:
-        endpoint_parsed = urlparse(settings.s3_endpoint_url)
-        if parsed.netloc != endpoint_parsed.netloc:
+    accepted_hosts: set[str] = set()
+    for endpoint in (settings.s3_endpoint_url, settings.s3_public_url):
+        if endpoint:
+            accepted_hosts.add(urlparse(endpoint).netloc)
+
+    if accepted_hosts:
+        if parsed.netloc not in accepted_hosts:
             return None
-        # URL is likely {endpoint}/{bucket}/{key}
         path = parsed.path.lstrip("/")
         if not path.startswith(f"{settings.s3_bucket}/"):
             return None
@@ -136,7 +174,10 @@ async def delete_file(*, s3_key: str | None = None, url: str | None = None) -> N
 
 
 def _generate_presigned_get_url(key: str, expires_seconds: int) -> str:
-    client = _get_client()
+    # Sign against the browser-facing endpoint so the URL resolves from
+    # the user's machine. Signing against ``s3:9000`` (internal docker
+    # hostname) yields a presigned URL the browser cannot reach.
+    client = _get_public_client()
     return client.generate_presigned_url(
         "get_object",
         Params={"Bucket": settings.s3_bucket, "Key": key},

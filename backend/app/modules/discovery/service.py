@@ -11,6 +11,8 @@ from app.core.marketplace_config import MarketplaceConfig
 from app.engine.permission_engine import check_permission, has_completed_required_onboarding
 from app.engine.visibility_engine import ViewerTier, filter_fields_for_discovery
 from app.modules.discovery import repository as repo
+from app.modules.files import repository as files_repo
+from app.modules.files import service as files_service
 from app.modules.discovery.vector_service import (
     count_profile_vectors_strict,
     search_profile_vectors_strict,
@@ -60,15 +62,40 @@ async def search(
         if not schema:
             continue
         filtered_fields = filter_fields_for_discovery(config, schema, doc.get("fields", {}), viewer_tier)
+        thumbnail_url = await _first_image_url(str(doc["id"]))
         serialized.append({
             "id": str(doc["id"]),
             "participant_type": doc["participant_type"],
             "fields": filtered_fields,
             "score": doc.get("score"),
             "ai_profile": doc.get("ai_profile") if viewer_tier == "owner" else None,
+            "image_url": thumbnail_url,
         })
 
     return {"results": serialized, "total": total, "page": page, "page_size": page_size}
+
+
+async def _first_image_url(profile_id: str) -> str | None:
+    """Pick the first public image attached to a profile so search cards can
+    render a thumbnail. Falls back to None when no public images exist —
+    the frontend renders a coloured initials avatar in that case.
+    """
+    try:
+        rows = await files_repo.list_files_for_profile(profile_id)
+    except Exception:
+        return None
+    for doc in rows:
+        if str(doc.get("privacy", "public")) != "public":
+            continue
+        ctype = str(doc.get("content_type") or "")
+        if not ctype.startswith("image/"):
+            continue
+        try:
+            return await files_service._resolve_file_url(doc, "public")  # noqa: SLF001
+        except Exception:
+            url = doc.get("url")
+            return str(url) if url else None
+    return None
 
 
 def _resolve_discovery_viewer_tier(config: MarketplaceConfig, viewer: dict[str, Any] | None) -> ViewerTier:

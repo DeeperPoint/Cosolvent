@@ -135,15 +135,13 @@ def _register_routers(application: FastAPI) -> None:
         from app.generated.role_alias_router import router as generated_role_router
 
         application.include_router(generated_role_router)
-        _hide_generic_profile_routes_from_docs(application)
         logger.info("Loaded generated role aliases from %s", generated_alias_path)
-
-
-def _hide_generic_profile_routes_from_docs(application: FastAPI) -> None:
-    for route in application.routes:
-        if isinstance(route, APIRoute) and route.path.startswith("/api/profiles/{type_slug}"):
-            route.include_in_schema = False
-    application.openapi_schema = None
+        # NOTE: Generic ``/api/profiles/{type_slug}/...`` routes used to be
+        # hidden from the schema once role aliases were registered, which made
+        # for a tidier /docs but stripped the schema of the operations the
+        # frontend compiler depends on (``getDraft``, ``getMyProfile``,
+        # ``updateProfile``, …). Both shapes now appear in OpenAPI; pick
+        # whichever fits your client.
 
 
 app = create_app()

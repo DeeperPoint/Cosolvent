@@ -199,8 +199,8 @@ def derive_pages(
     pages.append(
         PageIR(
             id="profile-detail",
-            route="/profiles/[id]",
-            file_path="src/app/(dashboard)/profiles/[id]/page.tsx",
+            route="/profiles/[type]/[id]",
+            file_path="src/app/(dashboard)/profiles/[type]/[id]/page.tsx",
             title="Profile",
             kind="detail",
             entity_slug=None,

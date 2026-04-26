@@ -76,7 +76,7 @@ def build_frontend_ir(
     )
 
     pages = derive_pages(entities, operations, auth, discovery)
-    navigation = derive_navigation(entities, operations, pages)
+    navigation = derive_navigation(entities, operations, pages, discovery)
 
     return FrontendIR(
         marketplace=identity,

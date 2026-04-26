@@ -118,6 +118,15 @@ async def reject_application(
     return await service.reject_application(app_id, body.feedback)
 
 
+@router.get("/applications/{app_id}/files", response_model=JSONList)
+async def list_application_files(
+    app_id: str,
+    user: dict = Depends(require_admin),
+):
+    """Return every file uploaded with a pending application — for admin review."""
+    return await service.list_application_files(app_id)
+
+
 # ── Profile Override ─────────────────────────────────────────────────────
 
 @router.get("/profiles/{profile_id}", response_model=JSONObject)

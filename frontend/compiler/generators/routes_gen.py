@@ -59,7 +59,7 @@ def emit_routes(ir: FrontendIR) -> dict[str, str]:
     if "search" in page_ids:
         files["src/app/(dashboard)/search/page.tsx"] = _search_page(ir)
 
-    files["src/app/(dashboard)/profiles/[id]/page.tsx"] = _profile_detail_page(ir)
+    files["src/app/(dashboard)/profiles/[type]/[id]/page.tsx"] = _profile_detail_page(ir)
 
     if "conversations" in page_ids:
         files["src/app/(dashboard)/conversations/page.tsx"] = _conversations_page(ir)
@@ -109,6 +109,8 @@ def emit_routes(ir: FrontendIR) -> dict[str, str]:
 
     if "register" in page_ids:
         files["src/app/register/[type]/page.tsx"] = _register_page(ir)
+
+    files["src/app/(dashboard)/account/page.tsx"] = _account_page(ir)
 
     files["src/lib/providers.tsx"] = _providers(ir)
     files["src/middleware.ts"] = _middleware_ts(ir)
@@ -698,20 +700,7 @@ export default function {role.capitalize()}DashboardPage() {{
         </div>
       </div>
       {{/* AGENT_FILL:{marker_id}:start */}}
-      <div className="flex flex-wrap gap-3 text-sm">
-        <Link href="/profile/edit" className="text-primary underline">
-          Edit profile
-        </Link>
-        <Link href="/conversations" className="text-primary underline">
-          Messages
-        </Link>
-        <Link href="/search" className="text-primary underline">
-          Search
-        </Link>
-        <Link href="/notifications" className="text-primary underline">
-          Notifications
-        </Link>
-      </div>
+      {{/* Quick-link strip removed — those routes live in the sidebar. */}}
       {{/* AGENT_FILL:{marker_id}:end */}}
     </div>
   );
@@ -857,14 +846,25 @@ export default function ProfileEditPage() {{
 
 
 def _profile_detail_page(ir: FrontendIR) -> str:
+    """Public profile detail at ``/profiles/[type]/[id]``.
+
+    Backend exposes ``GET /api/profiles/{type_slug}/{profile_id}`` (it does
+    NOT have a single-segment ``/api/profiles/{id}`` endpoint), so the
+    route here mirrors that shape: the participant type comes from the
+    URL and is required for the fetch.
+    """
     return f"""\
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
-import {{ use }} from "react";
-import {{ useQuery }} from "@tanstack/react-query";
+import {{ use, useCallback, useRef }} from "react";
+import Link from "next/link";
 import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
-import {{ apiFetch, ApiError }} from "@/generated/api/client";
+import {{ Button }} from "@/components/ui/button";
+import {{ Badge }} from "@/components/ui/badge";
+import {{ ArrowLeft, ChevronLeft, ChevronRight, FileText, MessageSquare }} from "lucide-react";
+import {{ useProfile, useListProfileFiles }} from "@/generated/hooks/use-profiles";
+import {{ useCreateConversation }} from "@/generated/hooks/use-communication";
 
 interface ProfileDetail {{
   _id?: string;
@@ -874,58 +874,257 @@ interface ProfileDetail {{
   fields?: Record<string, unknown>;
 }}
 
+interface ProfileFile {{
+  id: string;
+  filename?: string;
+  size_bytes?: number;
+  content_type?: string;
+  category?: string;
+  url?: string;
+}}
+
+function isImageFile(f: ProfileFile): boolean {{
+  return typeof f.content_type === "string" && f.content_type.startsWith("image/");
+}}
+
+function formatBytes(n?: number): string {{
+  if (typeof n !== "number" || n <= 0) return "—";
+  if (n < 1024) return `${{n}} B`;
+  if (n < 1024 * 1024) return `${{Math.round(n / 1024)}} KB`;
+  return `${{(n / (1024 * 1024)).toFixed(1)}} MB`;
+}}
+
+function renderFieldValue(value: unknown): string {{
+  if (value === null || value === undefined) return "—";
+  if (Array.isArray(value)) return value.map((v) => String(v)).join(", ");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}}
+
+function pickHeadline(d: ProfileDetail | undefined): string {{
+  const f = d?.fields ?? {{}};
+  for (const k of ["farm_name", "company_name", "org_name", "name", "title", "display_name"]) {{
+    const v = (f as Record<string, unknown>)[k];
+    if (typeof v === "string" && v) return v;
+  }}
+  return d?.email ?? "Profile";
+}}
+
 export default function ProfileDetailPage({{
   params,
 }}: {{
-  params: Promise<{{ id: string }}>
+  params: Promise<{{ type: string; id: string }}>
 }}) {{
-  const {{ id }} = use(params);
-  const {{ data, isLoading, error }} = useQuery<ProfileDetail, ApiError>({{
-    queryKey: ["profiles", id],
-    queryFn: () => apiFetch<ProfileDetail>(`/api/profiles/${{encodeURIComponent(id)}}`),
-    enabled: !!id,
-  }});
+  const {{ type, id }} = use(params);
+  const profile = useProfile(type, id);
+  const filesQuery = useListProfileFiles(type, id);
+  const createConversation = useCreateConversation();
+
+  const files: ProfileFile[] = Array.isArray(filesQuery.data)
+    ? (filesQuery.data as unknown as ProfileFile[])
+    : [];
+  const images = files.filter(isImageFile);
+  const documents = files.filter((f) => !isImageFile(f));
+
+  const galleryRef = useRef<HTMLDivElement | null>(null);
+  const scrollByCard = useCallback((direction: 1 | -1) => {{
+    const el = galleryRef.current;
+    if (!el) return;
+    // Scroll by ~85% of the visible width so the next card snaps into focus
+    // without leaving a half-clipped slide on the leading edge.
+    el.scrollBy({{ left: direction * el.clientWidth * 0.85, behavior: "smooth" }});
+  }}, []);
+
+  const data = (profile.data && typeof profile.data === "object")
+    ? (profile.data as ProfileDetail)
+    : undefined;
+
+  const fields = data?.fields ?? {{}};
+  const fieldEntries = Object.entries(fields).filter(([, v]) => v !== null && v !== undefined && v !== "");
+  const headline = pickHeadline(data);
+  const initials = headline.slice(0, 2).toUpperCase();
 
   return (
     <>
       {{/* AGENT_FILL:profile_detail:start */}}
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">
-            {{data?.email ?? "Profile"}}
-          </h1>
-          <p className="text-muted-foreground">
-            {{data?.participant_type ? `${{data.participant_type}} · ` : ""}}
-            ID: {{id}}
-          </p>
-        </div>
-        <Card>
-          <CardHeader>
-            <CardTitle>Profile Information</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {{isLoading ? (
-              <p className="text-muted-foreground">Loading profile…</p>
-            ) : error ? (
-              <p className="text-sm text-destructive">{{error.message}}</p>
-            ) : data?.fields && Object.keys(data.fields).length > 0 ? (
-              <dl className="grid gap-3 sm:grid-cols-2">
-                {{Object.entries(data.fields).map(([key, value]) => (
-                  <div key={{key}} className="rounded-md border p-3">
-                    <dt className="text-xs uppercase text-muted-foreground">{{key}}</dt>
-                    <dd className="mt-1 text-sm">
-                      {{typeof value === "object"
-                        ? JSON.stringify(value)
-                        : String(value ?? "—")}}
-                    </dd>
+        <Link href="/search" className="inline-flex items-center text-sm text-primary hover:underline">
+          <ArrowLeft className="mr-1 h-4 w-4" /> Back to search
+        </Link>
+
+        {{profile.isLoading ? (
+          <Card>
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              Loading profile…
+            </CardContent>
+          </Card>
+        ) : profile.error ? (
+          <Card className="border-destructive/30 bg-destructive/10">
+            <CardContent className="pt-6 text-sm text-destructive">
+              {{profile.error.message}}
+            </CardContent>
+          </Card>
+        ) : !data ? (
+          <Card>
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              Profile not found.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <Card className="animate-fade-in-up">
+              <CardHeader>
+                <div className="flex items-start gap-4">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xl font-semibold text-primary">
+                    {{initials || "··"}}
                   </div>
-                ))}}
-              </dl>
-            ) : (
-              <p className="text-muted-foreground">No public details available.</p>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h1 className="truncate text-3xl font-bold tracking-tight">{{headline}}</h1>
+                      <Badge variant="outline" className="capitalize">
+                        {{data.participant_type ?? type}}
+                      </Badge>
+                    </div>
+                    {{data.email && (
+                      <p className="text-sm text-muted-foreground">{{data.email}}</p>
+                    )}}
+                  </div>
+                  <Button
+                    onClick={{() => createConversation.mutate({{
+                      recipient_id: String(data._id ?? data.id ?? id),
+                    }} as Parameters<typeof createConversation.mutate>[0])}}
+                    disabled={{createConversation.isPending}}
+                  >
+                    <MessageSquare className="mr-2 h-4 w-4" />
+                    {{createConversation.isPending ? "Starting…" : "Start conversation"}}
+                  </Button>
+                </div>
+              </CardHeader>
+            </Card>
+
+            {{images.length > 0 && (
+              <Card className="animate-fade-in-up overflow-hidden" style={{{{ animationDelay: "30ms" }}}}>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                  <CardTitle>Photos ({{images.length}})</CardTitle>
+                  {{images.length > 1 && (
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label="Previous photo"
+                        onClick={{() => scrollByCard(-1)}}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label="Next photo"
+                        onClick={{() => scrollByCard(1)}}
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}}
+                </CardHeader>
+                <CardContent>
+                  {{/* Wide, snap-scrolling carousel. Each slide is ~80% of the
+                      container so a hint of the next slide is visible — that
+                      cue (plus the buttons + native horizontal scroll/swipe)
+                      makes the slider obviously slide-able. */}}
+                  <div
+                    ref={{galleryRef}}
+                    className="-mx-2 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth px-2 pb-2"
+                    style={{{{ scrollbarWidth: "thin" }}}}
+                  >
+                    {{images.map((img) => (
+                      <a
+                        key={{img.id}}
+                        href={{img.url}}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="group relative block w-[80%] sm:w-[60%] lg:w-[45%] shrink-0 snap-start overflow-hidden rounded-lg border bg-muted"
+                      >
+                        {{/* eslint-disable-next-line @next/next/no-img-element */}}
+                        <img
+                          src={{img.url}}
+                          alt={{img.filename ?? "Profile photo"}}
+                          loading="lazy"
+                          className="aspect-[16/9] w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                        />
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-3 opacity-0 transition-opacity group-hover:opacity-100">
+                          <p className="truncate text-sm font-medium text-white">
+                            {{img.filename ?? "Open"}}
+                          </p>
+                        </div>
+                      </a>
+                    ))}}
+                  </div>
+                </CardContent>
+              </Card>
             )}}
-          </CardContent>
-        </Card>
+
+            <Card className="animate-fade-in-up" style={{{{ animationDelay: "60ms" }}}}>
+              <CardHeader>
+                <CardTitle>Profile information</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {{fieldEntries.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No public details available.</p>
+                ) : (
+                  <dl className="grid gap-4 sm:grid-cols-2">
+                    {{fieldEntries.map(([key, value]) => (
+                      <div key={{key}} className="rounded-md border bg-muted/40 p-3">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          {{key.replace(/_/g, " ")}}
+                        </dt>
+                        <dd className="mt-1 break-words text-sm">{{renderFieldValue(value)}}</dd>
+                      </div>
+                    ))}}
+                  </dl>
+                )}}
+              </CardContent>
+            </Card>
+
+            {{documents.length > 0 && (
+              <Card className="animate-fade-in-up" style={{{{ animationDelay: "90ms" }}}}>
+                <CardHeader>
+                  <CardTitle>Documents ({{documents.length}})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="divide-y rounded-md border">
+                    {{documents.map((doc) => (
+                      <li key={{doc.id}} className="flex items-center justify-between gap-3 p-3">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{{doc.filename ?? "Document"}}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {{formatBytes(doc.size_bytes)}}
+                              {{doc.content_type ? ` · ${{doc.content_type}}` : ""}}
+                            </p>
+                          </div>
+                        </div>
+                        {{doc.url && (
+                          <a
+                            href={{doc.url}}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center justify-center rounded-md border px-3 py-1 text-sm hover:bg-muted"
+                          >
+                            View
+                          </a>
+                        )}}
+                      </li>
+                    ))}}
+                  </ul>
+                </CardContent>
+              </Card>
+            )}}
+          </>
+        )}}
       </div>
       {{/* AGENT_FILL:profile_detail:end */}}
     </>
@@ -938,19 +1137,21 @@ export default function ProfileDetailPage({{
 
 
 def _search_page(ir: FrontendIR) -> str:
-    searchable = ", ".join(
-        slug_to_pascal(s) + "s" for s in ir.discovery.searchable_types
-    )
+    searchable = " & ".join(
+        _pluralize_for_search(s, ir) for s in ir.discovery.searchable_types
+    ) or "candidates"
     return f"""\
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
-import {{ useState }} from "react";
+import {{ useEffect, useMemo, useState }} from "react";
 import Link from "next/link";
 import {{ Button }} from "@/components/ui/button";
 import {{ Input }} from "@/components/ui/input";
-import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
-import {{ SearchFilters }} from "@/components/shared/search-filters";
+import {{ Badge }} from "@/components/ui/badge";
+import {{ Card, CardContent, CardFooter, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ Skeleton }} from "@/components/ui/skeleton";
+import {{ ArrowRight, MapPin, Search as SearchIcon, Sparkles }} from "lucide-react";
 import {{ useSearch }} from "@/generated/hooks/use-discovery";
 
 interface SearchHit {{
@@ -960,89 +1161,299 @@ interface SearchHit {{
   email?: string;
   score?: number;
   fields?: Record<string, unknown>;
+  image_url?: string | null;
+}}
+
+const PAGE_SIZE = 24;
+
+function asString(v: unknown): string {{
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return "";
+}}
+
+function asArray(v: unknown): string[] {{
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => asString(x)).filter(Boolean);
+}}
+
+function pickHeadline(hit: SearchHit): string {{
+  const f = hit.fields ?? {{}};
+  for (const key of [
+    "farm_name", "company_name", "org_name", "name",
+    "title", "display_name", "business_name",
+  ]) {{
+    const v = asString((f as Record<string, unknown>)[key]);
+    if (v) return v;
+  }}
+  return hit.email ?? hit.participant_type ?? "Profile";
+}}
+
+function pickLocation(hit: SearchHit): string {{
+  const f = hit.fields ?? {{}};
+  const country = asString((f as Record<string, unknown>).country);
+  const region = asString((f as Record<string, unknown>).region);
+  return [region, country].filter(Boolean).join(", ");
+}}
+
+function pickDescription(hit: SearchHit): string {{
+  const f = hit.fields ?? {{}};
+  for (const key of ["description", "bio", "summary", "about"]) {{
+    const v = asString((f as Record<string, unknown>)[key]);
+    if (v) return v;
+  }}
+  return "";
+}}
+
+function pickTags(hit: SearchHit): string[] {{
+  const f = hit.fields ?? {{}};
+  const tags: string[] = [];
+  for (const key of ["primary_crops", "categories", "tags", "specialties", "certifications"]) {{
+    const arr = asArray((f as Record<string, unknown>)[key]);
+    for (const item of arr) tags.push(item);
+    if (tags.length >= 6) break;
+  }}
+  return tags.slice(0, 6);
 }}
 
 export default function SearchPage() {{
   const [query, setQuery] = useState("");
-  const search = useSearch();
   const [hits, setHits] = useState<SearchHit[]>([]);
+  const [total, setTotal] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const search = useSearch();
 
-  async function handleSubmit(e: React.FormEvent) {{
-    e.preventDefault();
+  async function runSearch(q: string) {{
     setError(null);
     try {{
       const data = await search.mutateAsync({{
-        query,
-      }} as Parameters<typeof search.mutateAsync>[0]);
-      const list =
-        data && typeof data === "object" && Array.isArray((data as {{ results?: unknown }}).results)
-          ? ((data as {{ results: unknown[] }}).results as SearchHit[])
-          : [];
+        query: q || null,
+        page: 1,
+        page_size: PAGE_SIZE,
+      }} as unknown as Parameters<typeof search.mutateAsync>[0]);
+      const obj = data && typeof data === "object" ? (data as Record<string, unknown>) : {{}};
+      const list = Array.isArray(obj.results) ? (obj.results as SearchHit[]) : [];
       setHits(list);
+      setTotal(typeof obj.total === "number" ? obj.total : list.length);
     }} catch (err: unknown) {{
       setError(err instanceof Error ? err.message : "Search failed");
       setHits([]);
+      setTotal(0);
+    }} finally {{
+      setHasLoaded(true);
     }}
   }}
+
+  // Auto-load every candidate on mount so admins/buyers see the full
+  // marketplace immediately. Subsequent typed queries narrow this set.
+  useEffect(() => {{
+    runSearch("");
+    // Empty deps — fire once on mount; user-initiated searches reuse runSearch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }}, []);
+
+  function handleSubmit(e: React.FormEvent) {{
+    e.preventDefault();
+    runSearch(query);
+  }}
+
+  function clearQuery() {{
+    setQuery("");
+    runSearch("");
+  }}
+
+  const showSkeletons = search.isPending && !hasLoaded;
+  const totalLabel = useMemo(() => {{
+    if (showSkeletons) return "Loading…";
+    if (search.isPending) return "Refreshing…";
+    if (total === 0) return "No matches";
+    return `${{total}} ${{total === 1 ? "match" : "matches"}}`;
+  }}, [showSkeletons, search.isPending, total]);
 
   return (
     <>
       {{/* AGENT_FILL:search_page:start */}}
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Search</h1>
-          <p className="text-muted-foreground">Find {searchable}</p>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Discover {searchable}</h1>
+            <p className="text-muted-foreground">
+              Browse the full directory or search by name, location, or specialty.
+            </p>
+          </div>
+          <Badge variant="secondary" className="text-sm">
+            {{totalLabel}}
+          </Badge>
         </div>
-        <form onSubmit={{handleSubmit}} className="flex gap-4">
-          <Input
-            placeholder="Search..."
-            value={{query}}
-            onChange={{(e) => setQuery(e.target.value)}}
-            className="max-w-md"
-          />
+
+        <form onSubmit={{handleSubmit}} className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[16rem] max-w-xl">
+            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, location, or specialty…"
+              value={{query}}
+              onChange={{(e) => setQuery(e.target.value)}}
+              className="pl-9"
+            />
+          </div>
           <Button type="submit" disabled={{search.isPending}}>
             {{search.isPending ? "Searching…" : "Search"}}
           </Button>
+          {{query && (
+            <Button type="button" variant="ghost" onClick={{clearQuery}}>
+              Clear
+            </Button>
+          )}}
         </form>
-        <SearchFilters />
+
         {{error && (
-          <p className="text-sm text-destructive">{{error}}</p>
+          <Card className="border-destructive/30 bg-destructive/10">
+            <CardContent className="pt-6 text-sm text-destructive">{{error}}</CardContent>
+          </Card>
         )}}
-        {{hits.length === 0 ? (
+
+        {{showSkeletons ? (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {{Array.from({{ length: 6 }}).map((_, i) => (
+              <Card key={{i}} className="animate-fade-in-up" style={{{{ animationDelay: `${{i * 60}}ms` }}}}>
+                <CardHeader className="space-y-2">
+                  <Skeleton className="h-5 w-2/3" />
+                  <Skeleton className="h-3 w-1/2" />
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-4/5" />
+                  <div className="flex gap-2 pt-2">
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                    <Skeleton className="h-5 w-12 rounded-full" />
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Skeleton className="h-9 w-32" />
+                </CardFooter>
+              </Card>
+            ))}}
+          </div>
+        ) : hits.length === 0 ? (
           <Card>
-            <CardContent className="pt-6">
-              <p className="text-center text-muted-foreground">
-                {{search.isPending
-                  ? "Searching…"
-                  : "Enter a query to find matches."}}
+            <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+              <SearchIcon className="h-10 w-10 text-muted-foreground" />
+              <p className="font-medium">
+                {{query ? `No matches for “${{query}}”` : "No candidates yet"}}
               </p>
+              <p className="max-w-md text-sm text-muted-foreground">
+                {{query
+                  ? "Try a broader query, or clear the search to browse everyone."
+                  : "Once profiles are approved they will appear here automatically."}}
+              </p>
+              {{query && (
+                <Button variant="outline" onClick={{clearQuery}}>
+                  Clear search
+                </Button>
+              )}}
             </CardContent>
           </Card>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {{hits.map((hit, idx) => {{
               const profileId = hit.id ?? hit.profile_id ?? String(idx);
+              const detailHref = hit.participant_type
+                ? `/profiles/${{encodeURIComponent(hit.participant_type)}}/${{encodeURIComponent(profileId)}}`
+                : `/profiles/${{encodeURIComponent(profileId)}}`;
+              const headline = pickHeadline(hit);
+              const location = pickLocation(hit);
+              const description = pickDescription(hit);
+              const tags = pickTags(hit);
+              const initials = headline.slice(0, 2).toUpperCase();
               return (
-                <Card key={{profileId}}>
-                  <CardHeader>
-                    <CardTitle className="text-base">
-                      {{hit.email ?? hit.participant_type ?? "Result"}}
-                    </CardTitle>
+                <Card
+                  key={{profileId}}
+                  className="group flex flex-col overflow-hidden animate-fade-in-up transition-all duration-200 ease-out-soft hover:-translate-y-0.5 hover:shadow-md"
+                  style={{{{ animationDelay: `${{Math.min(idx, 8) * 50}}ms` }}}}
+                >
+                  {{hit.image_url ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={{hit.image_url}}
+                      alt={{headline}}
+                      loading="lazy"
+                      className="aspect-[16/9] w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                    />
+                  ) : (
+                    <div className="aspect-[16/9] w-full bg-gradient-to-br from-primary/15 via-primary/5 to-accent/15 flex items-center justify-center">
+                      <span className="text-3xl font-semibold text-primary">
+                        {{initials || "··"}}
+                      </span>
+                    </div>
+                  )}}
+                  <CardHeader className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-base font-semibold text-primary">
+                        {{hit.image_url ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={{hit.image_url}}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          initials || "··"
+                        )}}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <CardTitle className="truncate text-base">{{headline}}</CardTitle>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          {{hit.participant_type && (
+                            <Badge variant="outline" className="capitalize">
+                              {{hit.participant_type}}
+                            </Badge>
+                          )}}
+                          {{location && (
+                            <span className="inline-flex items-center gap-1">
+                              <MapPin className="h-3 w-3" />
+                              <span className="truncate">{{location}}</span>
+                            </span>
+                          )}}
+                        </div>
+                      </div>
+                    </div>
                   </CardHeader>
-                  <CardContent className="space-y-2 text-sm">
-                    {{typeof hit.score === "number" && (
-                      <p className="text-xs text-muted-foreground">
-                        Score: {{hit.score.toFixed(3)}}
+                  <CardContent className="flex-1 space-y-3">
+                    {{description ? (
+                      <p className="line-clamp-3 text-sm text-muted-foreground">
+                        {{description}}
+                      </p>
+                    ) : (
+                      <p className="text-sm italic text-muted-foreground/70">
+                        No description provided.
                       </p>
                     )}}
-                    <Link
-                      href={{`/profiles/${{encodeURIComponent(profileId)}}`}}
-                      className="text-xs font-medium text-primary underline"
-                    >
-                      View profile →
-                    </Link>
+                    {{tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {{tags.map((t) => (
+                          <Badge key={{t}} variant="secondary" className="font-normal">
+                            {{t}}
+                          </Badge>
+                        ))}}
+                      </div>
+                    )}}
+                    {{typeof hit.score === "number" && hit.score > 0 && (
+                      <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        <Sparkles className="h-3 w-3" />
+                        relevance {{Math.round(hit.score * 100)}}%
+                      </p>
+                    )}}
                   </CardContent>
+                  <CardFooter className="border-t pt-3">
+                    <Button asChild size="sm" className="ml-auto">
+                      <Link href={{detailHref}}>
+                        Go to detail
+                        <ArrowRight className="ml-1 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                      </Link>
+                    </Button>
+                  </CardFooter>
                 </Card>
               );
             }})}}
@@ -1054,6 +1465,19 @@ export default function SearchPage() {{
   );
 }}
 """
+
+
+def _pluralize_for_search(slug: str, ir: FrontendIR) -> str:
+    """Resolve a participant slug to a pluralised display name for the search header."""
+    name = next((e.name for e in ir.entities if e.slug == slug), slug.replace("_", " ").title())
+    lower = name.lower()
+    if lower.endswith("s"):
+        return name
+    if lower.endswith("y") and not lower.endswith(("ay", "ey", "iy", "oy", "uy")):
+        return name[:-1] + "ies"
+    if lower.endswith(("ch", "sh", "x", "z")):
+        return name + "es"
+    return name + "s"
 
 
 # ── Conversation pages ────────────────────────────────────────────────
@@ -1819,7 +2243,7 @@ def _register_page(ir: FrontendIR) -> str:
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
-import {{ use, useState }} from "react";
+import {{ use, useMemo, useState }} from "react";
 import {{ Card, CardContent, CardHeader, CardTitle, CardDescription }} from "@/components/ui/card";
 import {{ Button }} from "@/components/ui/button";
 import {{ Input }} from "@/components/ui/input";
@@ -1874,6 +2298,43 @@ export default function RegisterPage({{
   const sections = getSectionsForType(slug);
   const uploadRequired = needsUploadForType(slug);
 
+  // Mirror of the backend cap: ``MAX_REGISTER_UPLOAD_TOTAL_BYTES``.
+  // Frontend preflight + live meter so the producer knows when they're at
+  // the limit; backend repeats the check defensively.
+  const MAX_TOTAL_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+  const fileFieldNames = useMemo(
+    () => new Set(
+      sections
+        .flatMap((s) => s.fields)
+        .filter((f) => f.type === "file" || f.type === "files")
+        .map((f) => f.name),
+    ),
+    [sections],
+  );
+
+  const collectedFiles: File[] = useMemo(() => {{
+    const out: File[] = [];
+    for (const [key, val] of Object.entries(fields)) {{
+      if (!fileFieldNames.has(key)) continue;
+      if (val instanceof File) out.push(val);
+      else if (Array.isArray(val)) {{
+        for (const item of val) if (item instanceof File) out.push(item);
+      }}
+    }}
+    if (file) out.push(file);
+    return out;
+  }}, [fields, file, fileFieldNames]);
+
+  const totalUploadBytes = useMemo(
+    () => collectedFiles.reduce((s, f) => s + (f.size || 0), 0),
+    [collectedFiles],
+  );
+  const overCap = totalUploadBytes > MAX_TOTAL_UPLOAD_BYTES;
+  const usedMb = totalUploadBytes / (1024 * 1024);
+  const capMb = MAX_TOTAL_UPLOAD_BYTES / (1024 * 1024);
+  const usedPct = Math.min(100, (totalUploadBytes / MAX_TOTAL_UPLOAD_BYTES) * 100);
+
   function handleFieldChange(name: string, value: unknown) {{
     setFields((prev) => ({{ ...prev, [name]: value }}));
   }}
@@ -1890,19 +2351,56 @@ export default function RegisterPage({{
       setError("Unknown participant type");
       return;
     }}
-    if (uploadRequired && !file) {{
+
+    // Schema-typed file fields live in `fields` state but can't be JSON
+    // serialised. Split them out so they're appended as multipart file parts
+    // and the JSON payload stays clean.
+    const fileFieldNames = new Set(
+      sections
+        .flatMap((s) => s.fields)
+        .filter((f) => f.type === "file" || f.type === "files")
+        .map((f) => f.name),
+    );
+    const jsonFields: Record<string, unknown> = {{}};
+    const filesToUpload: File[] = [];
+    for (const [key, val] of Object.entries(fields)) {{
+      if (fileFieldNames.has(key)) {{
+        if (val instanceof File) {{
+          filesToUpload.push(val);
+        }} else if (Array.isArray(val)) {{
+          for (const item of val) {{
+            if (item instanceof File) filesToUpload.push(item);
+          }}
+        }}
+        continue;
+      }}
+      jsonFields[key] = val;
+    }}
+
+    if (uploadRequired && !file && filesToUpload.length === 0) {{
       setError("At least one onboarding document is required for this role");
       return;
     }}
+    if (totalUploadBytes > MAX_TOTAL_UPLOAD_BYTES) {{
+      setError(
+        `Total upload size ${{usedMb.toFixed(1)}} MB exceeds the ${{capMb}} MB cap. ` +
+          `Remove some files before submitting.`,
+      );
+      return;
+    }}
+
     setLoading(true);
     try {{
       const url = `${{API_BASE}}/api/profiles/${{encodeURIComponent(slug)}}/register`;
       /** Registration page submits anonymous applications; always send multipart. */
       const fd = new FormData();
       fd.append("email", email.trim());
-      fd.append("fields", JSON.stringify(fields));
+      fd.append("fields", JSON.stringify(jsonFields));
       if (file) {{
         fd.append("file", file, file.name || "onboarding-upload");
+      }}
+      for (const f of filesToUpload) {{
+        fd.append("files", f, f.name || "onboarding-upload");
       }}
       const res = await fetch(url, {{ method: "POST", body: fd }});
       const text = await res.text();
@@ -2017,7 +2515,41 @@ export default function RegisterPage({{
               </div>
             )}}
 
-            <Button type="submit" className="w-full" disabled={{loading || sections.length === 0}}>
+            {{collectedFiles.length > 0 && (
+              <div
+                className={{`space-y-1 rounded-md border p-3 text-xs ${{
+                  overCap
+                    ? "border-destructive/40 bg-destructive/10 text-destructive"
+                    : "border-border bg-muted/40 text-muted-foreground"
+                }}`}}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">
+                    Uploads: {{collectedFiles.length}} file{{collectedFiles.length === 1 ? "" : "s"}}
+                  </span>
+                  <span>
+                    {{usedMb.toFixed(1)}} MB / {{capMb}} MB
+                  </span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-background">
+                  <div
+                    className={{`h-full transition-all ${{overCap ? "bg-destructive" : "bg-primary"}}`}}
+                    style={{{{ width: `${{usedPct}}%` }}}}
+                  />
+                </div>
+                {{overCap && (
+                  <p className="pt-1">
+                    Total exceeds {{capMb}} MB. Remove a file or replace it with a smaller version.
+                  </p>
+                )}}
+              </div>
+            )}}
+
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={{loading || sections.length === 0 || overCap}}
+            >
               {{loading ? "Submitting…" : "Submit Application"}}
             </Button>
           </form>
@@ -3348,9 +3880,20 @@ import {{ Button }} from "@/components/ui/button";
 import {{ Badge }} from "@/components/ui/badge";
 import {{
   useApproveApplication,
+  useListApplicationFiles,
   useListApplications,
   useRejectApplication,
 }} from "@/generated/hooks/use-admin";
+
+interface ApplicationFile {{
+  id: string;
+  filename: string;
+  size_bytes?: number;
+  content_type?: string;
+  category?: string;
+  url?: string;
+  created_at?: string;
+}}
 
 interface ApplicationDetail {{
   _id?: string;
@@ -3389,6 +3932,7 @@ export default function AdminApplicationDetailPage({{
   const applications = useListApplications();
   const approve = useApproveApplication();
   const reject = useRejectApplication();
+  const filesQuery = useListApplicationFiles(id);
   const [feedback, setFeedback] = useState("");
 
   const application = useMemo<ApplicationDetail | null>(() => {{
@@ -3399,6 +3943,19 @@ export default function AdminApplicationDetailPage({{
       ) ?? null
     );
   }}, [applications.data, id]);
+
+  const uploadedFiles: ApplicationFile[] = useMemo(() => {{
+    return Array.isArray(filesQuery.data)
+      ? (filesQuery.data as unknown as ApplicationFile[])
+      : [];
+  }}, [filesQuery.data]);
+
+  function formatBytes(n?: number): string {{
+    if (typeof n !== "number" || n <= 0) return "—";
+    if (n < 1024) return `${{n}} B`;
+    if (n < 1024 * 1024) return `${{Math.round(n / 1024)}} KB`;
+    return `${{(n / (1024 * 1024)).toFixed(1)}} MB`;
+  }}
 
   if (applications.isLoading && !application) {{
     return <p className="text-sm text-muted-foreground">Loading application…</p>;
@@ -3432,6 +3989,16 @@ export default function AdminApplicationDetailPage({{
   const fieldEntries = Object.entries(application.submitted_fields ?? {{}});
   const isPending = application.status === "pending";
 
+  // After a successful approve, the backend returns a one-shot
+  // ``temporary_password`` so the admin can read it out (Resend can't deliver
+  // to arbitrary recipients in sandbox). Surface it as a prominent banner.
+  const approveResult = approve.data as
+    | {{ applicant_email?: string; temporary_password?: string; status?: string }}
+    | undefined;
+  const hasGeneratedCredentials = Boolean(
+    approveResult?.temporary_password && approveResult?.applicant_email,
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
@@ -3439,6 +4006,57 @@ export default function AdminApplicationDetailPage({{
           ← Back to applications
         </Link>
       </div>
+
+      {{hasGeneratedCredentials && (
+        <Card className="animate-fade-in-up border-emerald-500/40 bg-emerald-500/5">
+          <CardHeader>
+            <CardTitle className="text-emerald-700 dark:text-emerald-300">
+              ✅ Application approved — credentials generated
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <p className="text-muted-foreground">
+              A welcome email was queued, but if delivery fails you can share
+              these credentials with the applicant directly. They appear once;
+              copy them now.
+            </p>
+            <dl className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-md border bg-background p-3">
+                <dt className="text-xs uppercase text-muted-foreground">Email</dt>
+                <dd className="mt-1 font-mono text-sm">{{approveResult?.applicant_email}}</dd>
+              </div>
+              <div className="rounded-md border bg-background p-3">
+                <dt className="text-xs uppercase text-muted-foreground">Temporary password</dt>
+                <dd className="mt-1 break-all font-mono text-sm">
+                  {{approveResult?.temporary_password}}
+                </dd>
+              </div>
+            </dl>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={{() => {{
+                  if (typeof navigator !== "undefined" && navigator.clipboard) {{
+                    navigator.clipboard.writeText(
+                      `${{approveResult?.applicant_email}} / ${{approveResult?.temporary_password}}`,
+                    );
+                  }}
+                }}}}
+              >
+                Copy email / password
+              </Button>
+              <Button size="sm" variant="ghost" onClick={{() => approve.reset()}}>
+                Dismiss
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Backed up at WARNING level in the API logs:
+              <code className="ml-1">docker compose logs api</code>
+            </p>
+          </CardContent>
+        </Card>
+      )}}
 
       <Card className="animate-fade-in-up">
         <CardHeader className="space-y-2">
@@ -3483,6 +4101,55 @@ export default function AdminApplicationDetailPage({{
                 </div>
               ))}}
             </dl>
+          )}}
+        </CardContent>
+      </Card>
+
+      <Card className="animate-fade-in-up" style={{{{ animationDelay: "90ms" }}}}>
+        <CardHeader>
+          <CardTitle>
+            Uploaded documents
+            {{!filesQuery.isLoading && (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                ({{uploadedFiles.length}})
+              </span>
+            )}}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {{filesQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading files…</p>
+          ) : filesQuery.error ? (
+            <p className="text-sm text-destructive">{{filesQuery.error.message}}</p>
+          ) : uploadedFiles.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              No files uploaded with this application.
+            </p>
+          ) : (
+            <ul className="divide-y rounded-md border">
+              {{uploadedFiles.map((doc) => (
+                <li key={{doc.id}} className="flex items-center justify-between gap-3 p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">📎 {{doc.filename}}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {{formatBytes(doc.size_bytes)}}
+                      {{doc.content_type ? ` · ${{doc.content_type}}` : ""}}
+                      {{doc.category ? ` · ${{doc.category}}` : ""}}
+                    </p>
+                  </div>
+                  {{doc.url && (
+                    <a
+                      href={{doc.url}}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center justify-center rounded-md border px-3 py-1 text-sm hover:bg-muted"
+                    >
+                      View
+                    </a>
+                  )}}
+                </li>
+              ))}}
+            </ul>
           )}}
         </CardContent>
       </Card>
@@ -3543,6 +4210,181 @@ export default function AdminApplicationDetailPage({{
           </CardContent>
         </Card>
       )}}
+    </div>
+  );
+}}
+"""
+
+
+def _account_page(ir: FrontendIR) -> str:
+    """Lightweight account page: email display + change-password form.
+
+    Used primarily by admins (no participant profile to onboard). The route
+    is also reachable by participants if they prefer not to navigate via
+    ``/profile``, but the sidebar only surfaces it for admin users.
+    """
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ useState }} from "react";
+import {{ Card, CardContent, CardDescription, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ Button }} from "@/components/ui/button";
+import {{ Input }} from "@/components/ui/input";
+import {{ Label }} from "@/components/ui/label";
+import {{ Badge }} from "@/components/ui/badge";
+import {{ useAuth }} from "@/generated/hooks/use-current-user";
+import {{ useChangePassword }} from "@/generated/hooks/use-auth";
+
+export default function AccountPage() {{
+  const {{ user, isLoading: authLoading }} = useAuth();
+  const changePassword = useChangePassword();
+
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  function clearForm() {{
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+  }}
+
+  async function handleSubmit(event: React.FormEvent) {{
+    event.preventDefault();
+    setStatusMessage(null);
+    setErrorMessage(null);
+
+    if (!currentPassword) {{
+      setErrorMessage("Enter your current password.");
+      return;
+    }}
+    if (newPassword.length < 8) {{
+      setErrorMessage("New password must be at least 8 characters.");
+      return;
+    }}
+    if (newPassword !== confirmPassword) {{
+      setErrorMessage("New password and confirmation don't match.");
+      return;
+    }}
+    if (newPassword === currentPassword) {{
+      setErrorMessage("New password must differ from the current one.");
+      return;
+    }}
+
+    try {{
+      await changePassword.mutateAsync({{
+        current_password: currentPassword,
+        new_password: newPassword,
+      }} as Parameters<typeof changePassword.mutateAsync>[0]);
+      setStatusMessage("Password updated. Use the new password next time you sign in.");
+      clearForm();
+    }} catch (err) {{
+      const message = err instanceof Error ? err.message : "Failed to change password.";
+      setErrorMessage(message);
+    }}
+  }}
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Account</h1>
+        <p className="text-muted-foreground">Manage the credentials for your {ir.marketplace.name} account.</p>
+      </div>
+
+      <Card className="animate-fade-in-up">
+        <CardHeader>
+          <CardTitle>Account details</CardTitle>
+          <CardDescription>Read-only — change-password is below.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {{authLoading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : user ? (
+            <dl className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <dt className="text-xs uppercase text-muted-foreground">Email</dt>
+                <dd className="mt-1 break-words text-sm font-medium">{{user.email}}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase text-muted-foreground">Role</dt>
+                <dd className="mt-1">
+                  <Badge variant={{user.role === "admin" ? "default" : "secondary"}}>
+                    {{user.role}}
+                  </Badge>
+                </dd>
+              </div>
+            </dl>
+          ) : (
+            <p className="text-sm text-muted-foreground">Not signed in.</p>
+          )}}
+        </CardContent>
+      </Card>
+
+      <Card className="animate-fade-in-up" style={{{{ animationDelay: "60ms" }}}}>
+        <CardHeader>
+          <CardTitle>Change password</CardTitle>
+          <CardDescription>Use at least 8 characters. The new password must differ from the current one.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={{handleSubmit}} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="current-password">Current password</Label>
+              <Input
+                id="current-password"
+                type="password"
+                autoComplete="current-password"
+                value={{currentPassword}}
+                onChange={{(e) => setCurrentPassword(e.target.value)}}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-password">New password</Label>
+              <Input
+                id="new-password"
+                type="password"
+                autoComplete="new-password"
+                value={{newPassword}}
+                onChange={{(e) => setNewPassword(e.target.value)}}
+                required
+                minLength={{8}}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password">Confirm new password</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                value={{confirmPassword}}
+                onChange={{(e) => setConfirmPassword(e.target.value)}}
+                required
+                minLength={{8}}
+              />
+            </div>
+
+            {{errorMessage && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {{errorMessage}}
+              </div>
+            )}}
+            {{statusMessage && (
+              <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-800 dark:text-emerald-200">
+                {{statusMessage}}
+              </div>
+            )}}
+
+            <div className="flex justify-end">
+              <Button type="submit" disabled={{changePassword.isPending}}>
+                {{changePassword.isPending ? "Updating…" : "Update password"}}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }}

@@ -97,8 +97,8 @@ _PAGE_INTENTS: tuple[tuple[str, str, str], ...] = (
      "Edit own profile. Use <ProfileForm> wired to useCurrentProfile + useUpdateMyProfile. Group fields by section using <Card>; sticky footer with Save + Discard buttons."),
     ("src/app/(dashboard)/profile/", "profile-view",
      "Own profile view. Header card: avatar, display name, role badge, completeness progress, Edit Profile primary CTA. Sections rendered as Cards; use FieldRenderer for individual fields."),
-    ("src/app/(dashboard)/profiles/[id]/", "profile-detail",
-     "Public profile detail. Hero card (avatar, name, role badge, location), 'Start conversation' primary CTA when permitted, then sections of public/protected fields rendered with <FieldRenderer>. Hide private/internal fields entirely."),
+    ("src/app/(dashboard)/profiles/[type]/[id]/", "profile-detail",
+     "Public profile detail. Hero card (avatar, name, role badge, location), 'Start conversation' primary CTA when permitted, then sections of public/protected fields rendered with <FieldRenderer>. Hide private/internal fields entirely. Route segments are participant_type + profile_id; backend endpoint is /api/profiles/{type}/{id}."),
     ("src/app/(dashboard)/search/", "search",
      "Discovery / search. Top: search Input with submit button + filter chips for marketplace.discovery.filter_fields. Results: responsive grid of <ProfileCard>. Empty state with helpful suggestion."),
     ("src/components/layouts/app-sidebar.", "sidebar-nav",
@@ -359,8 +359,9 @@ _PAGE_OPERATION_RULES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     ("src/app/(dashboard)/profile/", (
         ("GET", "/api/profiles/{type_slug}/me"),
     )),
-    ("src/app/(dashboard)/profiles/[id]/", (
+    ("src/app/(dashboard)/profiles/[type]/[id]/", (
         ("GET", "/api/profiles/{type_slug}/{profile_id}"),
+        ("GET", "/api/profiles/{type_slug}/{profile_id}/files"),
         ("POST", "/api/conversations"),
     )),
     ("src/app/(dashboard)/conversations/[id]/", (
@@ -407,6 +408,7 @@ _PAGE_OPERATION_RULES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     )),
     ("src/app/(dashboard)/admin/applications/[id]/", (
         ("GET", "/api/admin/applications"),
+        ("GET", "/api/admin/applications/{app_id}/files"),
         ("POST", "/api/admin/applications/{app_id}/approve"),
         ("POST", "/api/admin/applications/{app_id}/reject"),
     )),

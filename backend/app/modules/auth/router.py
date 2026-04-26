@@ -12,6 +12,7 @@ from app.modules.auth.signup_policy import public_signup_allowed
 from app.modules.auth.schemas import (
     AuthResponse,
     BootstrapRequest,
+    ChangePasswordRequest,
     LoginRequest,
     SignupRequest,
     UserResponse,
@@ -80,3 +81,20 @@ async def bootstrap(body: BootstrapRequest, response: Response):
     result = await service.bootstrap_admin(body.email, body.password)
     set_session_cookie(response, result["session_token"])
     return _public_auth_response(result)
+
+
+@router.post(
+    "/change-password",
+    response_model=_DetailResponse,
+    summary="Change the current user's password",
+)
+async def change_password(
+    body: ChangePasswordRequest,
+    user: dict = Depends(get_current_user),
+):
+    from app.core.exceptions import AppError
+    try:
+        await service.change_password(user, body.current_password, body.new_password)
+    except ValueError as exc:
+        raise AppError(str(exc), status_code=422)
+    return {"detail": "Password updated"}

@@ -324,7 +324,47 @@ export function FieldRenderer({{ field, value, onChange }}: FieldRendererProps) 
       );
 
     case "file":
-    case "files":
+    case "files": {{
+      const isMulti = field.type === "files";
+      const fileValue = value as File | File[] | null | undefined;
+      const fileList: File[] = Array.isArray(fileValue)
+        ? fileValue
+        : fileValue instanceof File
+        ? [fileValue]
+        : [];
+
+      // Multi-file fields ACCUMULATE picks: each new selection is merged with
+      // existing files (deduped by name+size+lastModified). The native
+      // ``<input type=file multiple>`` replaces selection on each open, which
+      // surprises users who pick a few files now and want to add more later.
+      // Single-file fields keep replace semantics.
+      function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {{
+        const picked = e.target.files ? Array.from(e.target.files) : [];
+        if (!isMulti) {{
+          onChange(field.name, picked[0] ?? null);
+          e.target.value = "";
+          return;
+        }}
+        const dedupKey = (f: File) => `${{f.name}}|${{f.size}}|${{f.lastModified}}`;
+        const seen = new Set(fileList.map(dedupKey));
+        const merged = [...fileList];
+        for (const f of picked) {{
+          if (!seen.has(dedupKey(f))) merged.push(f);
+        }}
+        onChange(field.name, merged);
+        // Reset the picker so re-selecting the same file fires onChange again.
+        e.target.value = "";
+      }}
+
+      function removeAt(idx: number) {{
+        if (!isMulti) {{
+          onChange(field.name, null);
+          return;
+        }}
+        const next = fileList.filter((_, i) => i !== idx);
+        onChange(field.name, next);
+      }}
+
       return (
         <div className="space-y-2">
           <Label htmlFor={{id}}>
@@ -334,11 +374,37 @@ export function FieldRenderer({{ field, value, onChange }}: FieldRendererProps) 
           <Input
             id={{id}}
             type="file"
-            multiple={{field.type === "files"}}
-            onChange={{() => {{}}}}
+            multiple={{isMulti}}
+            onChange={{handleFilePick}}
           />
+          {{fileList.length > 0 && (
+            <ul className="space-y-1 rounded-md border bg-muted/30 p-2 text-xs">
+              {{fileList.map((f, idx) => (
+                <li
+                  key={{`${{f.name}}-${{f.size}}-${{idx}}`}}
+                  className="flex items-center justify-between gap-2"
+                >
+                  <span className="flex-1 truncate text-muted-foreground">
+                    📎 {{f.name}}
+                  </span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {{Math.round(f.size / 1024)}} KB
+                  </span>
+                  <button
+                    type="button"
+                    onClick={{() => removeAt(idx)}}
+                    className="shrink-0 rounded px-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    aria-label={{`Remove ${{f.name}}`}}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}}
+            </ul>
+          )}}
         </div>
       );
+    }}
 
     default:
       return (
@@ -655,7 +721,7 @@ interface ProfileCardProps {{
 
 export function ProfileCard({{ id, name, type, fields }}: ProfileCardProps) {{
   return (
-    <Link href={{`/profiles/${{id}}`}}>
+    <Link href={{`/profiles/${{encodeURIComponent(type)}}/${{encodeURIComponent(id)}}`}}>
       <Card className="transition-shadow hover:shadow-md">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
