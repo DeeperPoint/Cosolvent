@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 console = Console()
@@ -15,7 +16,7 @@ def run_generate_frontend(
     output_dir: str = "frontend",
     clean: bool = False,
     agent_fill: bool = False,
-    agent_model: str = "anthropic/claude-3.5-sonnet",
+    agent_model: str = "anthropic/claude-sonnet-4",
     agent_timeout_seconds: int = 120,
     verify_build: bool = False,
     check: bool = False,
@@ -64,11 +65,11 @@ def run_generate_frontend(
     table.add_column("File", style="white")
 
     for f in result.get("generated", []):
-        table.add_row("written", f)
+        table.add_row("written", escape(f))
     for f in result.get("skipped", []):
-        table.add_row("skipped", f)
+        table.add_row("skipped", escape(f))
     for f in result.get("removed", []):
-        table.add_row("removed", f)
+        table.add_row("removed", escape(f))
 
     console.print(table)
     console.print(

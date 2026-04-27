@@ -54,6 +54,21 @@ def derive_pages(
             )
         )
 
+    bootstrap_ops = _find_op_ids(operations, module="auth", kind_prefix="bootstrap")
+    if bootstrap_ops:
+        pages.append(
+            PageIR(
+                id="bootstrap",
+                route="/bootstrap",
+                file_path="src/app/(auth)/bootstrap/page.tsx",
+                title="First-time Setup",
+                kind="form",
+                entity_slug=None,
+                operation_ids=bootstrap_ops,
+                layout="auth",
+            )
+        )
+
     # ── Dashboard ─────────────────────────────────────────────────
     pages.append(
         PageIR(
@@ -67,7 +82,8 @@ def derive_pages(
             layout="dashboard",
         )
     )
-    if any(op.module == "admin" for op in operations):
+    admin_ops = [op for op in operations if op.module == "admin"]
+    if admin_ops:
         pages.append(
             PageIR(
                 id="admin-dashboard",
@@ -77,9 +93,80 @@ def derive_pages(
                 kind="dashboard",
                 entity_slug=None,
                 operation_ids=_find_op_ids(operations, module="admin"),
-                layout="dashboard",
+                layout="admin",
             )
         )
+        admin_kinds = {op.kind for op in admin_ops}
+
+        def _has(prefixes: tuple[str, ...]) -> bool:
+            return any(k.startswith(p) for k in admin_kinds for p in prefixes)
+
+        if _has(("listUsers", "getUser", "activateUser", "deactivateUser", "updateUserRole")):
+            pages.append(
+                PageIR(
+                    id="admin-users",
+                    route="/admin/users",
+                    file_path="src/app/(dashboard)/admin/users/page.tsx",
+                    title="Users",
+                    kind="list",
+                    entity_slug=None,
+                    operation_ids=_find_op_ids(operations, module="admin", kind_prefix="listUsers")
+                    + _find_op_ids(operations, module="admin", kind_prefix="activateUser")
+                    + _find_op_ids(operations, module="admin", kind_prefix="deactivateUser")
+                    + _find_op_ids(operations, module="admin", kind_prefix="updateUserRole"),
+                    layout="admin",
+                )
+            )
+
+        if _has(("listApplications", "approveApplication", "rejectApplication")):
+            pages.append(
+                PageIR(
+                    id="admin-applications",
+                    route="/admin/applications",
+                    file_path="src/app/(dashboard)/admin/applications/page.tsx",
+                    title="Applications",
+                    kind="list",
+                    entity_slug=None,
+                    operation_ids=_find_op_ids(operations, module="admin", kind_prefix="listApplications")
+                    + _find_op_ids(operations, module="admin", kind_prefix="approveApplication")
+                    + _find_op_ids(operations, module="admin", kind_prefix="rejectApplication"),
+                    layout="admin",
+                )
+            )
+
+        if _has(("listFaqs", "createFaq", "updateFaq", "deleteFaq")):
+            pages.append(
+                PageIR(
+                    id="admin-faqs",
+                    route="/admin/faqs",
+                    file_path="src/app/(dashboard)/admin/faqs/page.tsx",
+                    title="FAQs",
+                    kind="list",
+                    entity_slug=None,
+                    operation_ids=_find_op_ids(operations, module="admin", kind_prefix="listFaqs")
+                    + _find_op_ids(operations, module="admin", kind_prefix="createFaq")
+                    + _find_op_ids(operations, module="admin", kind_prefix="updateFaq")
+                    + _find_op_ids(operations, module="admin", kind_prefix="deleteFaq"),
+                    layout="admin",
+                )
+            )
+
+        if _has(("getAiSettings", "updateAiSettings", "getAiProviders", "getAiModels", "listPrompts", "updatePrompt", "listDocuments")):
+            pages.append(
+                PageIR(
+                    id="admin-ai",
+                    route="/admin/ai",
+                    file_path="src/app/(dashboard)/admin/ai/page.tsx",
+                    title="AI Settings",
+                    kind="form",
+                    entity_slug=None,
+                    operation_ids=_find_op_ids(operations, module="admin", kind_prefix="getAiSettings")
+                    + _find_op_ids(operations, module="admin", kind_prefix="updateAiSettings")
+                    + _find_op_ids(operations, module="admin", kind_prefix="listPrompts")
+                    + _find_op_ids(operations, module="admin", kind_prefix="updatePrompt"),
+                    layout="admin",
+                )
+            )
 
     # ── Profile pages ─────────────────────────────────────────────
     pages.append(
@@ -178,6 +265,55 @@ def derive_pages(
                 kind="list",
                 entity_slug=None,
                 operation_ids=_find_op_ids(operations, module="notifications"),
+                layout="dashboard",
+            )
+        )
+
+    # ── Files manager ─────────────────────────────────────────────
+    files_ops = ops_by_module.get("files", [])
+    if files_ops:
+        pages.append(
+            PageIR(
+                id="files",
+                route="/files",
+                file_path="src/app/(dashboard)/files/page.tsx",
+                title="Files",
+                kind="list",
+                entity_slug=None,
+                operation_ids=_find_op_ids(operations, module="files"),
+                layout="dashboard",
+            )
+        )
+
+    # ── AI chat (RAG query playground) ───────────────────────────
+    ai_ops = ops_by_module.get("ai", [])
+    if any(op.kind in {"query", "followUp"} for op in ai_ops):
+        pages.append(
+            PageIR(
+                id="ai-chat",
+                route="/ai",
+                file_path="src/app/(dashboard)/ai/page.tsx",
+                title="AI Assistant",
+                kind="form",
+                entity_slug=None,
+                operation_ids=_find_op_ids(operations, module="ai"),
+                layout="dashboard",
+            )
+        )
+
+    # ── Onboarding wizard (authenticated) ────────────────────────
+    if any(e.permissions.requires_onboarding for e in entities):
+        pages.append(
+            PageIR(
+                id="onboarding",
+                route="/onboarding",
+                file_path="src/app/(dashboard)/onboarding/page.tsx",
+                title="Onboarding",
+                kind="form",
+                entity_slug=None,
+                operation_ids=_find_op_ids(operations, kind_prefix="getDraft")
+                + _find_op_ids(operations, kind_prefix="updateDraft")
+                + _find_op_ids(operations, kind_prefix="submitDraft"),
                 layout="dashboard",
             )
         )

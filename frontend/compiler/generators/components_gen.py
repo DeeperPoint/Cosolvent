@@ -54,7 +54,7 @@ import Link from "next/link";
 import {{ usePathname }} from "next/navigation";
 import {{ useEffect, useMemo, useState }} from "react";
 import {{ cn }} from "@/lib/utils";
-import {{ navigationItems, marketplaceName }} from "@/generated/navigation";
+import {{ navigationItems, marketplaceName, marketplaceLogo }} from "@/generated/navigation";
 
 export function AppSidebar() {{
   const pathname = usePathname();
@@ -96,8 +96,14 @@ export function AppSidebar() {{
   return (
     <aside className="hidden w-64 shrink-0 border-r bg-sidebar lg:block">
       <div className="flex h-14 items-center border-b px-4">
-        <Link href="/" className="text-lg font-semibold text-sidebar-foreground">
-          {{marketplaceName}}
+        <Link
+          href="/"
+          className="flex items-center gap-2 text-lg font-semibold tracking-tight text-sidebar-foreground"
+        >
+          {{marketplaceLogo && (
+            <span aria-hidden className="text-xl leading-none">{{marketplaceLogo}}</span>
+          )}}
+          <span>{{marketplaceName}}</span>
         </Link>
       </div>
       {{/* AGENT_FILL:sidebar_nav:start */}}
@@ -155,16 +161,18 @@ export function Header() {{
   }}
 
   return (
-    {{/* AGENT_FILL:app_header:start */}}
-    <header className="flex h-14 items-center justify-between border-b px-6">
-      <div className="lg:hidden text-lg font-semibold">{ir.marketplace.name}</div>
-      <div className="flex items-center gap-2 ml-auto">
-        <Button variant="ghost" size="sm" onClick={{handleLogout}}>
-          Sign Out
-        </Button>
-      </div>
-    </header>
-    {{/* AGENT_FILL:app_header:end */}}
+    <>
+      {{/* AGENT_FILL:app_header:start */}}
+      <header className="flex h-14 items-center justify-between border-b px-6">
+        <div className="lg:hidden text-lg font-semibold">{ir.marketplace.name}</div>
+        <div className="flex items-center gap-2 ml-auto">
+          <Button variant="ghost" size="sm" onClick={{handleLogout}}>
+            Sign Out
+          </Button>
+        </div>
+      </header>
+      {{/* AGENT_FILL:app_header:end */}}
+    </>
   );
 }}
 """
@@ -377,14 +385,23 @@ def _profile_form(ir: FrontendIR) -> str:
 
     switch_body = "\n".join(entity_branches)
 
+    default_slug = ir.entities[0].slug if ir.entities else ""
+    role_options = "".join(
+        f'    <option key="{e.slug}" value="{e.slug}">{e.name}</option>\n'
+        for e in ir.entities
+    )
+
     return f"""\
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
-import {{ useState }} from "react";
+import {{ useEffect, useMemo, useState }} from "react";
+import {{ useRouter }} from "next/navigation";
 import {{ Button }} from "@/components/ui/button";
 import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
 import {{ FieldRenderer }} from "./field-renderer";
+import {{ useAuth }} from "@/generated/hooks/use-current-user";
+import {{ useDraft, useUpdateDraft, useRegister }} from "@/generated/hooks/use-profiles";
 
 interface SectionDef {{
   name: string;
@@ -405,63 +422,190 @@ function getSectionsForType(type: string): SectionDef[] {{
   }}
 }}
 
+interface DraftLike {{
+  fields?: Record<string, unknown>;
+  status?: string;
+}}
+
 export function ProfileForm() {{
-  const [participantType] = useState("{ir.entities[0].slug if ir.entities else ''}");
+  const router = useRouter();
+  const {{ user }} = useAuth();
+
+  const initialType = user?.participant_type ?? "{default_slug}";
+  const [participantType, setParticipantType] = useState(initialType);
   const [fields, setFields] = useState<Record<string, unknown>>({{}});
   const [activeTab, setActiveTab] = useState(0);
+  const [feedback, setFeedback] = useState<{{ kind: "ok" | "err"; text: string }} | null>(null);
 
-  const sections = getSectionsForType(participantType);
+  useEffect(() => {{
+    if (user?.participant_type && user.participant_type !== participantType) {{
+      setParticipantType(user.participant_type);
+    }}
+  }}, [user?.participant_type, participantType]);
+
+  const draftQuery = useDraft(participantType);
+  const updateDraft = useUpdateDraft();
+  const registerProfile = useRegister();
+
+  useEffect(() => {{
+    const data = draftQuery.data as DraftLike | undefined;
+    if (data?.fields) {{
+      setFields(data.fields);
+    }}
+  }}, [draftQuery.data]);
+
+  const sections = useMemo(
+    () => getSectionsForType(participantType),
+    [participantType],
+  );
 
   function handleFieldChange(name: string, value: unknown) {{
     setFields((prev) => ({{ ...prev, [name]: value }}));
   }}
 
+  async function handleSaveDraft() {{
+    if (!participantType) return;
+    setFeedback(null);
+    try {{
+      await updateDraft.mutateAsync({{
+        type_slug: participantType,
+        body: {{ fields }},
+      }} as Parameters<typeof updateDraft.mutateAsync>[0]);
+      setFeedback({{ kind: "ok", text: "Draft saved." }});
+    }} catch (err: unknown) {{
+      setFeedback({{
+        kind: "err",
+        text: err instanceof Error ? err.message : "Failed to save draft",
+      }});
+    }}
+  }}
+
+  async function handleSubmitProfile() {{
+    if (!participantType) return;
+    setFeedback(null);
+    try {{
+      await updateDraft.mutateAsync({{
+        type_slug: participantType,
+        body: {{ fields }},
+      }} as Parameters<typeof updateDraft.mutateAsync>[0]);
+      await registerProfile.mutateAsync(
+        participantType as Parameters<typeof registerProfile.mutateAsync>[0],
+      );
+      setFeedback({{ kind: "ok", text: "Profile submitted." }});
+      router.push("/profile");
+    }} catch (err: unknown) {{
+      setFeedback({{
+        kind: "err",
+        text: err instanceof Error ? err.message : "Failed to submit profile",
+      }});
+    }}
+  }}
+
+  const draftStatus = (draftQuery.data as DraftLike | undefined)?.status;
+
   return (
-    {{/* AGENT_FILL:profile_form:start */}}
-    <div className="space-y-4">
-      {{sections.length > 1 && (
-        <div className="flex gap-2 border-b">
-          {{sections.map((section, idx) => (
-            <button
-              key={{section.name}}
-              type="button"
-              className={{`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${{
-                idx === activeTab
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }}`}}
-              onClick={{() => setActiveTab(idx)}}
-            >
-              {{section.name}}
-            </button>
-          ))}}
-        </div>
-      )}}
+    <>
+      {{/* AGENT_FILL:profile_form:start */}}
+      <div className="space-y-4">
+        {{!user?.participant_type && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Choose your role</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={{participantType}}
+                onChange={{(e) => {{
+                  setParticipantType(e.target.value);
+                  setFields({{}});
+                  setActiveTab(0);
+                }}}}
+              >
+{role_options}              </select>
+            </CardContent>
+          </Card>
+        )}}
 
-      {{sections[activeTab] && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{{sections[activeTab].name}}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {{sections[activeTab].fields.map((field) => (
-              <FieldRenderer
-                key={{field.name}}
-                field={{field}}
-                value={{fields[field.name]}}
-                onChange={{handleFieldChange}}
-              />
+        {{draftStatus && (
+          <p className="text-xs text-muted-foreground">
+            Draft status: <span className="font-medium capitalize">{{draftStatus}}</span>
+          </p>
+        )}}
+
+        {{sections.length > 1 && (
+          <div className="flex gap-2 border-b">
+            {{sections.map((section, idx) => (
+              <button
+                key={{section.name}}
+                type="button"
+                className={{`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${{
+                  idx === activeTab
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }}`}}
+                onClick={{() => setActiveTab(idx)}}
+              >
+                {{section.name}}
+              </button>
             ))}}
-          </CardContent>
-        </Card>
-      )}}
+          </div>
+        )}}
 
-      <div className="flex justify-end gap-2">
-        <Button variant="outline">Save Draft</Button>
-        <Button>Submit Profile</Button>
+        {{sections[activeTab] && (
+          <Card>
+            <CardHeader>
+              <CardTitle>{{sections[activeTab].name}}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {{draftQuery.isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading draft…</p>
+              ) : (
+                sections[activeTab].fields.map((field) => (
+                  <FieldRenderer
+                    key={{field.name}}
+                    field={{field}}
+                    value={{fields[field.name]}}
+                    onChange={{handleFieldChange}}
+                  />
+                ))
+              )}}
+            </CardContent>
+          </Card>
+        )}}
+
+        {{feedback && (
+          <p
+            className={{
+              feedback.kind === "ok"
+                ? "text-sm text-emerald-600"
+                : "text-sm text-destructive"
+            }}
+          >
+            {{feedback.text}}
+          </p>
+        )}}
+
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            type="button"
+            disabled={{updateDraft.isPending}}
+            onClick={{() => void handleSaveDraft()}}
+          >
+            {{updateDraft.isPending ? "Saving…" : "Save Draft"}}
+          </Button>
+          <Button
+            type="button"
+            disabled={{updateDraft.isPending || registerProfile.isPending}}
+            onClick={{() => void handleSubmitProfile()}}
+          >
+            {{registerProfile.isPending ? "Submitting…" : "Submit Profile"}}
+          </Button>
+        </div>
       </div>
-    </div>
-    {{/* AGENT_FILL:profile_form:end */}}
+      {{/* AGENT_FILL:profile_form:end */}}
+    </>
   );
 }}
 """

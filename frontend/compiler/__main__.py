@@ -49,8 +49,8 @@ def main() -> None:
     )
     gen_parser.add_argument(
         "--agent-model",
-        default="anthropic/claude-3.5-sonnet",
-        help="Model slug for agent fill (OpenRouter style)",
+        default="anthropic/claude-sonnet-4",
+        help="OpenRouter slug for agent fill (Anthropic Claude Sonnet family only)",
     )
     gen_parser.add_argument(
         "--agent-timeout-seconds",

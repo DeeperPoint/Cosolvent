@@ -15,12 +15,15 @@ def derive_navigation(
     page_ids = {p.id for p in pages}
     items: list[NavItemIR] = []
 
+    # Dashboard is only meaningful for participants (supply/demand). Admins
+    # have their own dashboard at /admin and clicking "Dashboard" would just
+    # bounce them via the role-router — confusing UX. Hide it for admins.
     items.append(
         NavItemIR(
             label="Dashboard",
             route="/dashboard",
             icon="LayoutDashboard",
-            roles=all_roles,
+            roles=base_roles,
         )
     )
 
@@ -66,6 +69,26 @@ def derive_navigation(
                 label="Notifications",
                 route="/notifications",
                 icon="Bell",
+                roles=all_roles,
+            )
+        )
+
+    if "files" in page_ids:
+        items.append(
+            NavItemIR(
+                label="Files",
+                route="/files",
+                icon="FolderOpen",
+                roles=all_roles,
+            )
+        )
+
+    if "ai-chat" in page_ids:
+        items.append(
+            NavItemIR(
+                label="AI Assistant",
+                route="/ai",
+                icon="Sparkles",
                 roles=all_roles,
             )
         )

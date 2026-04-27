@@ -21,6 +21,7 @@ from ..ir import (
     FieldType,
     FrontendIR,
     MarketplaceIdentityIR,
+    ThemeIR,
     OnboardingIR,
     OperationIR,
     PermissionsIR,
@@ -64,6 +65,15 @@ def build_frontend_ir(
         description=marketplace.description,
         industry=marketplace.industry,
     )
+    theme = ThemeIR(
+        primary=marketplace.theme.primary,
+        accent=marketplace.theme.accent,
+        neutral=marketplace.theme.neutral,
+        font=marketplace.theme.font,
+        radius=marketplace.theme.radius,
+        logo_emoji=marketplace.theme.logo_emoji,
+        voice=marketplace.theme.voice,
+    )
 
     pages = derive_pages(entities, operations, auth, discovery)
     navigation = derive_navigation(entities, operations, pages)
@@ -79,6 +89,7 @@ def build_frontend_ir(
         schemas=schemas,
         spec_hash=spec_hash,
         generator_version=generator_version,
+        theme=theme,
     )
 
 
@@ -155,8 +166,32 @@ def _build_schemas(openapi: RawOpenAPI) -> tuple[SchemaIR, ...]:
             )
             for p in raw_schema.properties
         )
-        result.append(SchemaIR(name=name, properties=props))
+        ts_alias = _resolve_freeform_alias(raw_schema.raw) if not props else None
+        result.append(SchemaIR(name=name, properties=props, ts_alias=ts_alias))
     return tuple(result)
+
+
+def _resolve_freeform_alias(raw: dict) -> str | None:
+    """Resolve a TS type for a schema with no top-level ``properties``.
+
+    Returns ``None`` when the default ``Record<string, unknown>`` fallback is
+    fine. Otherwise returns the proper TS expression — currently this catches
+    ``type: "array"`` (e.g. ``JSONList``) which would otherwise be mistyped
+    as an object.
+    """
+    schema_type = raw.get("type")
+    if schema_type == "array":
+        items = raw.get("items", {}) or {}
+        if items.get("type") == "object":
+            additional = items.get("additionalProperties")
+            if additional is True or (isinstance(additional, dict) and not additional):
+                return "Array<Record<string, unknown>>"
+            if isinstance(additional, dict):
+                # Nested $ref or typed values — fall back to unknown[] for safety.
+                return "Array<Record<string, unknown>>"
+            return "Array<Record<string, unknown>>"
+        return "unknown[]"
+    return None
 
 
 # ── Operation building ────────────────────────────────────────────────
@@ -218,6 +253,10 @@ def _build_operations(
                     break
 
         op_id = _build_operation_id(kind, entity_slug, raw_op.operation_id)
+        # Keep ``kind`` aligned with the resolved op_id for non-role operations
+        # so derived cache keys / hook names don't leak the noisy FastAPI suffix.
+        if not entity_slug:
+            kind = op_id
 
         req_schema = _resolve_schema(raw_op.request_schema_name, schema_lookup)
         resp_schema = _resolve_schema(raw_op.response_schema_name, schema_lookup)
@@ -247,7 +286,82 @@ def _build_operations(
             )
         )
 
+    result = _disambiguate_admin_collisions(result)
     return tuple(sorted(result, key=lambda o: o.id))
+
+
+def _disambiguate_admin_collisions(ops: list[OperationIR]) -> list[OperationIR]:
+    """When two ops share the same id but live in different modules, rename
+    the admin one to ``{verb}Admin{Suffix}`` so the API client and hook layers
+    can address both.
+
+    Without this, FastAPI's auto-generated IDs collapse paths like
+    ``GET /api/profiles/{slug}/{id}`` and ``GET /api/admin/profiles/{id}`` to
+    a single ``getProfile`` symbol — the second registration silently shadows
+    the first.
+    """
+    by_id: dict[str, list[OperationIR]] = {}
+    for op in ops:
+        by_id.setdefault(op.id, []).append(op)
+
+    rewrites: dict[int, str] = {}
+    for op_id, group in by_id.items():
+        if len(group) <= 1:
+            continue
+        modules = {o.module for o in group}
+        if "admin" not in modules or len(modules) <= 1:
+            continue
+        # Rename only the admin variant(s); leave the user-facing one alone.
+        new_id = _admin_qualified_id(op_id)
+        for op in group:
+            if op.module == "admin":
+                rewrites[id(op)] = new_id
+
+    if not rewrites:
+        return ops
+
+    rebuilt: list[OperationIR] = []
+    for op in ops:
+        new_id = rewrites.get(id(op))
+        if new_id is None:
+            rebuilt.append(op)
+            continue
+        # ``kind`` mirrors id for non-role ops so cache keys & hook names
+        # follow the rename without manual fix-up downstream.
+        rebuilt.append(
+            OperationIR(
+                id=new_id,
+                entity_slug=op.entity_slug,
+                module=op.module,
+                kind=new_id if not op.entity_slug else op.kind,
+                method=op.method,
+                path=op.path,
+                request_schema=op.request_schema,
+                response_schema=op.response_schema,
+                auth_required=op.auth_required,
+                path_params=op.path_params,
+                query_params=op.query_params,
+            )
+        )
+    return rebuilt
+
+
+def _admin_qualified_id(op_id: str) -> str:
+    """Insert ``Admin`` after the leading verb of a camelCase op id.
+
+    >>> _admin_qualified_id("getProfile")
+    'getAdminProfile'
+    >>> _admin_qualified_id("listConversations")
+    'listAdminConversations'
+    >>> _admin_qualified_id("updatePrompt")
+    'updateAdminPrompt'
+    >>> _admin_qualified_id("deleteDocument")
+    'deleteAdminDocument'
+    """
+    prefix_end = next((i for i, c in enumerate(op_id) if c.isupper()), len(op_id))
+    if prefix_end == 0 or prefix_end == len(op_id):
+        return f"admin{op_id[:1].upper()}{op_id[1:]}"
+    return f"{op_id[:prefix_end]}Admin{op_id[prefix_end:]}"
 
 
 def _detect_kind(method: str, path: str) -> str:
@@ -255,6 +369,57 @@ def _detect_kind(method: str, path: str) -> str:
         if method == m and re.search(pattern, path):
             return kind
     return "unknown"
+
+
+_FASTAPI_AUTO_ID_RE = re.compile(
+    r"^(?P<verb>[a-z][a-z0-9_]*?)_api_.+_(?P<method>get|post|put|patch|delete)$"
+)
+
+
+def _to_camel(snake: str) -> str:
+    parts = [p for p in snake.split("_") if p]
+    if not parts:
+        return snake
+    return parts[0] + "".join(p[:1].upper() + p[1:] for p in parts[1:])
+
+
+def _normalise_fastapi_operation_id(raw: str) -> str:
+    """Strip the FastAPI auto-generated ``_api_<segments>_<method>`` suffix.
+
+    FastAPI synthesises operation IDs like
+    ``bootstrap_api_auth_bootstrap_post`` or
+    ``activate_user_api_admin_users__user_id__activate_post`` when no explicit
+    ``operation_id`` is declared. The verb at the front (``bootstrap``,
+    ``activate_user``, ``get_me``, …) is the meaningful part; the rest is
+    routing noise that makes the generated React hook / API function names
+    impossible to use from hand-written or agent-filled pages.
+
+    >>> _normalise_fastapi_operation_id("bootstrap_api_auth_bootstrap_post")
+    'bootstrap'
+    >>> _normalise_fastapi_operation_id("activate_user_api_admin_users__user_id__activate_post")
+    'activateUser'
+    >>> _normalise_fastapi_operation_id("verify_api_auth_verify_get")
+    'verifySession'
+    >>> _normalise_fastapi_operation_id("verify_api_auth_me_get")
+    'getMe'
+    >>> _normalise_fastapi_operation_id("login")
+    'login'
+    """
+
+    match = _FASTAPI_AUTO_ID_RE.match(raw)
+    if not match:
+        return raw
+
+    verb = match.group("verb")
+
+    # Disambiguate the two ``verify_…`` auth endpoints which would otherwise
+    # both collapse to ``verify``.
+    if raw.endswith("_me_get") and verb == "verify":
+        return "getMe"
+    if raw == "verify_api_auth_verify_get":
+        return "verifySession"
+
+    return _to_camel(verb)
 
 
 def _build_operation_id(kind: str, entity_slug: str | None, fallback: str) -> str:
@@ -268,7 +433,7 @@ def _build_operation_id(kind: str, entity_slug: str | None, fallback: str) -> st
             suffix = kind[prefix_end:]
             return f"{prefix}{pascal}{suffix}"
         return f"{kind}{pascal}"
-    return fallback
+    return _normalise_fastapi_operation_id(fallback)
 
 
 def _resolve_schema(

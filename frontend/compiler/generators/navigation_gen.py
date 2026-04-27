@@ -42,8 +42,14 @@ def emit_navigation(ir: FrontendIR) -> dict[str, str]:
     lines.append("];")
     lines.append("")
 
-    lines.append(f'export const marketplaceName = "{ir.marketplace.name}";')
-    lines.append(f'export const marketplaceDescription = "{ir.marketplace.description}";')
+    # Escape any double-quotes / backslashes in user-supplied strings so they
+    # paste safely into a TS string literal.
+    name = ir.marketplace.name.replace("\\", "\\\\").replace('"', '\\"')
+    desc = ir.marketplace.description.replace("\\", "\\\\").replace('"', '\\"')
+    logo = ir.theme.logo_emoji.replace("\\", "\\\\").replace('"', '\\"')
+    lines.append(f'export const marketplaceName = "{name}";')
+    lines.append(f'export const marketplaceDescription = "{desc}";')
+    lines.append(f'export const marketplaceLogo = "{logo}";')
     lines.append("")
 
     lines.append("export const participantTypes = [")

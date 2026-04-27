@@ -41,8 +41,17 @@ def emit_routes(ir: FrontendIR) -> dict[str, str]:
     if "signup" in page_ids:
         files["src/app/(auth)/signup/page.tsx"] = _signup_page(ir)
 
+    if "bootstrap" in page_ids:
+        files["src/app/(auth)/bootstrap/page.tsx"] = _bootstrap_page(ir)
+
     files["src/app/(dashboard)/layout.tsx"] = _dashboard_layout(ir)
     files["src/app/(dashboard)/dashboard/page.tsx"] = _dashboard_page(ir)
+
+    entity_roles = {entity.role for entity in ir.entities}
+    if "supply" in entity_roles:
+        files["src/app/(dashboard)/dashboard/supply/page.tsx"] = _supply_dashboard_page(ir)
+    if "demand" in entity_roles:
+        files["src/app/(dashboard)/dashboard/demand/page.tsx"] = _demand_dashboard_page(ir)
 
     files["src/app/(dashboard)/profile/page.tsx"] = _profile_view_page(ir)
     files["src/app/(dashboard)/profile/edit/page.tsx"] = _profile_edit_page(ir)
@@ -61,29 +70,123 @@ def emit_routes(ir: FrontendIR) -> dict[str, str]:
     if "notifications" in page_ids:
         files["src/app/(dashboard)/notifications/page.tsx"] = _notifications_page(ir)
 
+    if "files" in page_ids:
+        files["src/app/(dashboard)/files/page.tsx"] = _files_page(ir)
+
+    if "ai-chat" in page_ids:
+        files["src/app/(dashboard)/ai/page.tsx"] = _ai_chat_page(ir)
+
+    if "onboarding" in page_ids:
+        files["src/app/(dashboard)/onboarding/page.tsx"] = _onboarding_page(ir)
+
     if "admin-dashboard" in page_ids:
         files["src/app/(dashboard)/admin/page.tsx"] = _admin_dashboard_page(ir)
+        files["src/app/(dashboard)/admin/config/page.tsx"] = _admin_config_page(ir)
+
+    if "admin-users" in page_ids:
+        files["src/app/(dashboard)/admin/users/page.tsx"] = _admin_users_page(ir)
+    if "admin-applications" in page_ids:
+        files["src/app/(dashboard)/admin/applications/page.tsx"] = (
+            _admin_applications_page(ir)
+        )
+        files["src/app/(dashboard)/admin/applications/[id]/page.tsx"] = (
+            _admin_application_detail_page(ir)
+        )
+        files["src/app/(dashboard)/admin/profiles/[id]/page.tsx"] = (
+            _admin_profile_review_page(ir)
+        )
+    if "admin-faqs" in page_ids:
+        files["src/app/(dashboard)/admin/faqs/page.tsx"] = _admin_faqs_page(ir)
+    if "admin-ai" in page_ids:
+        files["src/app/(dashboard)/admin/ai/page.tsx"] = _admin_ai_page(ir)
+    if "admin-dashboard" in page_ids:
+        files["src/app/(dashboard)/admin/conversations/page.tsx"] = (
+            _admin_conversations_page(ir)
+        )
+        files["src/app/(dashboard)/admin/conversations/[id]/page.tsx"] = (
+            _admin_conversation_thread_page(ir)
+        )
 
     if "register" in page_ids:
         files["src/app/register/[type]/page.tsx"] = _register_page(ir)
 
     files["src/lib/providers.tsx"] = _providers(ir)
+    files["src/middleware.ts"] = _middleware_ts(ir)
 
     return files
+
+
+def _middleware_ts(ir: FrontendIR) -> str:
+    """Emit a Next.js edge middleware that gates dashboard/admin routes.
+
+    The middleware is intentionally simple: it inspects the ``session_token``
+    cookie that the FastAPI backend sets on login. It does not validate the
+    cookie cryptographically — that is the API's job — but it ensures
+    unauthenticated users land on ``/login`` instead of staring at a
+    half-rendered shell while every API call returns 401.
+    """
+
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+import {{ NextResponse }} from "next/server";
+import type {{ NextRequest }} from "next/server";
+
+const PUBLIC_PATHS = new Set([
+  "/login",
+  "/signup",
+  "/bootstrap",
+]);
+
+function isPublicPath(pathname: string): boolean {{
+  if (PUBLIC_PATHS.has(pathname)) return true;
+  if (pathname.startsWith("/register/")) return true;
+  if (pathname.startsWith("/api/")) return true;
+  if (pathname.startsWith("/_next")) return true;
+  if (pathname === "/favicon.ico") return true;
+  return false;
+}}
+
+export function middleware(request: NextRequest) {{
+  const {{ pathname, search }} = request.nextUrl;
+
+  if (isPublicPath(pathname)) {{
+    return NextResponse.next();
+  }}
+
+  const sessionCookie = request.cookies.get("session_token");
+  if (!sessionCookie) {{
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    loginUrl.search = "";
+    if (pathname !== "/" && pathname !== "/login") {{
+      loginUrl.searchParams.set("next", pathname + search);
+    }}
+    return NextResponse.redirect(loginUrl);
+  }}
+
+  return NextResponse.next();
+}}
+
+export const config = {{
+  // Run on every path except static assets and image optimisation.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|images/|fonts/).*)",
+  ],
+}};
+"""
 
 
 # ── Root layout ───────────────────────────────────────────────────────
 
 
 def _root_layout(ir: FrontendIR) -> str:
+    font_family = ir.theme.font
+    font_url_family = font_family.replace(" ", "+")
     return f"""\
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 import type {{ Metadata }} from "next";
-import {{ Inter }} from "next/font/google";
 import "@/styles/globals.css";
 import {{ Providers }} from "@/lib/providers";
-
-const inter = Inter({{ subsets: ["latin"] }});
 
 export const metadata: Metadata = {{
   title: "{ir.marketplace.name}",
@@ -97,7 +200,15 @@ export default function RootLayout({{
 }}) {{
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={{inter.className}}>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family={font_url_family}:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="font-sans">
         <Providers>{{children}}</Providers>
       </body>
     </html>
@@ -140,16 +251,26 @@ export function Providers({{ children }}: {{ children: React.ReactNode }}) {{
 
 
 def _auth_layout(ir: FrontendIR) -> str:
+    logo = ir.theme.logo_emoji
+    name = ir.marketplace.name
     return f"""\
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+import {{ Suspense }} from "react";
+
 export default function AuthLayout({{
   children,
 }}: {{
   children: React.ReactNode;
 }}) {{
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
-      <div className="w-full max-w-md">{{children}}</div>
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-background to-muted/40 p-4">
+      <div className="w-full max-w-md space-y-6">
+        <div className="flex items-center justify-center gap-2 text-2xl font-semibold tracking-tight">
+          <span aria-hidden className="text-3xl leading-none">{logo}</span>
+          <span>{name}</span>
+        </div>
+        <Suspense fallback={{null}}>{{children}}</Suspense>
+      </div>
     </div>
   );
 }}
@@ -172,16 +293,29 @@ def _login_page(ir: FrontendIR) -> str:
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
-import {{ useState }} from "react";
-import {{ useRouter }} from "next/navigation";
+import {{ Suspense, useState }} from "react";
+import {{ useRouter, useSearchParams }} from "next/navigation";
 import {{ Button }} from "@/components/ui/button";
 import {{ Input }} from "@/components/ui/input";
 import {{ Label }} from "@/components/ui/label";
 import {{ Card, CardContent, CardDescription, CardHeader, CardTitle }} from "@/components/ui/card";
 import * as authApi from "@/generated/api/auth";
+import type {{ AuthResponse }} from "@/generated/types";
 
-export default function LoginPage() {{
+function safeInternalPath(raw: string | null): string | null {{
+  if (!raw || !raw.startsWith("/")) return null;
+  if (raw.startsWith("//") || raw.includes("://")) return null;
+  return raw;
+}}
+
+function homeForUser(res: AuthResponse): string {{
+  if (res.role === "admin") return "/admin";
+  return "/dashboard";
+}}
+
+function LoginForm() {{
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -192,8 +326,9 @@ export default function LoginPage() {{
     setError(null);
     setLoading(true);
     try {{
-      await authApi.login_api_auth_login_post({{ email, password }});
-      router.push("/profile");
+      const res = await authApi.login({{ email, password }});
+      const next = safeInternalPath(searchParams.get("next"));
+      router.push(next ?? homeForUser(res));
     }} catch (err: unknown) {{
       setError(err instanceof Error ? err.message : "Login failed");
     }} finally {{
@@ -244,6 +379,14 @@ export default function LoginPage() {{
     </Card>
   );
 }}
+
+export default function LoginPage() {{
+  return (
+    <Suspense fallback={{null}}>
+      <LoginForm />
+    </Suspense>
+  );
+}}
 """
 
 
@@ -256,16 +399,29 @@ def _signup_page(ir: FrontendIR) -> str:
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
-import {{ useState }} from "react";
-import {{ useRouter }} from "next/navigation";
+import {{ Suspense, useState }} from "react";
+import {{ useRouter, useSearchParams }} from "next/navigation";
 import {{ Button }} from "@/components/ui/button";
 import {{ Input }} from "@/components/ui/input";
 import {{ Label }} from "@/components/ui/label";
 import {{ Card, CardContent, CardDescription, CardHeader, CardTitle }} from "@/components/ui/card";
 import * as authApi from "@/generated/api/auth";
+import type {{ AuthResponse }} from "@/generated/types";
 
-export default function SignupPage() {{
+function safeInternalPath(raw: string | null): string | null {{
+  if (!raw || !raw.startsWith("/")) return null;
+  if (raw.startsWith("//") || raw.includes("://")) return null;
+  return raw;
+}}
+
+function homeForUser(res: AuthResponse): string {{
+  if (res.role === "admin") return "/admin";
+  return "/dashboard";
+}}
+
+function SignupForm() {{
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [participantType, setParticipantType] = useState("");
@@ -277,12 +433,13 @@ export default function SignupPage() {{
     setError(null);
     setLoading(true);
     try {{
-      await authApi.signup_api_auth_signup_post({{
+      const res = await authApi.signup({{
         email,
         password,
         participant_type: participantType,
       }});
-      router.push("/profile");
+      const next = safeInternalPath(searchParams.get("next"));
+      router.push(next ?? homeForUser(res));
     }} catch (err: unknown) {{
       setError(err instanceof Error ? err.message : "Signup failed");
     }} finally {{
@@ -347,6 +504,14 @@ export default function SignupPage() {{
     </Card>
   );
 }}
+
+export default function SignupPage() {{
+  return (
+    <Suspense fallback={{null}}>
+      <SignupForm />
+    </Suspense>
+  );
+}}
 """
 
 
@@ -369,7 +534,9 @@ export default function DashboardLayout({{
       <AppSidebar />
       <div className="flex flex-1 flex-col">
         <Header />
-        <main className="flex-1 p-6">{{children}}</main>
+        <main key="page" className="flex-1 p-6 animate-fade-in-up">
+          {{children}}
+        </main>
       </div>
     </div>
   );
@@ -378,37 +545,198 @@ export default function DashboardLayout({{
 
 
 def _dashboard_page(ir: FrontendIR) -> str:
+    """Role-aware router page at ``/dashboard``.
+
+    Redirects supply users to ``/dashboard/supply``, demand users to
+    ``/dashboard/demand``, and admins to ``/admin``. Has no AGENT_FILL
+    markers — the role-specific UI lives in the supply/demand sub-pages.
+    """
     return f"""\
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ useEffect }} from "react";
+import {{ useRouter }} from "next/navigation";
+import {{ useAuth }} from "@/generated/hooks/use-current-user";
+import {{ useCurrentProfile }} from "@/generated/hooks/use-current-profile";
+import {{ participantTypes }} from "@/generated/navigation";
+
+const SLUG_TO_ROLE: Record<string, string> = Object.fromEntries(
+  participantTypes.map((p) => [p.slug, p.role]),
+);
+
+const ROLE_TO_ROUTE: Record<string, string> = {{
+  supply: "/dashboard/supply",
+  demand: "/dashboard/demand",
+}};
+
 export default function DashboardPage() {{
+  const router = useRouter();
+  const {{ user, isAuthenticated, isLoading: authLoading }} = useAuth();
+  const {{ participantType, isLoading: profileLoading }} = useCurrentProfile();
+
+  useEffect(() => {{
+    if (authLoading) return;
+    if (!isAuthenticated) {{
+      router.replace("/login");
+      return;
+    }}
+    if (user?.role === "admin") {{
+      router.replace("/admin");
+      return;
+    }}
+    if (profileLoading) return;
+    if (!participantType) return;
+    const role = SLUG_TO_ROLE[participantType];
+    const target = role ? ROLE_TO_ROUTE[role] : undefined;
+    if (target) {{
+      router.replace(target);
+    }}
+  }}, [
+    authLoading,
+    profileLoading,
+    isAuthenticated,
+    participantType,
+    router,
+    user?.role,
+  ]);
+
   return (
-    {{/* AGENT_FILL:dashboard_main:start */}}
+    <div className="flex min-h-[40vh] items-center justify-center">
+      <p className="text-sm text-muted-foreground">Loading your dashboard…</p>
+    </div>
+  );
+}}
+"""
+
+
+_DASHBOARD_ROLE_PROFILE_SHAPE = """\
+interface ProfileLike {
+  completeness?: number;
+  status?: string;
+  participant_type?: string;
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+"""
+
+
+def _role_dashboard_page(
+    ir: FrontendIR,
+    *,
+    role: str,
+    marker_id: str,
+    headline: str,
+    subhead: str,
+) -> str:
+    """Shared scaffold for role-specific dashboards (supply / demand).
+
+    Emits a stats strip identical to the legacy combined dashboard, plus a
+    role-scoped AGENT_FILL marker block where the agent fills role-tailored
+    UI (e.g. listings + inquiries for supply; saved searches + outreach for
+    demand).
+    """
+    profile_shape = _DASHBOARD_ROLE_PROFILE_SHAPE.rstrip()
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import Link from "next/link";
+import {{ useAuth }} from "@/generated/hooks/use-current-user";
+import {{ useCurrentProfile }} from "@/generated/hooks/use-current-profile";
+import {{ useListConversations }} from "@/generated/hooks/use-communication";
+import {{ useListNotifications }} from "@/generated/hooks/use-notifications";
+
+{profile_shape}
+
+export default function {role.capitalize()}DashboardPage() {{
+  const {{ user, isAuthenticated }} = useAuth();
+  const {{ profile, participantType }} = useCurrentProfile<ProfileLike>();
+  const conversations = useListConversations();
+  const notifications = useListNotifications();
+
+  const messageCount = asArray(conversations.data).length;
+  const notificationCount = asArray(notifications.data).filter(
+    (n) => typeof n === "object" && n !== null && (n as Record<string, unknown>).is_read !== true,
+  ).length;
+  const profileStatus = profile?.status ?? (profile ? "active" : "—");
+
+  return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{headline}</h1>
         <p className="text-muted-foreground">
-          Welcome to {ir.marketplace.name}
+          {{isAuthenticated && user?.email
+            ? `{subhead}, ${{user.email}}`
+            : `Welcome to {ir.marketplace.name}`}}
+          {{participantType ? ` · ${{participantType}}` : ""}}
         </p>
       </div>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-lg border bg-card p-6">
           <h3 className="text-sm font-medium text-muted-foreground">Profile Status</h3>
-          <p className="mt-2 text-2xl font-bold">—</p>
+          <p className="mt-2 text-2xl font-bold capitalize">{{profileStatus}}</p>
+          {{typeof profile?.completeness === "number" && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {{profile.completeness}}% complete
+            </p>
+          )}}
         </div>
         <div className="rounded-lg border bg-card p-6">
           <h3 className="text-sm font-medium text-muted-foreground">Messages</h3>
-          <p className="mt-2 text-2xl font-bold">—</p>
+          <p className="mt-2 text-2xl font-bold">
+            {{conversations.isLoading ? "…" : messageCount}}
+          </p>
         </div>
         <div className="rounded-lg border bg-card p-6">
-          <h3 className="text-sm font-medium text-muted-foreground">Notifications</h3>
-          <p className="mt-2 text-2xl font-bold">—</p>
+          <h3 className="text-sm font-medium text-muted-foreground">Unread notifications</h3>
+          <p className="mt-2 text-2xl font-bold">
+            {{notifications.isLoading ? "…" : notificationCount}}
+          </p>
         </div>
       </div>
+      {{/* AGENT_FILL:{marker_id}:start */}}
+      <div className="flex flex-wrap gap-3 text-sm">
+        <Link href="/profile/edit" className="text-primary underline">
+          Edit profile
+        </Link>
+        <Link href="/conversations" className="text-primary underline">
+          Messages
+        </Link>
+        <Link href="/search" className="text-primary underline">
+          Search
+        </Link>
+        <Link href="/notifications" className="text-primary underline">
+          Notifications
+        </Link>
+      </div>
+      {{/* AGENT_FILL:{marker_id}:end */}}
     </div>
-    {{/* AGENT_FILL:dashboard_main:end */}}
   );
 }}
 """
+
+
+def _supply_dashboard_page(ir: FrontendIR) -> str:
+    return _role_dashboard_page(
+        ir,
+        role="supply",
+        marker_id="supply_dashboard_main",
+        headline="Supply Dashboard",
+        subhead="Welcome back",
+    )
+
+
+def _demand_dashboard_page(ir: FrontendIR) -> str:
+    return _role_dashboard_page(
+        ir,
+        role="demand",
+        marker_id="demand_dashboard_main",
+        headline="Demand Dashboard",
+        subhead="Welcome back",
+    )
 
 
 # ── Profile pages ─────────────────────────────────────────────────────
@@ -422,30 +750,82 @@ def _profile_view_page(ir: FrontendIR) -> str:
 import {{ useRouter }} from "next/navigation";
 import {{ Button }} from "@/components/ui/button";
 import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ useCurrentProfile }} from "@/generated/hooks/use-current-profile";
+
+interface ProfileLike {{
+  fields?: Record<string, unknown>;
+  status?: string;
+  completeness?: number;
+}}
 
 export default function ProfileViewPage() {{
   const router = useRouter();
+  const {{ profile, isLoading, error, participantType }} = useCurrentProfile<ProfileLike>();
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">My Profile</h1>
-          <p className="text-muted-foreground">View your profile information</p>
+    <>
+      {{/* AGENT_FILL:profile_view:start */}}
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">My Profile</h1>
+            <p className="text-muted-foreground">
+              {{participantType ? `Role: ${{participantType}}` : "View your profile"}}
+            </p>
+          </div>
+          <Button onClick={{() => router.push("/profile/edit")}}>Edit Profile</Button>
         </div>
-        <Button onClick={{() => router.push("/profile/edit")}}>Edit Profile</Button>
+        <Card>
+          <CardHeader>
+            <CardTitle>Profile Details</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {{isLoading ? (
+              <p className="text-muted-foreground">Loading your profile…</p>
+            ) : error ? (
+              <p className="text-sm text-destructive">{{error.message}}</p>
+            ) : !profile ? (
+              <div className="space-y-2">
+                <p className="text-muted-foreground">
+                  You don&apos;t have a profile yet.
+                </p>
+                <Button variant="outline" onClick={{() => router.push("/onboarding")}}>
+                  Start onboarding
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {{typeof profile.completeness === "number" && (
+                  <p className="text-sm text-muted-foreground">
+                    Completeness: <span className="font-medium">{{profile.completeness}}%</span>
+                  </p>
+                )}}
+                {{profile.status && (
+                  <p className="text-sm text-muted-foreground">
+                    Status: <span className="font-medium capitalize">{{profile.status}}</span>
+                  </p>
+                )}}
+                {{profile.fields && Object.keys(profile.fields).length > 0 && (
+                  <dl className="grid gap-3 sm:grid-cols-2">
+                    {{Object.entries(profile.fields).map(([key, value]) => (
+                      <div key={{key}} className="rounded-md border p-3">
+                        <dt className="text-xs uppercase text-muted-foreground">{{key}}</dt>
+                        <dd className="mt-1 text-sm">
+                          {{typeof value === "object"
+                            ? JSON.stringify(value)
+                            : String(value ?? "—")}}
+                        </dd>
+                      </div>
+                    ))}}
+                  </dl>
+                )}}
+              </div>
+            )}}
+          </CardContent>
+        </Card>
       </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Profile Details</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">
-            Profile data will appear here once loaded.
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+      {{/* AGENT_FILL:profile_view:end */}}
+    </>
   );
 }}
 """
@@ -460,13 +840,17 @@ import {{ ProfileForm }} from "@/components/forms/profile-form";
 
 export default function ProfileEditPage() {{
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Edit Profile</h1>
-        <p className="text-muted-foreground">Update your profile information</p>
+    <>
+      {{/* AGENT_FILL:profile_edit:start */}}
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Edit Profile</h1>
+          <p className="text-muted-foreground">Update your profile information</p>
+        </div>
+        <ProfileForm />
       </div>
-      <ProfileForm />
-    </div>
+      {{/* AGENT_FILL:profile_edit:end */}}
+    </>
   );
 }}
 """
@@ -478,7 +862,17 @@ def _profile_detail_page(ir: FrontendIR) -> str:
 "use client";
 
 import {{ use }} from "react";
+import {{ useQuery }} from "@tanstack/react-query";
 import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ apiFetch, ApiError }} from "@/generated/api/client";
+
+interface ProfileDetail {{
+  _id?: string;
+  id?: string;
+  email?: string;
+  participant_type?: string;
+  fields?: Record<string, unknown>;
+}}
 
 export default function ProfileDetailPage({{
   params,
@@ -486,24 +880,55 @@ export default function ProfileDetailPage({{
   params: Promise<{{ id: string }}>
 }}) {{
   const {{ id }} = use(params);
+  const {{ data, isLoading, error }} = useQuery<ProfileDetail, ApiError>({{
+    queryKey: ["profiles", id],
+    queryFn: () => apiFetch<ProfileDetail>(`/api/profiles/${{encodeURIComponent(id)}}`),
+    enabled: !!id,
+  }});
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Profile</h1>
-        <p className="text-muted-foreground">Viewing profile {{id}}</p>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Profile Information</CardTitle>
-        </CardHeader>
-        <CardContent>
+    <>
+      {{/* AGENT_FILL:profile_detail:start */}}
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">
+            {{data?.email ?? "Profile"}}
+          </h1>
           <p className="text-muted-foreground">
-            Profile details will appear here.
+            {{data?.participant_type ? `${{data.participant_type}} · ` : ""}}
+            ID: {{id}}
           </p>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Profile Information</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {{isLoading ? (
+              <p className="text-muted-foreground">Loading profile…</p>
+            ) : error ? (
+              <p className="text-sm text-destructive">{{error.message}}</p>
+            ) : data?.fields && Object.keys(data.fields).length > 0 ? (
+              <dl className="grid gap-3 sm:grid-cols-2">
+                {{Object.entries(data.fields).map(([key, value]) => (
+                  <div key={{key}} className="rounded-md border p-3">
+                    <dt className="text-xs uppercase text-muted-foreground">{{key}}</dt>
+                    <dd className="mt-1 text-sm">
+                      {{typeof value === "object"
+                        ? JSON.stringify(value)
+                        : String(value ?? "—")}}
+                    </dd>
+                  </div>
+                ))}}
+              </dl>
+            ) : (
+              <p className="text-muted-foreground">No public details available.</p>
+            )}}
+          </CardContent>
+        </Card>
+      </div>
+      {{/* AGENT_FILL:profile_detail:end */}}
+    </>
   );
 }}
 """
@@ -521,40 +946,111 @@ def _search_page(ir: FrontendIR) -> str:
 "use client";
 
 import {{ useState }} from "react";
+import Link from "next/link";
 import {{ Button }} from "@/components/ui/button";
 import {{ Input }} from "@/components/ui/input";
 import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
 import {{ SearchFilters }} from "@/components/shared/search-filters";
+import {{ useSearch }} from "@/generated/hooks/use-discovery";
+
+interface SearchHit {{
+  id?: string;
+  profile_id?: string;
+  participant_type?: string;
+  email?: string;
+  score?: number;
+  fields?: Record<string, unknown>;
+}}
 
 export default function SearchPage() {{
   const [query, setQuery] = useState("");
+  const search = useSearch();
+  const [hits, setHits] = useState<SearchHit[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {{
+    e.preventDefault();
+    setError(null);
+    try {{
+      const data = await search.mutateAsync({{
+        query,
+      }} as Parameters<typeof search.mutateAsync>[0]);
+      const list =
+        data && typeof data === "object" && Array.isArray((data as {{ results?: unknown }}).results)
+          ? ((data as {{ results: unknown[] }}).results as SearchHit[])
+          : [];
+      setHits(list);
+    }} catch (err: unknown) {{
+      setError(err instanceof Error ? err.message : "Search failed");
+      setHits([]);
+    }}
+  }}
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Search</h1>
-        <p className="text-muted-foreground">Find {searchable}</p>
+    <>
+      {{/* AGENT_FILL:search_page:start */}}
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Search</h1>
+          <p className="text-muted-foreground">Find {searchable}</p>
+        </div>
+        <form onSubmit={{handleSubmit}} className="flex gap-4">
+          <Input
+            placeholder="Search..."
+            value={{query}}
+            onChange={{(e) => setQuery(e.target.value)}}
+            className="max-w-md"
+          />
+          <Button type="submit" disabled={{search.isPending}}>
+            {{search.isPending ? "Searching…" : "Search"}}
+          </Button>
+        </form>
+        <SearchFilters />
+        {{error && (
+          <p className="text-sm text-destructive">{{error}}</p>
+        )}}
+        {{hits.length === 0 ? (
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-center text-muted-foreground">
+                {{search.isPending
+                  ? "Searching…"
+                  : "Enter a query to find matches."}}
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {{hits.map((hit, idx) => {{
+              const profileId = hit.id ?? hit.profile_id ?? String(idx);
+              return (
+                <Card key={{profileId}}>
+                  <CardHeader>
+                    <CardTitle className="text-base">
+                      {{hit.email ?? hit.participant_type ?? "Result"}}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    {{typeof hit.score === "number" && (
+                      <p className="text-xs text-muted-foreground">
+                        Score: {{hit.score.toFixed(3)}}
+                      </p>
+                    )}}
+                    <Link
+                      href={{`/profiles/${{encodeURIComponent(profileId)}}`}}
+                      className="text-xs font-medium text-primary underline"
+                    >
+                      View profile →
+                    </Link>
+                  </CardContent>
+                </Card>
+              );
+            }})}}
+          </div>
+        )}}
       </div>
-      <div className="flex gap-4">
-        <Input
-          placeholder="Search..."
-          value={{query}}
-          onChange={{(e) => setQuery(e.target.value)}}
-          className="max-w-md"
-        />
-        <Button>Search</Button>
-      </div>
-      <SearchFilters />
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-center text-muted-foreground">
-              Search results will appear here.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+      {{/* AGENT_FILL:search_page:end */}}
+    </>
   );
 }}
 """
@@ -568,27 +1064,175 @@ def _conversations_page(ir: FrontendIR) -> str:
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
+import {{ useMemo, useState }} from "react";
+import Link from "next/link";
+import {{ useRouter }} from "next/navigation";
 import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
 import {{ Button }} from "@/components/ui/button";
+import {{
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+}} from "@/components/ui/dialog";
+import {{ Input }} from "@/components/ui/input";
+import {{ Label }} from "@/components/ui/label";
+import {{ useListConversations, useCreateConversation }} from "@/generated/hooks/use-communication";
+
+interface ConversationRow {{
+  _id?: string;
+  id?: string;
+  subject?: string;
+  status?: string;
+  last_message_preview?: string;
+  updated_at?: string;
+}}
 
 export default function ConversationsPage() {{
+  const router = useRouter();
+  const conversations = useListConversations();
+  const createConversation = useCreateConversation();
+  const [open, setOpen] = useState(false);
+  const [recipientId, setRecipientId] = useState("");
+  const [subject, setSubject] = useState("");
+  const [initialMessage, setInitialMessage] = useState("");
+
+  const rows: ConversationRow[] = useMemo(() => {{
+    const data = conversations.data;
+    if (Array.isArray(data)) return data as ConversationRow[];
+    return [];
+  }}, [conversations.data]);
+
+  async function handleCreateConversation() {{
+    const rid = recipientId.trim();
+    if (!rid) return;
+    const created = await createConversation.mutateAsync({{
+      recipient_id: rid,
+      subject: subject.trim() || undefined,
+      initial_message: initialMessage.trim() || undefined,
+    }} as Parameters<typeof createConversation.mutateAsync>[0]);
+    const cid =
+      created && typeof created === "object" && "id" in created
+        ? String((created as {{ id: unknown }}).id)
+        : "";
+    setOpen(false);
+    setRecipientId("");
+    setSubject("");
+    setInitialMessage("");
+    if (cid) router.push(`/conversations/${{cid}}`);
+  }}
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Messages</h1>
-          <p className="text-muted-foreground">Your conversations</p>
+    <>
+      {{/* AGENT_FILL:conversations_list:start */}}
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Messages</h1>
+            <p className="text-muted-foreground">Your conversations</p>
+          </div>
+          <Button type="button" onClick={{() => setOpen(true)}}>
+            New conversation
+          </Button>
         </div>
-        <Button>New Conversation</Button>
+        <Dialog open={{open}} onOpenChange={{setOpen}}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Start a conversation</DialogTitle>
+              <DialogDescription>
+                Enter the other participant&apos;s profile or user id.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="conv-recipient">Recipient id</Label>
+                <Input
+                  id="conv-recipient"
+                  value={{recipientId}}
+                  onChange={{(e) => setRecipientId(e.target.value)}}
+                  placeholder="Profile or user id"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="conv-subject">Subject (optional)</Label>
+                <Input
+                  id="conv-subject"
+                  value={{subject}}
+                  onChange={{(e) => setSubject(e.target.value)}}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="conv-msg">First message (optional)</Label>
+                <Input
+                  id="conv-msg"
+                  value={{initialMessage}}
+                  onChange={{(e) => setInitialMessage(e.target.value)}}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={{() => setOpen(false)}}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={{!recipientId.trim() || createConversation.isPending}}
+                onClick={{() => void handleCreateConversation()}}
+              >
+                {{createConversation.isPending ? "Creating…" : "Create"}}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Card>
+          <CardHeader>
+            <CardTitle>Inbox ({{rows.length}})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {{conversations.isLoading ? (
+              <p className="text-muted-foreground">Loading conversations…</p>
+            ) : conversations.error ? (
+              <p className="text-sm text-destructive">{{conversations.error.message}}</p>
+            ) : rows.length === 0 ? (
+              <p className="text-center text-muted-foreground">
+                No conversations yet.
+              </p>
+            ) : (
+              <ul className="divide-y">
+                {{rows.map((row) => {{
+                  const id = String(row._id ?? row.id ?? "");
+                  return (
+                    <li key={{id}} className="py-3">
+                      <Link
+                        href={{`/conversations/${{id}}`}}
+                        className="flex items-center justify-between rounded-md p-2 hover:bg-muted"
+                      >
+                        <div className="min-w-0 flex-1 pr-4">
+                          <p className="truncate font-medium">
+                            {{row.subject ?? "Conversation"}}
+                          </p>
+                          <p className="truncate text-sm text-muted-foreground">
+                            {{row.last_message_preview ?? ""}}
+                          </p>
+                        </div>
+                        {{row.status && (
+                          <span className="rounded bg-muted px-2 py-1 text-xs capitalize">
+                            {{row.status}}
+                          </span>
+                        )}}
+                      </Link>
+                    </li>
+                  );
+                }})}}
+              </ul>
+            )}}
+          </CardContent>
+        </Card>
       </div>
-      <Card>
-        <CardContent className="pt-6">
-          <p className="text-center text-muted-foreground">
-            No conversations yet.
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+      {{/* AGENT_FILL:conversations_list:end */}}
+    </>
   );
 }}
 """
@@ -599,11 +1243,19 @@ def _conversation_detail_page(ir: FrontendIR) -> str:
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
-import {{ use, useMemo, useState }} from "react";
-import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ use, useEffect, useMemo, useState }} from "react";
 import {{ Input }} from "@/components/ui/input";
 import {{ Button }} from "@/components/ui/button";
 import {{ useConversationWebSocket }} from "@/generated/hooks/use-websocket";
+import {{ useListMessages }} from "@/generated/hooks/use-communication";
+
+interface MessageRow {{
+  _id?: string;
+  id?: string;
+  content?: string;
+  sender_id?: string;
+  created_at?: string;
+}}
 
 export default function ConversationDetailPage({{
   params,
@@ -613,20 +1265,21 @@ export default function ConversationDetailPage({{
   const {{ id }} = use(params);
   const [draft, setDraft] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
-  const [events, setEvents] = useState<Array<{{ id: string; text: string }}>>([]);
+  const [liveEvents, setLiveEvents] = useState<MessageRow[]>([]);
+
+  const history = useListMessages(id);
+
+  useEffect(() => {{
+    setLiveEvents([]);
+  }}, [id]);
 
   const socket = useConversationWebSocket(id, {{
     enabled: true,
     onEvent: (event) => {{
       if (event.type === "new_message") {{
-        const message = event.message as {{ _id?: string; content?: string }} | undefined;
-        setEvents((prev) => [
-          ...prev,
-          {{
-            id: String(message?._id ?? `msg-${{prev.length + 1}}`),
-            text: String(message?.content ?? ""),
-          }},
-        ]);
+        const message = event.message as MessageRow | undefined;
+        if (!message) return;
+        setLiveEvents((prev) => [...prev, message]);
       }}
     }},
   }});
@@ -637,6 +1290,16 @@ export default function ConversationDetailPage({{
     if (socket.state === "error") return "Connection error";
     return "Offline";
   }}, [socket.state]);
+
+  const messages: MessageRow[] = useMemo(() => {{
+    const raw = history.data;
+    const base: MessageRow[] = Array.isArray(raw) ? (raw as MessageRow[]) : [];
+    const seen = new Set(base.map((m) => String(m._id ?? m.id ?? "")));
+    const extras = liveEvents.filter(
+      (m) => !seen.has(String(m._id ?? m.id ?? "")),
+    );
+    return [...base, ...extras];
+  }}, [history.data, liveEvents]);
 
   function handleSend() {{
     const content = draft.trim();
@@ -659,15 +1322,27 @@ export default function ConversationDetailPage({{
       </div>
       <div className="flex-1 overflow-y-auto p-4">
         {{/* AGENT_FILL:conversation_messages:start */}}
-        {{events.length === 0 ? (
-          <p className="text-center text-muted-foreground">Messages will appear here.</p>
+        {{history.isLoading ? (
+          <p className="text-center text-muted-foreground">Loading messages…</p>
+        ) : history.error ? (
+          <p className="text-center text-destructive">{{history.error.message}}</p>
+        ) : messages.length === 0 ? (
+          <p className="text-center text-muted-foreground">No messages yet.</p>
         ) : (
           <div className="space-y-2">
-            {{events.map((item) => (
-              <div key={{item.id}} className="rounded-md border p-2 text-sm">
-                {{item.text}}
-              </div>
-            ))}}
+            {{messages.map((item, idx) => {{
+              const key = String(item._id ?? item.id ?? `msg-${{idx}}`);
+              return (
+                <div key={{key}} className="rounded-md border p-3 text-sm">
+                  {{item.sender_id && (
+                    <p className="mb-1 text-xs text-muted-foreground">
+                      {{item.sender_id}}
+                    </p>
+                  )}}
+                  <p className="whitespace-pre-wrap">{{item.content ?? ""}}</p>
+                </div>
+              );
+            }})}}
           </div>
         )}}
         {{/* AGENT_FILL:conversation_messages:end */}}
@@ -706,25 +1381,92 @@ def _notifications_page(ir: FrontendIR) -> str:
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
-import {{ Card, CardContent }} from "@/components/ui/card";
+import {{ useMemo }} from "react";
+import {{ Button }} from "@/components/ui/button";
+import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{
+  useListNotifications,
+  useMarkRead,
+}} from "@/generated/hooks/use-notifications";
+
+interface NotificationRow {{
+  _id?: string;
+  id?: string;
+  title?: string;
+  message?: string;
+  body?: string;
+  is_read?: boolean;
+  created_at?: string;
+}}
 
 export default function NotificationsPage() {{
+  const notifications = useListNotifications();
+  const markRead = useMarkRead();
+
+  const rows: NotificationRow[] = useMemo(() => {{
+    const data = notifications.data;
+    if (Array.isArray(data)) return data as NotificationRow[];
+    return [];
+  }}, [notifications.data]);
+
   return (
-    {{/* AGENT_FILL:notifications_page:start */}}
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Notifications</h1>
-        <p className="text-muted-foreground">Stay up to date</p>
+    <>
+      {{/* AGENT_FILL:notifications_page:start */}}
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Notifications</h1>
+          <p className="text-muted-foreground">Stay up to date</p>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Inbox ({{rows.length}})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {{notifications.isLoading ? (
+              <p className="text-muted-foreground">Loading notifications…</p>
+            ) : notifications.error ? (
+              <p className="text-sm text-destructive">{{notifications.error.message}}</p>
+            ) : rows.length === 0 ? (
+              <p className="text-center text-muted-foreground">
+                No notifications yet.
+              </p>
+            ) : (
+              <ul className="divide-y">
+                {{rows.map((row) => {{
+                  const id = String(row._id ?? row.id ?? "");
+                  const text = row.message ?? row.body ?? "";
+                  return (
+                    <li key={{id}} className="flex items-start justify-between py-3">
+                      <div className="flex-1 pr-4">
+                        <p className="font-medium">
+                          {{row.title ?? "Notification"}}
+                        </p>
+                        {{text && (
+                          <p className="text-sm text-muted-foreground">
+                            {{text}}
+                          </p>
+                        )}}
+                      </div>
+                      {{!row.is_read && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={{() => markRead.mutate(id)}}
+                          disabled={{markRead.isPending}}
+                        >
+                          Mark read
+                        </Button>
+                      )}}
+                    </li>
+                  );
+                }})}}
+              </ul>
+            )}}
+          </CardContent>
+        </Card>
       </div>
-      <Card>
-        <CardContent className="pt-6">
-          <p className="text-center text-muted-foreground">
-            No notifications yet.
-          </p>
-        </CardContent>
-      </Card>
-    </div>
-    {{/* AGENT_FILL:notifications_page:end */}}
+      {{/* AGENT_FILL:notifications_page:end */}}
+    </>
   );
 }}
 """
@@ -736,8 +1478,28 @@ def _admin_dashboard_page(ir: FrontendIR) -> str:
 "use client";
 
 import {{ useMemo }} from "react";
+import Link from "next/link";
 import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
-import {{ useDashboard_api_admin_dashboard_get, useList_applications_api_admin_applications_get }} from "@/generated/hooks/use-admin";
+import {{ Button }} from "@/components/ui/button";
+import {{ Badge }} from "@/components/ui/badge";
+import {{
+  useApproveApplication,
+  useDashboard,
+  useListApplications,
+  useListUsers,
+  useRejectApplication,
+}} from "@/generated/hooks/use-admin";
+
+interface ApplicationRow {{
+  _id?: string;
+  id?: string;
+  status?: string;
+  applicant_email?: string;
+  participant_type?: string;
+  submitted_at?: string;
+  created_at?: string;
+  submitted_completeness?: number;
+}}
 
 function valueOf(obj: Record<string, unknown>, key: string): string {{
   const v = obj[key];
@@ -746,13 +1508,40 @@ function valueOf(obj: Record<string, unknown>, key: string): string {{
 }}
 
 export default function AdminDashboardPage() {{
-  const dashboard = useDashboard_api_admin_dashboard_get();
-  const applications = useList_applications_api_admin_applications_get();
+  const dashboard = useDashboard();
+  const applications = useListApplications();
+  const approveApplication = useApproveApplication();
+  const rejectApplication = useRejectApplication();
+  const listUsers = useListUsers();
 
-  const pendingCount = useMemo(() => {{
-    const rows = Array.isArray(applications.data) ? applications.data : [];
-    return rows.filter((r) => r && typeof r === "object" && (r as Record<string, unknown>).status === "pending").length;
+  // The dashboard endpoint already returns aggregate counts — read directly
+  // rather than re-deriving from the applications list.
+  const stats = (dashboard.data && typeof dashboard.data === "object")
+    ? (dashboard.data as Record<string, unknown>)
+    : {{}};
+
+  const allApplications: ApplicationRow[] = useMemo(() => {{
+    return Array.isArray(applications.data)
+      ? (applications.data as ApplicationRow[])
+      : [];
   }}, [applications.data]);
+
+  // Always sort pending first, then most-recently-submitted, so the queue
+  // sits at the top of the list regardless of how the API ordered them.
+  const recentApplications = useMemo(() => {{
+    const sorted = [...allApplications];
+    sorted.sort((a, b) => {{
+      const aPending = a.status === "pending" ? 0 : 1;
+      const bPending = b.status === "pending" ? 0 : 1;
+      if (aPending !== bPending) return aPending - bPending;
+      const at = a.submitted_at ?? a.created_at ?? "";
+      const bt = b.submitted_at ?? b.created_at ?? "";
+      return bt.localeCompare(at);
+    }});
+    return sorted;
+  }}, [allApplications]);
+
+  const pendingCountFromList = allApplications.filter((r) => r.status === "pending").length;
 
   if (dashboard.isLoading) {{
     return <p className="text-sm text-muted-foreground">Loading admin dashboard…</p>;
@@ -767,57 +1556,213 @@ export default function AdminDashboardPage() {{
     );
   }}
 
-  const data = (dashboard.data && typeof dashboard.data === "object")
-    ? (dashboard.data as Record<string, unknown>)
-    : {{}};
-
   return (
-    {{/* AGENT_FILL:admin_dashboard_main:start */}}
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
-        <p className="text-muted-foreground">Operational overview for {ir.marketplace.name}</p>
+    <>
+      {{/* AGENT_FILL:admin_dashboard_main:start */}}
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
+          <p className="text-muted-foreground">Operational overview for {ir.marketplace.name}</p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card className="animate-fade-in-up" style={{{{ animationDelay: "0ms" }}}}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Pending Applications</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{{valueOf(stats, "pending_applications")}}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="animate-fade-in-up" style={{{{ animationDelay: "60ms" }}}}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Users</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{{valueOf(stats, "total_users")}}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="animate-fade-in-up" style={{{{ animationDelay: "120ms" }}}}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Active Profiles</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{{valueOf(stats, "active_profiles")}}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="animate-fade-in-up" style={{{{ animationDelay: "180ms" }}}}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Open Conversations</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{{valueOf(stats, "total_conversations")}}</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="animate-fade-in-up" style={{{{ animationDelay: "240ms" }}}}>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div className="space-y-1">
+              <CardTitle>Recent Applications</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {{applications.isLoading
+                  ? "Loading…"
+                  : applications.error
+                  ? `Error: ${{applications.error.message}}`
+                  : applications.isFetching
+                  ? "Refreshing…"
+                  : `${{pendingCountFromList}} pending · ${{allApplications.length}} total`}}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={{() => {{
+                  applications.refetch();
+                  dashboard.refetch();
+                }}}}
+                disabled={{applications.isFetching || dashboard.isFetching}}
+              >
+                Refresh
+              </Button>
+              <Link href="/admin/applications" className="text-sm text-primary hover:underline">
+                View all →
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {{applications.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading applications…</p>
+            ) : applications.error ? (
+              <p className="text-sm text-destructive">
+                Failed to load applications: {{applications.error.message}}
+              </p>
+            ) : recentApplications.length === 0 ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                No applications submitted yet.
+              </div>
+            ) : (
+              <ul className="divide-y rounded-md border">
+                {{recentApplications.slice(0, 8).map((app) => {{
+                  const id = String(app._id ?? app.id ?? "");
+                  const submittedAt = app.submitted_at ?? app.created_at;
+                  const isPending = app.status === "pending";
+                  const statusVariant =
+                    app.status === "approved" ? "default" :
+                    app.status === "rejected" ? "destructive" :
+                    isPending ? "secondary" : "outline";
+                  return (
+                    <li key={{id}} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate font-medium">{{app.applicant_email ?? "(no email)"}}</p>
+                          <Badge variant={{statusVariant}}>{{app.status ?? "pending"}}</Badge>
+                          <Badge variant="outline" className="capitalize">
+                            {{app.participant_type ?? "—"}}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {{submittedAt ? new Date(submittedAt).toLocaleString() : ""}}
+                          {{typeof app.submitted_completeness === "number"
+                            ? ` · ${{app.submitted_completeness}}% complete`
+                            : ""}}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <Link
+                          href={{`/admin/applications/${{id}}`}}
+                          className="inline-flex items-center justify-center rounded-md border px-3 py-1 text-sm hover:bg-muted"
+                        >
+                          Review
+                        </Link>
+                        {{isPending && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={{() =>
+                                rejectApplication.mutate({{
+                                  app_id: id,
+                                  body: {{ feedback: "" }},
+                                }} as unknown as Parameters<typeof rejectApplication.mutate>[0])
+                              }}
+                              disabled={{rejectApplication.isPending}}
+                            >
+                              Reject
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={{() =>
+                                approveApplication.mutate(id as Parameters<typeof approveApplication.mutate>[0])
+                              }}
+                              disabled={{approveApplication.isPending}}
+                            >
+                              Approve
+                            </Button>
+                          </>
+                        )}}
+                      </div>
+                    </li>
+                  );
+                }})}}
+              </ul>
+            )}}
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card className="animate-fade-in-up" style={{{{ animationDelay: "300ms" }}}}>
+            <CardHeader>
+              <CardTitle>Quick links</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="grid grid-cols-2 gap-2 text-sm">
+                <li><Link href="/admin/users" className="text-primary hover:underline">Manage users ({{Array.isArray(listUsers.data) ? listUsers.data.length : "—"}})</Link></li>
+                <li><Link href="/admin/applications" className="text-primary hover:underline">All applications</Link></li>
+                <li><Link href="/admin/conversations" className="text-primary hover:underline">All conversations</Link></li>
+                <li><Link href="/admin/faqs" className="text-primary hover:underline">FAQs</Link></li>
+                <li><Link href="/admin/ai" className="text-primary hover:underline">AI configuration</Link></li>
+                <li><Link href="/admin/config" className="text-primary hover:underline">Marketplace config</Link></li>
+              </ul>
+            </CardContent>
+          </Card>
+
+          <Card className="animate-fade-in-up" style={{{{ animationDelay: "360ms" }}}}>
+            <CardHeader>
+              <CardTitle>By participant type</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ProfilesByType stats={{stats}} />
+            </CardContent>
+          </Card>
+        </div>
       </div>
+      {{/* AGENT_FILL:admin_dashboard_main:end */}}
+    </>
+  );
+}}
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Pending Applications</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{{pendingCount}}</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Users</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{{valueOf(data, "total_users")}}</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Active Profiles</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{{valueOf(data, "active_profiles")}}</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Open Conversations</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{{valueOf(data, "open_conversations")}}</p>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-    {{/* AGENT_FILL:admin_dashboard_main:end */}}
+function ProfilesByType({{ stats }}: {{ stats: Record<string, unknown> }}) {{
+  const map = (stats.profiles_by_type && typeof stats.profiles_by_type === "object")
+    ? (stats.profiles_by_type as Record<string, unknown>)
+    : {{}};
+  const entries = Object.entries(map);
+  if (entries.length === 0) {{
+    return <p className="text-sm text-muted-foreground">No active profiles yet.</p>;
+  }}
+  return (
+    <ul className="space-y-2">
+      {{entries.map(([slug, count]) => (
+        <li key={{slug}} className="flex items-center justify-between text-sm">
+          <span className="capitalize">{{slug}}</span>
+          <Badge variant="secondary">{{typeof count === "number" ? count : "—"}}</Badge>
+        </li>
+      ))}}
+    </ul>
   );
 }}
 """
@@ -1079,6 +2024,1525 @@ export default function RegisterPage({{
           {{/* AGENT_FILL:register_form:end */}}
         </CardContent>
       </Card>
+    </div>
+  );
+}}
+"""
+
+
+# ── Bootstrap (first-admin setup) ─────────────────────────────────────
+
+
+def _bootstrap_page(ir: FrontendIR) -> str:
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ useState }} from "react";
+import {{ useRouter }} from "next/navigation";
+import {{ Button }} from "@/components/ui/button";
+import {{ Input }} from "@/components/ui/input";
+import {{ Label }} from "@/components/ui/label";
+import {{ Card, CardContent, CardDescription, CardHeader, CardTitle }} from "@/components/ui/card";
+import * as authApi from "@/generated/api/auth";
+
+export default function BootstrapPage() {{
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {{
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {{
+      await authApi.bootstrap({{ email, password }});
+      router.push("/admin");
+    }} catch (err: unknown) {{
+      setError(err instanceof Error ? err.message : "Bootstrap failed");
+    }} finally {{
+      setLoading(false);
+    }}
+  }}
+
+  return (
+    <Card>
+      <CardHeader className="text-center">
+        <CardTitle className="text-2xl">First-time setup</CardTitle>
+        <CardDescription>
+          Create the initial admin account for {ir.marketplace.name}.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {{/* AGENT_FILL:bootstrap_form:start */}}
+        <form onSubmit={{handleSubmit}} className="space-y-4">
+          {{error && (
+            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              {{error}}
+            </div>
+          )}}
+          <div className="space-y-2">
+            <Label htmlFor="email">Admin email</Label>
+            <Input
+              id="email"
+              type="email"
+              value={{email}}
+              onChange={{(e) => setEmail(e.target.value)}}
+              required
+              autoComplete="email"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Admin password</Label>
+            <Input
+              id="password"
+              type="password"
+              value={{password}}
+              onChange={{(e) => setPassword(e.target.value)}}
+              required
+              minLength={{8}}
+              autoComplete="new-password"
+            />
+          </div>
+          <Button type="submit" className="w-full" disabled={{loading}}>
+            {{loading ? "Setting up…" : "Create admin account"}}
+          </Button>
+        </form>
+        {{/* AGENT_FILL:bootstrap_form:end */}}
+      </CardContent>
+    </Card>
+  );
+}}
+"""
+
+
+# ── Onboarding wizard (authenticated) ─────────────────────────────────
+
+
+def _onboarding_page(ir: FrontendIR) -> str:
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ Card, CardContent, CardHeader, CardTitle, CardDescription }} from "@/components/ui/card";
+import {{ ProfileForm }} from "@/components/forms/profile-form";
+
+export default function OnboardingPage() {{
+  return (
+    <>
+      {{/* AGENT_FILL:onboarding_page:start */}}
+      <div className="mx-auto max-w-3xl space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-2xl">Welcome to {ir.marketplace.name}</CardTitle>
+            <CardDescription>
+              Complete your profile to finish onboarding.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ProfileForm />
+          </CardContent>
+        </Card>
+      </div>
+      {{/* AGENT_FILL:onboarding_page:end */}}
+    </>
+  );
+}}
+"""
+
+
+# ── Files manager ─────────────────────────────────────────────────────
+
+
+def _files_page(ir: FrontendIR) -> str:
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ useState }} from "react";
+import {{ Button }} from "@/components/ui/button";
+import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ Input }} from "@/components/ui/input";
+import {{ Label }} from "@/components/ui/label";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:18000";
+
+export default function FilesPage() {{
+  const [file, setFile] = useState<File | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleUpload(e: React.FormEvent) {{
+    e.preventDefault();
+    if (!file) return;
+    setUploading(true);
+    setStatus(null);
+    try {{
+      const fd = new FormData();
+      fd.append("file", file, file.name);
+      const res = await fetch(`${{API_BASE}}/api/files/upload`, {{
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      }});
+      if (!res.ok) {{
+        const text = await res.text();
+        throw new Error(text || res.statusText);
+      }}
+      setStatus("Upload complete");
+      setFile(null);
+    }} catch (err: unknown) {{
+      setStatus(err instanceof Error ? err.message : "Upload failed");
+    }} finally {{
+      setUploading(false);
+    }}
+  }}
+
+  return (
+    <>
+      {{/* AGENT_FILL:files_manager:start */}}
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Files</h1>
+          <p className="text-muted-foreground">Upload and manage your files</p>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Upload a file</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={{handleUpload}} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="file-input">File</Label>
+                <Input
+                  id="file-input"
+                  type="file"
+                  onChange={{(e) => setFile(e.target.files?.[0] ?? null)}}
+                />
+              </div>
+              <Button type="submit" disabled={{!file || uploading}}>
+                {{uploading ? "Uploading…" : "Upload"}}
+              </Button>
+              {{status && (
+                <p className="text-sm text-muted-foreground">{{status}}</p>
+              )}}
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+      {{/* AGENT_FILL:files_manager:end */}}
+    </>
+  );
+}}
+"""
+
+
+# ── AI assistant chat ─────────────────────────────────────────────────
+
+
+def _ai_chat_page(ir: FrontendIR) -> str:
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ useState }} from "react";
+import {{ Button }} from "@/components/ui/button";
+import {{ Card, CardContent }} from "@/components/ui/card";
+import {{ Input }} from "@/components/ui/input";
+import {{ useAiQuery }} from "@/generated/hooks/use-ai";
+
+interface ChatTurn {{
+  role: "user" | "assistant";
+  text: string;
+}}
+
+export default function AiChatPage() {{
+  const [draft, setDraft] = useState("");
+  const [history, setHistory] = useState<ChatTurn[]>([]);
+  const ask = useAiQuery();
+
+  async function handleSubmit(e: React.FormEvent) {{
+    e.preventDefault();
+    const question = draft.trim();
+    if (!question) return;
+    setHistory((prev) => [...prev, {{ role: "user", text: question }}]);
+    setDraft("");
+    try {{
+      const data = await ask.mutateAsync({{ query: question }} as Parameters<typeof ask.mutateAsync>[0]);
+      const reply =
+        typeof data === "object" && data !== null && "answer" in data
+          ? String((data as {{ answer?: unknown }}).answer ?? "")
+          : JSON.stringify(data ?? "");
+      setHistory((prev) => [...prev, {{ role: "assistant", text: reply || "(no answer)" }}]);
+    }} catch (err: unknown) {{
+      setHistory((prev) => [
+        ...prev,
+        {{ role: "assistant", text: err instanceof Error ? err.message : "AI request failed" }},
+      ]);
+    }}
+  }}
+
+  return (
+    <>
+      {{/* AGENT_FILL:ai_chat:start */}}
+      <div className="flex h-[calc(100vh-8rem)] flex-col space-y-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">AI Assistant</h1>
+          <p className="text-muted-foreground">Ask {ir.marketplace.name} questions</p>
+        </div>
+        <Card className="flex-1 overflow-y-auto">
+          <CardContent className="space-y-3 pt-6">
+            {{history.length === 0 && (
+              <p className="text-center text-muted-foreground">
+                Ask a question to get started.
+              </p>
+            )}}
+            {{history.map((turn, idx) => (
+              <div
+                key={{idx}}
+                className={{turn.role === "user"
+                  ? "rounded-md bg-primary/10 p-3 text-sm"
+                  : "rounded-md border p-3 text-sm"}}
+              >
+                <p className="mb-1 text-xs font-medium text-muted-foreground">
+                  {{turn.role === "user" ? "You" : "Assistant"}}
+                </p>
+                <p className="whitespace-pre-wrap">{{turn.text}}</p>
+              </div>
+            ))}}
+          </CardContent>
+        </Card>
+        <form onSubmit={{handleSubmit}} className="flex gap-2">
+          <Input
+            placeholder="Ask anything…"
+            value={{draft}}
+            onChange={{(e) => setDraft(e.target.value)}}
+            className="flex-1"
+          />
+          <Button type="submit" disabled={{ask.isPending || !draft.trim()}}>
+            {{ask.isPending ? "Thinking…" : "Send"}}
+          </Button>
+        </form>
+      </div>
+      {{/* AGENT_FILL:ai_chat:end */}}
+    </>
+  );
+}}
+"""
+
+
+# ── Admin sub-pages ───────────────────────────────────────────────────
+
+
+def _admin_users_page(ir: FrontendIR) -> str:
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ useMemo }} from "react";
+import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ Button }} from "@/components/ui/button";
+import {{
+  useListUsers,
+  useActivateUser,
+  useDeactivateUser,
+}} from "@/generated/hooks/use-admin";
+
+interface AdminUserRow {{
+  _id?: string;
+  id?: string;
+  email?: string;
+  role?: string;
+  is_active?: boolean;
+  participant_type?: string;
+}}
+
+export default function AdminUsersPage() {{
+  const users = useListUsers();
+  const activate = useActivateUser();
+  const deactivate = useDeactivateUser();
+
+  const rows: AdminUserRow[] = useMemo(() => {{
+    const data = users.data;
+    if (Array.isArray(data)) return data as AdminUserRow[];
+    return [];
+  }}, [users.data]);
+
+  return (
+    <>
+      {{/* AGENT_FILL:admin_users:start */}}
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Users</h1>
+          <p className="text-muted-foreground">Manage user accounts</p>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>All users ({{rows.length}})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {{users.isLoading ? (
+              <p className="text-muted-foreground">Loading users…</p>
+            ) : rows.length === 0 ? (
+              <p className="text-muted-foreground">No users yet.</p>
+            ) : (
+              <ul className="divide-y">
+                {{rows.map((row) => {{
+                  const id = String(row._id ?? row.id ?? "");
+                  return (
+                    <li key={{id}} className="flex items-center justify-between py-3">
+                      <div>
+                        <p className="font-medium">{{row.email ?? "—"}}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {{row.role ?? "user"}} · {{row.participant_type ?? "—"}}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        {{row.is_active === false ? (
+                          <Button
+                            size="sm"
+                            onClick={{() => activate.mutate(id)}}
+                            disabled={{activate.isPending}}
+                          >
+                            Activate
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={{() => deactivate.mutate(id)}}
+                            disabled={{deactivate.isPending}}
+                          >
+                            Deactivate
+                          </Button>
+                        )}}
+                      </div>
+                    </li>
+                  );
+                }})}}
+              </ul>
+            )}}
+          </CardContent>
+        </Card>
+      </div>
+      {{/* AGENT_FILL:admin_users:end */}}
+    </>
+  );
+}}
+"""
+
+
+def _admin_applications_page(ir: FrontendIR) -> str:
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ useMemo, useState }} from "react";
+import Link from "next/link";
+import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ Button }} from "@/components/ui/button";
+import {{ Badge }} from "@/components/ui/badge";
+import {{
+  useListApplications,
+  useApproveApplication,
+  useRejectApplication,
+}} from "@/generated/hooks/use-admin";
+
+type StatusFilter = "all" | "pending" | "approved" | "rejected";
+
+interface ApplicationRow {{
+  _id?: string;
+  id?: string;
+  status?: string;
+  applicant_email?: string;
+  participant_type?: string;
+  submitted_at?: string;
+  created_at?: string;
+  submitted_completeness?: number;
+  admin_feedback?: string | null;
+  submitted_fields?: Record<string, unknown>;
+}}
+
+export default function AdminApplicationsPage() {{
+  const applications = useListApplications();
+  const approve = useApproveApplication();
+  const reject = useRejectApplication();
+  const [filter, setFilter] = useState<StatusFilter>("pending");
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectionFeedback, setRejectionFeedback] = useState("");
+
+  const rows: ApplicationRow[] = useMemo(() => {{
+    const data = applications.data;
+    return Array.isArray(data) ? (data as ApplicationRow[]) : [];
+  }}, [applications.data]);
+
+  const filtered = useMemo(() => {{
+    if (filter === "all") return rows;
+    return rows.filter((r) => r.status === filter);
+  }}, [rows, filter]);
+
+  function statusVariant(status?: string): "default" | "secondary" | "destructive" | "outline" {{
+    if (status === "approved") return "default";
+    if (status === "rejected") return "destructive";
+    if (status === "pending") return "secondary";
+    return "outline";
+  }}
+
+  return (
+    <>
+      {{/* AGENT_FILL:admin_applications:start */}}
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Applications</h1>
+          <p className="text-muted-foreground">Review onboarding applications across every participant type.</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {{(["pending", "approved", "rejected", "all"] as StatusFilter[]).map((f) => (
+            <Button
+              key={{f}}
+              size="sm"
+              variant={{filter === f ? "default" : "outline"}}
+              onClick={{() => setFilter(f)}}
+              className="capitalize"
+            >
+              {{f}}
+            </Button>
+          ))}}
+          <span className="ml-auto text-sm text-muted-foreground">
+            {{applications.isLoading ? "Loading…" : `${{filtered.length}} of ${{rows.length}}`}}
+          </span>
+        </div>
+
+        <Card className="animate-fade-in-up">
+          <CardHeader>
+            <CardTitle className="capitalize">{{filter}} applications</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {{applications.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading applications…</p>
+            ) : applications.error ? (
+              <p className="text-sm text-destructive">{{applications.error.message}}</p>
+            ) : filtered.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                No applications in this view.
+              </p>
+            ) : (
+              <ul className="divide-y rounded-md border">
+                {{filtered.map((row) => {{
+                  const id = String(row._id ?? row.id ?? "");
+                  const submittedAt = row.submitted_at ?? row.created_at;
+                  const isPending = row.status === "pending";
+                  return (
+                    <li key={{id}} className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate font-medium">{{row.applicant_email ?? "(no email)"}}</p>
+                          <Badge variant={{statusVariant(row.status)}}>{{row.status ?? "pending"}}</Badge>
+                          <Badge variant="outline" className="capitalize">
+                            {{row.participant_type ?? "—"}}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {{submittedAt ? new Date(submittedAt).toLocaleString() : ""}}
+                          {{typeof row.submitted_completeness === "number"
+                            ? ` · ${{row.submitted_completeness}}% complete`
+                            : ""}}
+                        </p>
+                        {{row.admin_feedback && (
+                          <p className="rounded-md bg-muted/60 px-3 py-2 text-xs">
+                            <span className="font-medium">Feedback:</span> {{row.admin_feedback}}
+                          </p>
+                        )}}
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <Link
+                          href={{`/admin/applications/${{id}}`}}
+                          className="inline-flex items-center justify-center rounded-md border px-3 py-1 text-sm hover:bg-muted"
+                        >
+                          Review
+                        </Link>
+                        {{isPending && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={{() => {{
+                                setRejectingId(id);
+                                setRejectionFeedback("");
+                              }}}}
+                              disabled={{reject.isPending}}
+                            >
+                              Reject
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={{() => approve.mutate(id as Parameters<typeof approve.mutate>[0])}}
+                              disabled={{approve.isPending}}
+                            >
+                              Approve
+                            </Button>
+                          </>
+                        )}}
+                      </div>
+                    </li>
+                  );
+                }})}}
+              </ul>
+            )}}
+          </CardContent>
+        </Card>
+
+        {{rejectingId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
+            <Card className="w-full max-w-md animate-scale-in">
+              <CardHeader>
+                <CardTitle>Reject application</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Optionally include feedback. The applicant will see this when they next sign in.
+                </p>
+                <textarea
+                  value={{rejectionFeedback}}
+                  onChange={{(e) => setRejectionFeedback(e.target.value)}}
+                  rows={{4}}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="Optional feedback for the applicant"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={{() => setRejectingId(null)}}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={{() => {{
+                      const id = rejectingId;
+                      reject.mutate({{
+                        app_id: id,
+                        body: {{ feedback: rejectionFeedback }},
+                      }} as unknown as Parameters<typeof reject.mutate>[0]);
+                      setRejectingId(null);
+                      setRejectionFeedback("");
+                    }}}}
+                    disabled={{reject.isPending}}
+                  >
+                    Confirm rejection
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}}
+      </div>
+      {{/* AGENT_FILL:admin_applications:end */}}
+    </>
+  );
+}}
+"""
+
+
+def _admin_faqs_page(ir: FrontendIR) -> str:
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ useMemo, useState }} from "react";
+import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ Button }} from "@/components/ui/button";
+import {{ Input }} from "@/components/ui/input";
+import {{ Label }} from "@/components/ui/label";
+import {{
+  useListFaqs,
+  useCreateFaq,
+  useDeleteFaq,
+  useUpdateFaq,
+}} from "@/generated/hooks/use-admin";
+
+interface FaqRow {{
+  _id?: string;
+  id?: string;
+  question?: string;
+  answer?: string;
+}}
+
+export default function AdminFaqsPage() {{
+  const faqs = useListFaqs();
+  const create = useCreateFaq();
+  const update = useUpdateFaq();
+  const remove = useDeleteFaq();
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [editingFaq, setEditingFaq] = useState<FaqRow | null>(null);
+  const [deletingFaq, setDeletingFaq] = useState<FaqRow | null>(null);
+  const [expandedFaqs, setExpandedFaqs] = useState<Set<string>>(new Set());
+
+  const rows: FaqRow[] = useMemo(() => {{
+    const data = faqs.data;
+    if (Array.isArray(data)) return data as FaqRow[];
+    return [];
+  }}, [faqs.data]);
+
+  async function handleCreate(e: React.FormEvent) {{
+    e.preventDefault();
+    if (!question.trim() || !answer.trim()) return;
+    await create.mutateAsync({{ question, answer }} as Parameters<typeof create.mutateAsync>[0]);
+    setQuestion("");
+    setAnswer("");
+    setShowAddDialog(false);
+  }}
+
+  async function handleEdit(e: React.FormEvent) {{
+    e.preventDefault();
+    if (!editingFaq || !question.trim() || !answer.trim()) return;
+    const faq_id = String(editingFaq._id ?? editingFaq.id ?? "");
+    await update.mutateAsync({{ faq_id, body: {{ question, answer }} }} as Parameters<typeof update.mutateAsync>[0]);
+    setEditingFaq(null);
+    setShowEditDialog(false);
+  }}
+
+  async function handleDelete() {{
+    if (!deletingFaq) return;
+    const id = String(deletingFaq._id ?? deletingFaq.id ?? "");
+    await remove.mutateAsync(id as Parameters<typeof remove.mutateAsync>[0]);
+    setDeletingFaq(null);
+    setShowDeleteDialog(false);
+  }}
+
+  return (
+    <>
+      {{/* AGENT_FILL:admin_faqs:start */}}
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">FAQs</h1>
+          <p className="text-muted-foreground">Manage frequently asked questions</p>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Add a FAQ</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={{handleCreate}} className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="faq-q">Question</Label>
+                <Input
+                  id="faq-q"
+                  value={{question}}
+                  onChange={{(e) => setQuestion(e.target.value)}}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="faq-a">Answer</Label>
+                <Input
+                  id="faq-a"
+                  value={{answer}}
+                  onChange={{(e) => setAnswer(e.target.value)}}
+                  required
+                />
+              </div>
+              <Button type="submit" disabled={{create.isPending}}>
+                {{create.isPending ? "Saving…" : "Add FAQ"}}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Existing FAQs ({{rows.length}})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {{faqs.isLoading ? (
+              <p className="text-muted-foreground">Loading FAQs…</p>
+            ) : rows.length === 0 ? (
+              <p className="text-muted-foreground">No FAQs yet.</p>
+            ) : (
+              <ul className="divide-y">
+                {{rows.map((row) => {{
+                  const id = String(row._id ?? row.id ?? "");
+                  return (
+                    <li key={{id}} className="flex items-start justify-between py-3">
+                      <div className="flex-1 pr-4">
+                        <p className="font-medium">{{row.question ?? "—"}}</p>
+                        <p className="text-sm text-muted-foreground">{{row.answer ?? ""}}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={{() => remove.mutate(id)}}
+                        disabled={{remove.isPending}}
+                      >
+                        Delete
+                      </Button>
+                    </li>
+                  );
+                }})}}
+              </ul>
+            )}}
+          </CardContent>
+        </Card>
+      </div>
+      {{/* AGENT_FILL:admin_faqs:end */}}
+    </>
+  );
+}}
+"""
+
+
+def _admin_ai_page(ir: FrontendIR) -> str:
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{
+  useAiSettings,
+  useListAdminPrompts,
+}} from "@/generated/hooks/use-admin";
+
+export default function AdminAiPage() {{
+  const settings = useAiSettings();
+  const prompts = useListAdminPrompts();
+
+  return (
+    <>
+      {{/* AGENT_FILL:admin_ai:start */}}
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">AI Settings</h1>
+          <p className="text-muted-foreground">Configure providers, models, and prompts</p>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Active configuration</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {{settings.isLoading ? (
+              <p className="text-muted-foreground">Loading settings…</p>
+            ) : (
+              <pre className="overflow-x-auto rounded-md bg-muted p-4 text-xs">
+                {{JSON.stringify(settings.data ?? {{}}, null, 2)}}
+              </pre>
+            )}}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Prompts</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {{prompts.isLoading ? (
+              <p className="text-muted-foreground">Loading prompts…</p>
+            ) : (
+              <pre className="overflow-x-auto rounded-md bg-muted p-4 text-xs">
+                {{JSON.stringify(prompts.data ?? [], null, 2)}}
+              </pre>
+            )}}
+          </CardContent>
+        </Card>
+      </div>
+      {{/* AGENT_FILL:admin_ai:end */}}
+    </>
+  );
+}}
+"""
+
+
+# ── Additional admin pages ────────────────────────────────────────────
+
+
+def _admin_profile_review_page(ir: FrontendIR) -> str:
+    """Admin profile detail with approve/reject status controls.
+
+    Routes ``GET /api/admin/profiles/{profile_id}`` and
+    ``PUT /api/admin/profiles/{profile_id}/status``.
+    """
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ use, useState }} from "react";
+import Link from "next/link";
+import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ Button }} from "@/components/ui/button";
+import {{ Badge }} from "@/components/ui/badge";
+import {{
+  useAdminProfile,
+  useUpdateProfileStatus,
+}} from "@/generated/hooks/use-admin";
+
+interface ProfileDetail {{
+  _id?: string;
+  id?: string;
+  status?: string;
+  applicant_email?: string;
+  participant_type?: string;
+  submitted_at?: string;
+  created_at?: string;
+  submitted_completeness?: number;
+  submitted_fields?: Record<string, unknown>;
+  fields?: Record<string, unknown>;
+  admin_feedback?: string | null;
+}}
+
+export default function AdminProfileReviewPage({{
+  params,
+}}: {{
+  params: Promise<{{ id: string }}>
+}}) {{
+  const {{ id }} = use(params);
+  const profile = useAdminProfile(id);
+  const updateStatus = useUpdateProfileStatus();
+  const [feedback, setFeedback] = useState("");
+
+  const data: ProfileDetail = (profile.data && typeof profile.data === "object")
+    ? (profile.data as ProfileDetail)
+    : {{}};
+
+  const fields = data.submitted_fields ?? data.fields ?? {{}};
+  const fieldEntries = Object.entries(fields);
+
+  function changeStatus(newStatus: "approved" | "rejected" | "pending") {{
+    updateStatus.mutate({{
+      profile_id: id,
+      body: {{ status: newStatus, admin_feedback: feedback }},
+    }} as unknown as Parameters<typeof updateStatus.mutate>[0]);
+  }}
+
+  if (profile.isLoading) {{
+    return <p className="text-sm text-muted-foreground">Loading profile…</p>;
+  }}
+
+  if (profile.error) {{
+    return (
+      <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+        {{profile.error.message}}
+      </div>
+    );
+  }}
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <Link href="/admin/applications" className="text-sm text-primary hover:underline">
+          ← Back to applications
+        </Link>
+      </div>
+
+      <Card className="animate-fade-in-up">
+        <CardHeader className="space-y-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-2xl">{{data.applicant_email ?? "(no email)"}}</CardTitle>
+            <Badge
+              variant={{
+                data.status === "approved" ? "default" :
+                data.status === "rejected" ? "destructive" :
+                "secondary"
+              }}
+            >
+              {{data.status ?? "pending"}}
+            </Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            <span className="capitalize">{{data.participant_type ?? "—"}}</span>
+            {{data.submitted_at ? ` · submitted ${{new Date(data.submitted_at).toLocaleString()}}` : ""}}
+            {{typeof data.submitted_completeness === "number"
+              ? ` · ${{data.submitted_completeness}}% complete`
+              : ""}}
+          </p>
+        </CardHeader>
+      </Card>
+
+      <Card className="animate-fade-in-up" style={{{{ animationDelay: "60ms" }}}}>
+        <CardHeader>
+          <CardTitle>Submitted information</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {{fieldEntries.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No fields submitted.</p>
+          ) : (
+            <dl className="grid gap-4 sm:grid-cols-2">
+              {{fieldEntries.map(([key, value]) => (
+                <div key={{key}} className="rounded-md border bg-muted/40 p-3">
+                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">{{key}}</dt>
+                  <dd className="mt-1 break-words text-sm">
+                    {{Array.isArray(value)
+                      ? (value as unknown[]).map((v) => String(v)).join(", ")
+                      : typeof value === "object" && value !== null
+                      ? JSON.stringify(value)
+                      : String(value ?? "—")}}
+                  </dd>
+                </div>
+              ))}}
+            </dl>
+          )}}
+        </CardContent>
+      </Card>
+
+      {{data.admin_feedback && (
+        <Card className="animate-fade-in-up" style={{{{ animationDelay: "120ms" }}}}>
+          <CardHeader>
+            <CardTitle>Existing admin feedback</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="rounded-md bg-muted/60 px-3 py-2 text-sm">{{data.admin_feedback}}</p>
+          </CardContent>
+        </Card>
+      )}}
+
+      <Card className="animate-fade-in-up" style={{{{ animationDelay: "180ms" }}}}>
+        <CardHeader>
+          <CardTitle>Decision</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <textarea
+            value={{feedback}}
+            onChange={{(e) => setFeedback(e.target.value)}}
+            rows={{3}}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            placeholder="Optional feedback for the applicant"
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={{() => changeStatus("approved")}}
+              disabled={{updateStatus.isPending}}
+            >
+              Approve
+            </Button>
+            <Button
+              variant="outline"
+              onClick={{() => changeStatus("pending")}}
+              disabled={{updateStatus.isPending}}
+            >
+              Mark pending
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={{() => changeStatus("rejected")}}
+              disabled={{updateStatus.isPending}}
+            >
+              Reject
+            </Button>
+          </div>
+          {{updateStatus.error && (
+            <p className="text-sm text-destructive">{{updateStatus.error.message}}</p>
+          )}}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}}
+"""
+
+
+def _admin_conversations_page(ir: FrontendIR) -> str:
+    """Admin browser of every conversation across the marketplace."""
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ useMemo, useState }} from "react";
+import Link from "next/link";
+import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ Input }} from "@/components/ui/input";
+import {{ Badge }} from "@/components/ui/badge";
+import {{ useListAdminConversations }} from "@/generated/hooks/use-admin";
+
+interface ConversationRow {{
+  _id?: string;
+  id?: string;
+  subject?: string;
+  status?: string;
+  created_at?: string;
+  updated_at?: string;
+  participant_ids?: string[];
+  participants?: Array<{{ id?: string; email?: string; participant_type?: string }}>;
+}}
+
+export default function AdminConversationsPage() {{
+  const conversations = useListAdminConversations();
+  const [query, setQuery] = useState("");
+
+  const rows: ConversationRow[] = useMemo(() => {{
+    const data = conversations.data;
+    return Array.isArray(data) ? (data as ConversationRow[]) : [];
+  }}, [conversations.data]);
+
+  const filtered = useMemo(() => {{
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((row) => {{
+      const subject = (row.subject ?? "").toLowerCase();
+      const participants = (row.participants ?? [])
+        .map((p) => `${{p.email ?? ""}} ${{p.participant_type ?? ""}}`)
+        .join(" ")
+        .toLowerCase();
+      return subject.includes(q) || participants.includes(q);
+    }});
+  }}, [rows, query]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">All conversations</h1>
+          <p className="text-muted-foreground">Audit every thread across {ir.marketplace.name}.</p>
+        </div>
+        <Input
+          value={{query}}
+          onChange={{(e) => setQuery(e.target.value)}}
+          placeholder="Search subject or participant"
+          className="max-w-sm"
+        />
+      </div>
+
+      <Card className="animate-fade-in-up">
+        <CardHeader>
+          <CardTitle>{{filtered.length}} of {{rows.length}} conversations</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {{conversations.isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading conversations…</p>
+          ) : conversations.error ? (
+            <p className="text-sm text-destructive">{{conversations.error.message}}</p>
+          ) : filtered.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              No conversations match the current filter.
+            </p>
+          ) : (
+            <ul className="divide-y rounded-md border">
+              {{filtered.map((row) => {{
+                const id = String(row._id ?? row.id ?? "");
+                const updated = row.updated_at ?? row.created_at;
+                return (
+                  <li key={{id}}>
+                    <Link
+                      href={{`/admin/conversations/${{id}}`}}
+                      className="flex flex-col gap-2 p-4 transition-colors hover:bg-muted/40 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate font-medium">{{row.subject ?? "(no subject)"}}</p>
+                          {{row.status && <Badge variant="secondary">{{row.status}}</Badge>}}
+                        </div>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {{(row.participants ?? [])
+                            .map((p) => p.email ?? "(unknown)")
+                            .join(" ↔ ") || "No participants listed"}}
+                        </p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {{updated ? new Date(updated).toLocaleString() : ""}}
+                      </p>
+                    </Link>
+                  </li>
+                );
+              }})}}
+            </ul>
+          )}}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}}
+"""
+
+
+def _admin_conversation_thread_page(ir: FrontendIR) -> str:
+    """Read-only admin view of an individual conversation's messages."""
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ use, useMemo }} from "react";
+import Link from "next/link";
+import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ Badge }} from "@/components/ui/badge";
+import {{ useConversationMessages }} from "@/generated/hooks/use-admin";
+
+interface MessageRow {{
+  _id?: string;
+  id?: string;
+  content?: string;
+  body?: string;
+  sender_id?: string;
+  sender_email?: string;
+  created_at?: string;
+}}
+
+export default function AdminConversationThreadPage({{
+  params,
+}}: {{
+  params: Promise<{{ id: string }}>
+}}) {{
+  const {{ id }} = use(params);
+  const messages = useConversationMessages(id);
+
+  const rows: MessageRow[] = useMemo(() => {{
+    const data = messages.data;
+    return Array.isArray(data) ? (data as MessageRow[]) : [];
+  }}, [messages.data]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <Link href="/admin/conversations" className="text-sm text-primary hover:underline">
+          ← All conversations
+        </Link>
+      </div>
+
+      <Card className="animate-fade-in-up">
+        <CardHeader>
+          <CardTitle>Conversation {{id.slice(0, 8)}}…</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {{messages.isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading messages…</p>
+          ) : messages.error ? (
+            <p className="text-sm text-destructive">{{messages.error.message}}</p>
+          ) : rows.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              No messages yet.
+            </p>
+          ) : (
+            <ol className="space-y-4">
+              {{rows.map((msg) => {{
+                const mid = String(msg._id ?? msg.id ?? "");
+                const text = msg.content ?? msg.body ?? "";
+                return (
+                  <li key={{mid}} className="rounded-md border bg-muted/30 p-3">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <Badge variant="outline">{{msg.sender_email ?? msg.sender_id ?? "unknown"}}</Badge>
+                      <span>{{msg.created_at ? new Date(msg.created_at).toLocaleString() : ""}}</span>
+                    </div>
+                    <p className="mt-2 whitespace-pre-wrap text-sm">{{text}}</p>
+                  </li>
+                );
+              }})}}
+            </ol>
+          )}}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}}
+"""
+
+
+def _admin_config_page(ir: FrontendIR) -> str:
+    """Read-only marketplace config viewer."""
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ Badge }} from "@/components/ui/badge";
+import {{ useConfigSummary }} from "@/generated/hooks/use-admin";
+
+interface ConfigData {{
+  marketplace?: Record<string, unknown>;
+  participant_types?: Array<Record<string, unknown>>;
+  auth?: Record<string, unknown>;
+  discovery?: Record<string, unknown>;
+}}
+
+export default function AdminConfigPage() {{
+  const config = useConfigSummary();
+  const data: ConfigData = (config.data && typeof config.data === "object")
+    ? (config.data as ConfigData)
+    : {{}};
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Marketplace config</h1>
+        <p className="text-muted-foreground">Read-only view of the active configuration.</p>
+      </div>
+
+      {{config.isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading config…</p>
+      ) : config.error ? (
+        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+          {{config.error.message}}
+        </div>
+      ) : (
+        <>
+          <Card className="animate-fade-in-up">
+            <CardHeader>
+              <CardTitle>Identity</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid gap-3 sm:grid-cols-2">
+                {{Object.entries(data.marketplace ?? {{}}).map(([k, v]) => (
+                  <div key={{k}}>
+                    <dt className="text-xs uppercase text-muted-foreground">{{k}}</dt>
+                    <dd className="mt-1 text-sm">{{typeof v === "object" ? JSON.stringify(v) : String(v)}}</dd>
+                  </div>
+                ))}}
+              </dl>
+            </CardContent>
+          </Card>
+
+          <Card className="animate-fade-in-up" style={{{{ animationDelay: "60ms" }}}}>
+            <CardHeader>
+              <CardTitle>Participant types</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-2">
+                {{(data.participant_types ?? []).map((pt, idx) => {{
+                  const slug = String(pt.slug ?? `type-${{idx}}`);
+                  return (
+                    <li key={{slug}} className="flex items-center justify-between rounded-md border bg-muted/40 p-3">
+                      <div className="min-w-0">
+                        <p className="font-medium capitalize">{{String(pt.name ?? slug)}}</p>
+                        <p className="text-xs text-muted-foreground capitalize">role: {{String(pt.role ?? "—")}}</p>
+                      </div>
+                      <Badge variant="outline">{{slug}}</Badge>
+                    </li>
+                  );
+                }})}}
+              </ul>
+            </CardContent>
+          </Card>
+
+          <Card className="animate-fade-in-up" style={{{{ animationDelay: "120ms" }}}}>
+            <CardHeader>
+              <CardTitle>Raw configuration</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <pre className="overflow-x-auto rounded-md bg-muted p-4 text-xs">
+                {{JSON.stringify(data, null, 2)}}
+              </pre>
+            </CardContent>
+          </Card>
+        </>
+      )}}
+    </div>
+  );
+}}
+"""
+
+
+def _admin_application_detail_page(ir: FrontendIR) -> str:
+    """Application review page — renders submitted fields and approve/reject.
+
+    Uses the cached ``useListApplications`` query to locate the application
+    by id (avoids a second roundtrip when the admin navigated here from the
+    dashboard or applications list). Falls back to a clear empty state if
+    the id is unknown — e.g. someone navigated directly via URL after the
+    application was approved/rejected and dropped from the active filter.
+    """
+    return f"""\
+{_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
+"use client";
+
+import {{ use, useMemo, useState }} from "react";
+import Link from "next/link";
+import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ Button }} from "@/components/ui/button";
+import {{ Badge }} from "@/components/ui/badge";
+import {{
+  useApproveApplication,
+  useListApplications,
+  useRejectApplication,
+}} from "@/generated/hooks/use-admin";
+
+interface ApplicationDetail {{
+  _id?: string;
+  id?: string;
+  status?: string;
+  applicant_email?: string;
+  participant_type?: string;
+  submitted_at?: string;
+  created_at?: string;
+  submitted_completeness?: number;
+  submitted_fields?: Record<string, unknown>;
+  admin_feedback?: string | null;
+  user_id?: string | null;
+}}
+
+function statusVariant(status?: string): "default" | "secondary" | "destructive" | "outline" {{
+  if (status === "approved") return "default";
+  if (status === "rejected") return "destructive";
+  if (status === "pending") return "secondary";
+  return "outline";
+}}
+
+function renderFieldValue(value: unknown): string {{
+  if (value === null || value === undefined) return "—";
+  if (Array.isArray(value)) return value.map((v) => String(v)).join(", ");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}}
+
+export default function AdminApplicationDetailPage({{
+  params,
+}}: {{
+  params: Promise<{{ id: string }}>
+}}) {{
+  const {{ id }} = use(params);
+  const applications = useListApplications();
+  const approve = useApproveApplication();
+  const reject = useRejectApplication();
+  const [feedback, setFeedback] = useState("");
+
+  const application = useMemo<ApplicationDetail | null>(() => {{
+    if (!Array.isArray(applications.data)) return null;
+    return (
+      (applications.data as ApplicationDetail[]).find(
+        (row) => String(row._id ?? row.id ?? "") === id,
+      ) ?? null
+    );
+  }}, [applications.data, id]);
+
+  if (applications.isLoading && !application) {{
+    return <p className="text-sm text-muted-foreground">Loading application…</p>;
+  }}
+
+  if (applications.error) {{
+    return (
+      <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+        Failed to load applications: {{applications.error.message}}
+      </div>
+    );
+  }}
+
+  if (!application) {{
+    return (
+      <div className="space-y-4">
+        <Link href="/admin/applications" className="text-sm text-primary hover:underline">
+          ← Back to applications
+        </Link>
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
+            Application <code className="font-mono text-xs">{{id}}</code> not found.
+            It may have been deleted, or your applications list is filtered.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }}
+
+  const submittedAt = application.submitted_at ?? application.created_at;
+  const fieldEntries = Object.entries(application.submitted_fields ?? {{}});
+  const isPending = application.status === "pending";
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <Link href="/admin/applications" className="text-sm text-primary hover:underline">
+          ← Back to applications
+        </Link>
+      </div>
+
+      <Card className="animate-fade-in-up">
+        <CardHeader className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-2xl">{{application.applicant_email ?? "(no email)"}}</CardTitle>
+            <div className="flex items-center gap-2">
+              <Badge variant={{statusVariant(application.status)}}>{{application.status ?? "pending"}}</Badge>
+              <Badge variant="outline" className="capitalize">
+                {{application.participant_type ?? "—"}}
+              </Badge>
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {{submittedAt ? `Submitted ${{new Date(submittedAt).toLocaleString()}}` : ""}}
+            {{typeof application.submitted_completeness === "number"
+              ? ` · ${{application.submitted_completeness}}% complete`
+              : ""}}
+          </p>
+          {{application.admin_feedback && (
+            <p className="rounded-md bg-muted/60 px-3 py-2 text-sm">
+              <span className="font-medium">Existing admin feedback:</span> {{application.admin_feedback}}
+            </p>
+          )}}
+        </CardHeader>
+      </Card>
+
+      <Card className="animate-fade-in-up" style={{{{ animationDelay: "60ms" }}}}>
+        <CardHeader>
+          <CardTitle>Submitted information</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {{fieldEntries.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No fields submitted.</p>
+          ) : (
+            <dl className="grid gap-4 sm:grid-cols-2">
+              {{fieldEntries.map(([key, value]) => (
+                <div key={{key}} className="rounded-md border bg-muted/40 p-3">
+                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {{key.replace(/_/g, " ")}}
+                  </dt>
+                  <dd className="mt-1 break-words text-sm">{{renderFieldValue(value)}}</dd>
+                </div>
+              ))}}
+            </dl>
+          )}}
+        </CardContent>
+      </Card>
+
+      {{isPending ? (
+        <Card className="animate-fade-in-up" style={{{{ animationDelay: "120ms" }}}}>
+          <CardHeader>
+            <CardTitle>Decision</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <textarea
+              value={{feedback}}
+              onChange={{(e) => setFeedback(e.target.value)}}
+              rows={{3}}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="Optional feedback for the applicant (shown on rejection emails)"
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={{() => approve.mutate(id as Parameters<typeof approve.mutate>[0])}}
+                disabled={{approve.isPending}}
+              >
+                Approve application
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={{() =>
+                  reject.mutate({{
+                    app_id: id,
+                    body: {{ feedback }},
+                  }} as unknown as Parameters<typeof reject.mutate>[0])
+                }}
+                disabled={{reject.isPending}}
+              >
+                Reject application
+              </Button>
+            </div>
+            {{(approve.error || reject.error) && (
+              <p className="text-sm text-destructive">
+                {{approve.error?.message ?? reject.error?.message}}
+              </p>
+            )}}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="animate-fade-in-up" style={{{{ animationDelay: "120ms" }}}}>
+          <CardHeader>
+            <CardTitle>Decision history</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              This application is{{" "}}
+              <span className="font-medium">{{application.status ?? "—"}}</span>.
+              {{application.user_id
+                ? " A profile has been created for this user."
+                : " No further action available."}}
+            </p>
+          </CardContent>
+        </Card>
+      )}}
     </div>
   );
 }}

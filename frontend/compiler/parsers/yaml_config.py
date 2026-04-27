@@ -75,6 +75,23 @@ class ConversationRuleDef:
 
 
 @dataclass(frozen=True)
+class ThemeDef:
+    """Per-marketplace UI theme.
+
+    Tokens flow into ``tailwind.config.ts`` and ``globals.css`` so every page
+    picks up the marketplace's voice automatically.
+    """
+
+    primary: str = "#2563eb"        # CSS color, applied as --primary
+    accent: str = "#4f46e5"         # CSS color, applied as --accent
+    neutral: str = "neutral"        # warm | cool | neutral
+    font: str = "Inter"             # Google Font family
+    radius: str = "md"              # sm | md | lg | xl
+    logo_emoji: str = ""            # tiny mark shown beside the marketplace name
+    voice: str = ""                 # one-sentence brand voice for agent fill
+
+
+@dataclass(frozen=True)
 class MarketplaceYaml:
     """Lightweight representation of marketplace.yaml for frontend generation."""
 
@@ -88,6 +105,7 @@ class MarketplaceYaml:
     anonymous_search_enabled: bool = False
     allow_public_signup: bool = True
     allow_public_application: bool = True
+    theme: ThemeDef = field(default_factory=ThemeDef)
 
 
 def load_marketplace_yaml(path: str | Path) -> MarketplaceYaml:
@@ -181,6 +199,8 @@ def _parse_raw(raw: dict[str, Any]) -> MarketplaceYaml:
     access = disc.get("access", {})
     auth = raw.get("auth", {})
 
+    theme = _parse_theme(raw.get("theme", {}), industry=industry, marketplace_name=name)
+
     return MarketplaceYaml(
         name=name,
         description=description,
@@ -192,4 +212,101 @@ def _parse_raw(raw: dict[str, Any]) -> MarketplaceYaml:
         anonymous_search_enabled=access.get("anonymous_search_enabled", False),
         allow_public_signup=auth.get("allow_public_signup", True),
         allow_public_application=auth.get("allow_public_application", True),
+        theme=theme,
     )
+
+
+# ── Theme defaults ────────────────────────────────────────────────────
+
+# Industry-derived theme presets. Picked when the user hasn't declared a
+# ``theme:`` block. Everything is overrideable per-token.
+_INDUSTRY_THEME_PRESETS: dict[str, dict[str, str]] = {
+    "agriculture": {
+        "primary": "#7c5e2a",
+        "accent": "#5a8a4a",
+        "neutral": "warm",
+        "font": "Plus Jakarta Sans",
+        "radius": "lg",
+        "logo_emoji": "🌾",
+        "voice": "grounded and practical, agricultural professionals talking shop",
+    },
+    "talent": {
+        "primary": "#2563eb",
+        "accent": "#7c3aed",
+        "neutral": "cool",
+        "font": "Inter",
+        "radius": "md",
+        "logo_emoji": "✦",
+        "voice": "confident and modern, professional services tone",
+    },
+    "healthcare": {
+        "primary": "#0891b2",
+        "accent": "#14b8a6",
+        "neutral": "warm",
+        "font": "Source Sans 3",
+        "radius": "md",
+        "logo_emoji": "✚",
+        "voice": "calm, careful, patient-respectful",
+    },
+    "finance": {
+        "primary": "#0f172a",
+        "accent": "#0891b2",
+        "neutral": "cool",
+        "font": "Inter",
+        "radius": "sm",
+        "logo_emoji": "◆",
+        "voice": "precise, conservative, numbers-forward",
+    },
+    "education": {
+        "primary": "#7c3aed",
+        "accent": "#f59e0b",
+        "neutral": "warm",
+        "font": "Plus Jakarta Sans",
+        "radius": "lg",
+        "logo_emoji": "✎",
+        "voice": "encouraging and clear, teacher-to-learner",
+    },
+    "logistics": {
+        "primary": "#ea580c",
+        "accent": "#0891b2",
+        "neutral": "neutral",
+        "font": "Inter",
+        "radius": "sm",
+        "logo_emoji": "▣",
+        "voice": "operational and direct, no fluff",
+    },
+}
+
+_DEFAULT_THEME = {
+    "primary": "#2563eb",
+    "accent": "#4f46e5",
+    "neutral": "neutral",
+    "font": "Inter",
+    "radius": "md",
+    "logo_emoji": "◎",
+    "voice": "clear, professional marketplace voice",
+}
+
+
+def _parse_theme(raw: dict[str, Any], *, industry: str, marketplace_name: str) -> ThemeDef:
+    """Resolve theme tokens with this priority: explicit YAML → industry preset → default."""
+    preset = _INDUSTRY_THEME_PRESETS.get(_normalize_industry(industry), _DEFAULT_THEME)
+    base = {**_DEFAULT_THEME, **preset, **{k: v for k, v in raw.items() if v is not None}}
+    return ThemeDef(
+        primary=str(base["primary"]),
+        accent=str(base["accent"]),
+        neutral=str(base["neutral"]),
+        font=str(base["font"]),
+        radius=str(base["radius"]),
+        logo_emoji=str(base["logo_emoji"]),
+        voice=str(base["voice"]),
+    )
+
+
+def _normalize_industry(industry: str) -> str:
+    """Map a free-form industry string to a known preset key."""
+    s = (industry or "").lower()
+    for key in _INDUSTRY_THEME_PRESETS:
+        if key in s:
+            return key
+    return ""

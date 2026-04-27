@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .yaml_config import MarketplaceYaml
+from .yaml_config import MarketplaceYaml, ThemeDef
 
 
 @dataclass(frozen=True)
@@ -79,6 +79,7 @@ class RawMarketplace:
     anonymous_search_enabled: bool
     allow_public_signup: bool
     allow_public_application: bool
+    theme: ThemeDef = ThemeDef()
 
 
 def parse_marketplace(config: MarketplaceYaml) -> RawMarketplace:
@@ -150,4 +151,5 @@ def parse_marketplace(config: MarketplaceYaml) -> RawMarketplace:
         anonymous_search_enabled=config.anonymous_search_enabled,
         allow_public_signup=config.allow_public_signup,
         allow_public_application=config.allow_public_application,
+        theme=config.theme,
     )

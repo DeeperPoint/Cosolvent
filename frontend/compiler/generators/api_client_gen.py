@@ -156,7 +156,12 @@ def _render_function(op: OperationIR) -> str:
                     f"  if ({qp.name} !== undefined) "
                     f'params.set("{qp.name}", String({qp.name}));'
                 )
-        path_with_query = f'`{path_expr}?${{params.toString()}}`'
+        # Only append ``?<query>`` when there's actually content — otherwise
+        # the URL trails with a bare ``?`` which some servers normalise weirdly.
+        lines.append("  const queryString = params.toString();")
+        path_with_query = (
+            f'`{path_expr}${{queryString ? `?${{queryString}}` : ""}}`'
+        )
     else:
         path_with_query = f"`{path_expr}`" if "$" in path_expr else f'"{op.path}"'
 

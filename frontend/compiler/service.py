@@ -23,7 +23,7 @@ def compile_frontend(
     output_dir: str | Path = "frontend",
     clean: bool = False,
     agent_fill: bool = False,
-    agent_model: str = "anthropic/claude-3.5-sonnet",
+    agent_model: str = "anthropic/claude-sonnet-4",
     agent_timeout_seconds: int = 120,
     agent_max_attempts: int = 2,
     verify_build: bool = False,
@@ -87,12 +87,13 @@ def compile_frontend(
     # ── Stage 4: Generate ─────────────────────────────────────────────
     artifacts: dict[str, str] = {}
 
-    artifacts.update(emit_scaffold())
+    artifacts.update(emit_scaffold(theme=ir.theme))
 
     from .generators.types_gen import emit_types
     from .generators.schemas_gen import emit_schemas
     from .generators.api_client_gen import emit_api_clients
     from .generators.hooks_gen import emit_hooks
+    from .generators.convenience_hooks_gen import emit_convenience_hooks
     from .generators.navigation_gen import emit_navigation
     from .generators.routes_gen import emit_routes
     from .generators.components_gen import emit_components
@@ -103,11 +104,21 @@ def compile_frontend(
     artifacts.update(emit_schemas(ir))
     artifacts.update(emit_api_clients(ir))
     artifacts.update(emit_hooks(ir))
+    artifacts.update(emit_convenience_hooks(ir))
     artifacts.update(emit_navigation(ir))
     artifacts.update(emit_routes(ir))
     artifacts.update(emit_components(ir))
     artifacts.update(emit_operations_manifest(ir))
     artifacts.update(emit_api_explorer_page(ir))
+
+    # Pre-wire every page's relevant hooks (per ``_PAGE_OPERATION_RULES``) so
+    # they are imported and declared in scope BEFORE the AGENT_FILL marker.
+    # The marker contract requires JSX-only content, so hooks have to live
+    # outside the marker — running this pre-fill keeps ``--agent-fill`` from
+    # having to add imports of its own.
+    from .transforms.hook_wiring import augment_pages_with_relevant_hooks
+
+    artifacts = augment_pages_with_relevant_hooks(artifacts, ir)
 
     logger.info("Generated %d artifacts", len(artifacts))
 

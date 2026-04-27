@@ -5,8 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-_START_RE = re.compile(r"AGENT_FILL:([a-zA-Z0-9_-]+):start")
-_END_RE = re.compile(r"AGENT_FILL:([a-zA-Z0-9_-]+):end")
+# Match full JSX comments so replacement spans exclude the ``*/}`` / ``{/*`` delimiters.
+# (Matching only ``AGENT_FILL:id:start`` would slice out those delimiters and corrupt the file.)
+_START_RE = re.compile(r"\{/\*\s*AGENT_FILL:([a-zA-Z0-9_-]+):start\s*\*/\}")
+_END_RE = re.compile(r"\{/\*\s*AGENT_FILL:([a-zA-Z0-9_-]+):end\s*\*/\}")
 
 
 @dataclass(frozen=True)

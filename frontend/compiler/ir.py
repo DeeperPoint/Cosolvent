@@ -6,7 +6,7 @@ compiler pipeline.  Tuples are used instead of lists so frozen hashing works.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 FieldType = Literal[
@@ -134,6 +134,10 @@ class SchemaPropertyIR:
 class SchemaIR:
     name: str
     properties: tuple[SchemaPropertyIR, ...]
+    # Free-form schemas (no top-level ``properties``) need their TS shape
+    # resolved from the raw ``type`` so we don't emit ``Record<string, unknown>``
+    # for what's actually a top-level array (``type: "array"``).
+    ts_alias: str | None = None
 
 
 @dataclass(frozen=True)
@@ -198,6 +202,19 @@ class MarketplaceIdentityIR:
 
 
 @dataclass(frozen=True)
+class ThemeIR:
+    """Resolved theme tokens, ready for emission into Tailwind / CSS / prompts."""
+
+    primary: str
+    accent: str
+    neutral: str       # warm | cool | neutral
+    font: str          # Google Font family name
+    radius: str        # sm | md | lg | xl
+    logo_emoji: str
+    voice: str
+
+
+@dataclass(frozen=True)
 class DiscoveryIR:
     searchable_types: tuple[str, ...]
     filter_fields: tuple[str, ...]
@@ -219,3 +236,14 @@ class FrontendIR:
     schemas: tuple[SchemaIR, ...]
     spec_hash: str
     generator_version: str
+    theme: ThemeIR = field(
+        default_factory=lambda: ThemeIR(
+            primary="#2563eb",
+            accent="#4f46e5",
+            neutral="neutral",
+            font="Inter",
+            radius="md",
+            logo_emoji="◎",
+            voice="clear, professional marketplace voice",
+        )
+    )

@@ -35,7 +35,45 @@ def emit_types(ir: FrontendIR) -> dict[str, str]:
     lines.append(_search_types())
     lines.append(_file_types())
 
+    # Hand-rolled types above own these names; skip OpenAPI duplicates so the
+    # emitted module stays single-declaration and ``tsc`` is happy.
+    reserved_names: set[str] = {
+        "LoginRequest",
+        "SignupRequest",
+        "AuthResponse",
+        "UserResponse",
+        "CreateConversationRequest",
+        "SendMessageRequest",
+        "EditMessageRequest",
+        "ConversationResponse",
+        "MessageResponse",
+        "NotificationResponse",
+        "SearchRequest",
+        "SearchResultItem",
+        "SearchResponse",
+        "FileResponse",
+        "PaginationParams",
+        "ApiErrorBody",
+    }
+
+    # Per-entity types (DraftFields/DraftUpdateRequest/ProfileResponse + option
+    # constants) are emitted by ``_entity_types`` above. Skip the same names
+    # if they reappear in the OpenAPI schema set.
+    from ..naming import slug_to_pascal as _pascal
+
+    for entity in ir.entities:
+        pascal = _pascal(entity.slug)
+        reserved_names.add(f"{pascal}DraftFields")
+        reserved_names.add(f"{pascal}DraftUpdateRequest")
+        reserved_names.add(f"{pascal}ProfileResponse")
+        for section in entity.sections:
+            for field in section.fields:
+                if field.options:
+                    reserved_names.add(f"{pascal}{_pascal(field.name)}Option")
+
     for schema in ir.schemas:
+        if schema.name in reserved_names:
+            continue
         lines.append(_openapi_schema_interface(schema))
 
     return {"src/generated/types.ts": "\n".join(lines) + "\n"}
@@ -242,7 +280,11 @@ export interface FileResponse {
 
 def _openapi_schema_interface(schema: SchemaIR) -> str:
     if not schema.properties:
-        return f"\nexport type {schema.name} = Record<string, unknown>;\n"
+        # ``ts_alias`` carries the resolved TS expression for free-form schemas
+        # (e.g. ``Array<Record<string, unknown>>`` for ``JSONList``). Falls
+        # back to a free-form object when the schema is genuinely a dict.
+        alias = schema.ts_alias or "Record<string, unknown>"
+        return f"\nexport type {schema.name} = {alias};\n"
 
     lines: list[str] = [f"\nexport interface {schema.name} {{"]
     for prop in schema.properties:
