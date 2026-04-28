@@ -16,16 +16,18 @@ MAX_REGISTER_UPLOAD_FILES = 10
 MAX_REGISTER_UPLOAD_TOTAL_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
-async def _extract_file_parts_from_form(form) -> list[tuple[str, str, bytes]]:
+async def _extract_file_parts_from_form(form) -> list[tuple[str, str, str, bytes]]:
     """Collect uploaded bytes from multipart form.
 
-    Prefer ``files`` / ``file`` keys; if none, scan other keys (some clients use
-    different field names). Deduplicate by ``UploadFile`` object id.
+    Returns ``(field_name, filename, content_type, data)`` tuples. ``field_name``
+    is the multipart key the client used; for the generic ``files`` / ``file``
+    keys it stays as-is so callers can fall back to a default category.
+    Deduplicate by ``UploadFile`` object id.
     """
-    file_parts: list[tuple[str, str, bytes]] = []
+    file_parts: list[tuple[str, str, str, bytes]] = []
     seen_ids: set[int] = set()
 
-    async def consume(item: object) -> None:
+    async def consume(field_name: str, item: object) -> None:
         # Starlette/FastAPI can surface file parts as different UploadFile classes.
         # Accept either explicit UploadFile instances or duck-typed upload objects.
         is_upload = isinstance(item, UploadFile) or (
@@ -46,22 +48,22 @@ async def _extract_file_parts_from_form(form) -> list[tuple[str, str, bytes]]:
             raise AppError("File exceeds upload size limit", status_code=413)
         file_parts.append(
             (
+                field_name,
                 filename,
                 item.content_type or "application/octet-stream",
                 data,
             )
         )
 
-    for key in ("files", "file"):
+    # Walk every form key once so files appended under schema field names
+    # (e.g. ``certification_documents``, ``farm_photos``) keep their source
+    # tag. The generic ``files``/``file`` keys remain supported for older
+    # clients — they just won't carry a per-field category.
+    for key in form.keys():
+        if key in ("email", "fields"):
+            continue
         for item in form.getlist(key):
-            await consume(item)
-
-    if not file_parts:
-        for key in form.keys():
-            if key in ("email", "fields"):
-                continue
-            for item in form.getlist(key):
-                await consume(item)
+            await consume(key, item)
 
     return file_parts
 
@@ -82,7 +84,7 @@ async def parse_authenticated_register_body(request: Request) -> dict | None:
 
 async def parse_anonymous_register(
     request: Request,
-) -> tuple[str | None, dict | None, list[tuple[str, str, bytes]]]:
+) -> tuple[str | None, dict | None, list[tuple[str, str, str, bytes]]]:
     """
     No session: JSON **or** multipart/form-data.
 

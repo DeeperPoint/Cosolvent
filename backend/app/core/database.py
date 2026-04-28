@@ -550,6 +550,8 @@ async def _ensure_indexes(conn) -> None:
         )
     )
     await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_sessions_token ON sessions ((data->>'token'))"))
+    await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_ws_tickets_token ON ws_tickets ((data->>'token'))"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ws_tickets_expires_at ON ws_tickets ((data->>'expires_at'))"))
     await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_drafts_user_id ON drafts ((data->>'user_id'))"))
     await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_prompts_intent ON ai_prompts ((data->>'intent'))"))
     await conn.execute(

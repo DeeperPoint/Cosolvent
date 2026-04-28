@@ -307,91 +307,149 @@ export function useConversationWebSocket(
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Hold the *latest* onEvent in a ref so callers can pass an inline closure
+  // without re-running the connection effect on every render — that loop
+  // (effect re-runs → close/open socket → setState → re-render → effect
+  // re-runs) was hitting React's "Maximum update depth exceeded" guard.
+  const onEventRef = useRef<ConversationWebSocketOptions["onEvent"]>(onEvent);
   const shouldReconnectRef = useRef(reconnect);
+  const reconnectDelayRef = useRef(reconnectDelayMs);
 
   const [state, setState] = useState<SocketConnectionState>("idle");
   const [lastEvent, setLastEvent] = useState<ConversationSocketEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const wsUrl = useMemo(() => {{
-    if (!conversationId) return null;
-    const base = toWebSocketBase(API_BASE);
-    return `${{base}}/api/communication/ws/${{encodeURIComponent(conversationId)}}`;
-  }}, [conversationId]);
-
-  const clearReconnectTimer = useCallback(() => {{
-    if (reconnectTimerRef.current) {{
-      clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = null;
-    }}
-  }}, []);
-
-  const closeSocket = useCallback(() => {{
-    if (socketRef.current) {{
-      socketRef.current.close();
-      socketRef.current = null;
-    }}
-  }}, []);
-
-  const connect = useCallback(() => {{
-    if (!enabled || !wsUrl) return;
-    setState("connecting");
-    setError(null);
-
-    const ws = new WebSocket(wsUrl);
-    socketRef.current = ws;
-
-    ws.onopen = () => {{
-      setState("connected");
-      ws.send(JSON.stringify({{ type: "auth" }}));
-    }};
-
-    ws.onmessage = (evt: MessageEvent) => {{
-      try {{
-        const parsed = JSON.parse(evt.data) as ConversationSocketEvent;
-        setLastEvent(parsed);
-        onEvent?.(parsed);
-      }} catch {{
-        // Ignore non-JSON frames.
-      }}
-    }};
-
-    ws.onerror = () => {{
-      setState("error");
-      setError("WebSocket connection error");
-    }};
-
-    ws.onclose = () => {{
-      setState("closed");
-      socketRef.current = null;
-      if (shouldReconnectRef.current && reconnect) {{
-        clearReconnectTimer();
-        reconnectTimerRef.current = setTimeout(() => {{
-          connect();
-        }}, reconnectDelayMs);
-      }}
-    }};
-  }}, [enabled, wsUrl, onEvent, reconnect, reconnectDelayMs, clearReconnectTimer]);
+  useEffect(() => {{
+    onEventRef.current = onEvent;
+  }}, [onEvent]);
 
   useEffect(() => {{
     shouldReconnectRef.current = reconnect;
   }}, [reconnect]);
 
   useEffect(() => {{
+    reconnectDelayRef.current = reconnectDelayMs;
+  }}, [reconnectDelayMs]);
+
+  const wsUrl = useMemo(() => {{
+    if (!conversationId) return null;
+    const base = toWebSocketBase(API_BASE);
+    // Backend mounts the communication router at ``/api`` and exposes the
+    // WS route as ``/ws/{{conversation_id}}`` — full path is /api/ws/...
+    // (no /communication segment).
+    return `${{base}}/api/ws/${{encodeURIComponent(conversationId)}}`;
+  }}, [conversationId]);
+
+  // Single connection lifecycle. Depends only on enabled + wsUrl so React
+  // state changes don't tear down/rebuild the socket.
+  useEffect(() => {{
     if (!enabled || !wsUrl) {{
-      clearReconnectTimer();
-      closeSocket();
       setState("idle");
       return;
     }}
 
-    connect();
-    return () => {{
-      shouldReconnectRef.current = false;
-      clearReconnectTimer();
-      closeSocket();
+    let cancelled = false;
+
+    const fetchTicket = async (): Promise<string | null> => {{
+      try {{
+        const res = await fetch(`${{API_BASE}}/api/auth/ws-ticket`, {{
+          credentials: "include",
+        }});
+        if (!res.ok) return null;
+        const body = (await res.json()) as {{ ticket?: string }};
+        return body?.ticket ?? null;
+      }} catch {{
+        return null;
+      }}
     }};
-  }}, [enabled, wsUrl, connect, clearReconnectTimer, closeSocket]);
+
+    const open = async () => {{
+      if (cancelled) return;
+      setState("connecting");
+      setError(null);
+
+      // HttpOnly session cookies aren't reliably attached to cross-port WS
+      // upgrades, so the JS client exchanges the cookie for a one-shot
+      // ticket and passes it in the auth message.
+      const ticket = await fetchTicket();
+      if (cancelled) return;
+      if (!ticket) {{
+        setState("error");
+        setError("Could not obtain WebSocket auth ticket. Are you signed in?");
+        if (shouldReconnectRef.current) {{
+          if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = setTimeout(() => {{
+            reconnectTimerRef.current = null;
+            void open();
+          }}, reconnectDelayRef.current);
+        }}
+        return;
+      }}
+
+      const ws = new WebSocket(wsUrl);
+      socketRef.current = ws;
+
+      ws.onopen = () => {{
+        if (cancelled) return;
+        setState("connected");
+        try {{
+          ws.send(JSON.stringify({{ type: "auth", ticket }}));
+        }} catch {{
+          /* swallow — onerror/onclose will drive recovery */
+        }}
+      }};
+
+      ws.onmessage = (evt: MessageEvent) => {{
+        try {{
+          const parsed = JSON.parse(evt.data) as ConversationSocketEvent;
+          setLastEvent(parsed);
+          onEventRef.current?.(parsed);
+        }} catch {{
+          // Ignore non-JSON frames.
+        }}
+      }};
+
+      ws.onerror = () => {{
+        if (cancelled) return;
+        setState("error");
+        setError("WebSocket connection error");
+      }};
+
+      ws.onclose = () => {{
+        if (cancelled) return;
+        setState("closed");
+        socketRef.current = null;
+        if (shouldReconnectRef.current) {{
+          if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = setTimeout(() => {{
+            reconnectTimerRef.current = null;
+            void open();
+          }}, reconnectDelayRef.current);
+        }}
+      }};
+    }};
+
+    void open();
+
+    return () => {{
+      cancelled = true;
+      if (reconnectTimerRef.current) {{
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }}
+      const sock = socketRef.current;
+      socketRef.current = null;
+      if (sock) {{
+        // Detach handlers before close() so a queued onclose from a
+        // half-open socket can't schedule a stale reconnect.
+        sock.onopen = null;
+        sock.onmessage = null;
+        sock.onerror = null;
+        sock.onclose = null;
+        try {{ sock.close(); }} catch {{ /* noop */ }}
+      }}
+    }};
+  }}, [enabled, wsUrl]);
 
   const sendEvent = useCallback((event: ConversationSocketEvent) => {{
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return false;
@@ -406,12 +464,20 @@ export function useConversationWebSocket(
 
   const ping = useCallback(() => sendEvent({{ type: "ping" }}), [sendEvent]);
 
+  // Manual retry: bounce the socket and let the existing onclose handler
+  // schedule the reconnect. No effect dep churn — the connection effect
+  // is unaware of this path.
   const reconnectNow = useCallback(() => {{
-    shouldReconnectRef.current = reconnect;
-    clearReconnectTimer();
-    closeSocket();
-    connect();
-  }}, [reconnect, clearReconnectTimer, closeSocket, connect]);
+    shouldReconnectRef.current = true;
+    if (reconnectTimerRef.current) {{
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }}
+    const sock = socketRef.current;
+    if (sock) {{
+      try {{ sock.close(); }} catch {{ /* noop */ }}
+    }}
+  }}, []);
 
   return {{
     state,

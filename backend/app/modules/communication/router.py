@@ -8,6 +8,7 @@ from app.core.dependencies import get_config, get_current_user, get_current_user
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.marketplace_config import MarketplaceConfig
 from app.core.response_models import DetailResponse, JSONList
+from app.modules.auth import repository as auth_repo
 from app.modules.communication import service
 from app.modules.communication.schemas import (
     ConversationResponse,
@@ -139,6 +140,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
     """
     await websocket.accept()
     session_token: str | None = None
+    authed_user_id: str | None = None
     user_id = ""
     try:
         raw = await websocket.receive_text()
@@ -152,13 +154,31 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
             await websocket.close(code=WS_CLOSE_AUTH, reason="Auth required")
             return
 
-        session_token = data.get("token") or websocket.cookies.get("session_token")
-        if not session_token:
-            await websocket.close(code=WS_CLOSE_AUTH, reason="Auth required")
-            return
+        # Browsers don't reliably attach HttpOnly session cookies to
+        # cross-port WS upgrades, so the JS client passes a one-shot
+        # ``ticket`` exchanged via ``GET /api/auth/ws-ticket``. Fall back to
+        # the session token (in-message or cookie) for tests and same-origin
+        # callers.
+        ticket = data.get("ticket")
+        if ticket:
+            ticket_user_id = await auth_repo.consume_ws_ticket(ticket)
+            if not ticket_user_id:
+                await websocket.close(code=WS_CLOSE_AUTH, reason="Invalid or expired ticket")
+                return
+            user = await auth_repo.find_user_by_id(ticket_user_id)
+            if not user:
+                await websocket.close(code=WS_CLOSE_AUTH, reason="Auth required")
+                return
+            user_id = user["_id"]
+            authed_user_id = ticket_user_id
+        else:
+            session_token = data.get("token") or websocket.cookies.get("session_token")
+            if not session_token:
+                await websocket.close(code=WS_CLOSE_AUTH, reason="Auth required")
+                return
 
-        user = await get_current_user_from_token(session_token)
-        user_id = user["_id"]
+            user = await get_current_user_from_token(session_token)
+            user_id = user["_id"]
 
         await service.get_conversation(conversation_id, user)
 
@@ -174,11 +194,22 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
                 await websocket.close(code=WS_CLOSE_BAD_REQUEST, reason="Invalid payload")
                 break
 
-            if not session_token:
+            # Refresh the user on every inbound message — picks up role changes
+            # and lets us 401 if the session was revoked. Token-auth callers
+            # re-validate via ``get_current_user_from_token``; ticket-auth
+            # callers fall back to a direct lookup keyed on the user id we
+            # captured at handshake time (no token to re-check after spend).
+            if session_token:
+                user = await get_current_user_from_token(session_token)
+            elif authed_user_id:
+                user = await auth_repo.find_user_by_id(authed_user_id)
+                if not user or not user.get("is_active", True):
+                    await websocket.close(code=WS_CLOSE_AUTH, reason="Auth required")
+                    break
+            else:
                 await websocket.close(code=WS_CLOSE_AUTH, reason="Auth required")
                 break
 
-            user = await get_current_user_from_token(session_token)
             if data.get("type") == "message":
                 msg = await service.send_message(
                     conversation_id,

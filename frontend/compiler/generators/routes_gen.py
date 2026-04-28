@@ -857,8 +857,9 @@ def _profile_detail_page(ir: FrontendIR) -> str:
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
-import {{ use, useCallback, useRef }} from "react";
+import {{ use, useCallback, useRef, useState }} from "react";
 import Link from "next/link";
+import {{ useRouter }} from "next/navigation";
 import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
 import {{ Button }} from "@/components/ui/button";
 import {{ Badge }} from "@/components/ui/badge";
@@ -869,6 +870,9 @@ import {{ useCreateConversation }} from "@/generated/hooks/use-communication";
 interface ProfileDetail {{
   _id?: string;
   id?: string;
+  /** Backend exposes the underlying user id separately from the profile id;
+      ``Start conversation`` needs the *user* id so the receiver lookup matches. */
+  user_id?: string;
   email?: string;
   participant_type?: string;
   fields?: Record<string, unknown>;
@@ -916,9 +920,11 @@ export default function ProfileDetailPage({{
   params: Promise<{{ type: string; id: string }}>
 }}) {{
   const {{ type, id }} = use(params);
+  const router = useRouter();
   const profile = useProfile(type, id);
   const filesQuery = useListProfileFiles(type, id);
   const createConversation = useCreateConversation();
+  const [convError, setConvError] = useState<string | null>(null);
 
   const files: ProfileFile[] = Array.isArray(filesQuery.data)
     ? (filesQuery.data as unknown as ProfileFile[])
@@ -943,6 +949,28 @@ export default function ProfileDetailPage({{
   const fieldEntries = Object.entries(fields).filter(([, v]) => v !== null && v !== undefined && v !== "");
   const headline = pickHeadline(data);
   const initials = headline.slice(0, 2).toUpperCase();
+  const receiverUserId = data?.user_id ?? "";
+
+  async function handleStartConversation() {{
+    if (!receiverUserId) {{
+      setConvError("This profile has no associated user account yet.");
+      return;
+    }}
+    setConvError(null);
+    try {{
+      const created = await createConversation.mutateAsync({{
+        receiver_user_id: receiverUserId,
+      }} as Parameters<typeof createConversation.mutateAsync>[0]);
+      const cid =
+        created && typeof created === "object" && "id" in created
+          ? String((created as {{ id: unknown }}).id)
+          : "";
+      if (cid) router.push(`/conversations/${{cid}}`);
+      else router.push("/conversations");
+    }} catch (err: unknown) {{
+      setConvError(err instanceof Error ? err.message : "Failed to start conversation");
+    }}
+  }}
 
   return (
     <>
@@ -990,15 +1018,18 @@ export default function ProfileDetailPage({{
                     )}}
                   </div>
                   <Button
-                    onClick={{() => createConversation.mutate({{
-                      recipient_id: String(data._id ?? data.id ?? id),
-                    }} as Parameters<typeof createConversation.mutate>[0])}}
-                    disabled={{createConversation.isPending}}
+                    onClick={{() => void handleStartConversation()}}
+                    disabled={{createConversation.isPending || !receiverUserId}}
                   >
                     <MessageSquare className="mr-2 h-4 w-4" />
                     {{createConversation.isPending ? "Starting…" : "Start conversation"}}
                   </Button>
                 </div>
+                {{convError && (
+                  <p className="mt-3 rounded-md bg-destructive/10 p-2 text-sm text-destructive">
+                    {{convError}}
+                  </p>
+                )}}
               </CardHeader>
             </Card>
 
@@ -1488,7 +1519,7 @@ def _conversations_page(ir: FrontendIR) -> str:
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
-import {{ useMemo, useState }} from "react";
+import {{ useEffect, useMemo, useState }} from "react";
 import Link from "next/link";
 import {{ useRouter }} from "next/navigation";
 import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
@@ -1503,25 +1534,68 @@ import {{
 }} from "@/components/ui/dialog";
 import {{ Input }} from "@/components/ui/input";
 import {{ Label }} from "@/components/ui/label";
-import {{ useListConversations, useCreateConversation }} from "@/generated/hooks/use-communication";
+import {{
+  useAcceptConversation,
+  useCreateConversation,
+  useListConversations,
+  useRejectConversation,
+}} from "@/generated/hooks/use-communication";
 
 interface ConversationRow {{
   _id?: string;
   id?: string;
   subject?: string;
   status?: string;
+  initiator_id?: string;
   last_message_preview?: string;
   updated_at?: string;
+}}
+
+interface MeResponse {{
+  /** ``GET /api/auth/me`` returns ``user_id`` (not ``_id``/``id``).
+      Keep the legacy keys as fallbacks in case other endpoints are reused. */
+  user_id?: string;
+  _id?: string;
+  id?: string;
+}}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:18000";
+
+async function fetchMe(): Promise<MeResponse | null> {{
+  try {{
+    const res = await fetch(`${{API_BASE}}/api/auth/me`, {{ credentials: "include" }});
+    if (!res.ok) return null;
+    return (await res.json()) as MeResponse;
+  }} catch {{
+    return null;
+  }}
 }}
 
 export default function ConversationsPage() {{
   const router = useRouter();
   const conversations = useListConversations();
   const createConversation = useCreateConversation();
+  const acceptConversation = useAcceptConversation();
+  const rejectConversation = useRejectConversation();
   const [open, setOpen] = useState(false);
-  const [recipientId, setRecipientId] = useState("");
-  const [subject, setSubject] = useState("");
+  const [receiverUserId, setReceiverUserId] = useState("");
   const [initialMessage, setInitialMessage] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
+  const [pendingRowId, setPendingRowId] = useState<string | null>(null);
+  const [me, setMe] = useState<MeResponse | null>(null);
+
+  useEffect(() => {{
+    let cancelled = false;
+    void fetchMe().then((value) => {{
+      if (!cancelled) setMe(value);
+    }});
+    return () => {{
+      cancelled = true;
+    }};
+  }}, []);
+
+  const myUserId = String(me?.user_id ?? me?._id ?? me?.id ?? "");
 
   const rows: ConversationRow[] = useMemo(() => {{
     const data = conversations.data;
@@ -1529,23 +1603,57 @@ export default function ConversationsPage() {{
     return [];
   }}, [conversations.data]);
 
+  /** Producer-side quick action: accept inbound chat request without
+      navigating into the conversation first. Recipient = participant who
+      isn't the initiator. */
+  async function handleAcceptRow(rowId: string) {{
+    setRowError(null);
+    setPendingRowId(rowId);
+    try {{
+      await acceptConversation.mutateAsync(
+        rowId as Parameters<typeof acceptConversation.mutateAsync>[0],
+      );
+    }} catch (err: unknown) {{
+      setRowError(err instanceof Error ? err.message : "Failed to accept");
+    }} finally {{
+      setPendingRowId(null);
+    }}
+  }}
+
+  async function handleRejectRow(rowId: string) {{
+    setRowError(null);
+    setPendingRowId(rowId);
+    try {{
+      await rejectConversation.mutateAsync(
+        rowId as Parameters<typeof rejectConversation.mutateAsync>[0],
+      );
+    }} catch (err: unknown) {{
+      setRowError(err instanceof Error ? err.message : "Failed to decline");
+    }} finally {{
+      setPendingRowId(null);
+    }}
+  }}
+
   async function handleCreateConversation() {{
-    const rid = recipientId.trim();
+    const rid = receiverUserId.trim();
     if (!rid) return;
-    const created = await createConversation.mutateAsync({{
-      recipient_id: rid,
-      subject: subject.trim() || undefined,
-      initial_message: initialMessage.trim() || undefined,
-    }} as Parameters<typeof createConversation.mutateAsync>[0]);
-    const cid =
-      created && typeof created === "object" && "id" in created
-        ? String((created as {{ id: unknown }}).id)
-        : "";
-    setOpen(false);
-    setRecipientId("");
-    setSubject("");
-    setInitialMessage("");
-    if (cid) router.push(`/conversations/${{cid}}`);
+    setCreateError(null);
+    try {{
+      const created = await createConversation.mutateAsync({{
+        receiver_user_id: rid,
+        initial_message: initialMessage.trim() || undefined,
+      }} as Parameters<typeof createConversation.mutateAsync>[0]);
+      const cid =
+        created && typeof created === "object" && "id" in created
+          ? String((created as {{ id: unknown }}).id)
+          : "";
+      setOpen(false);
+      setReceiverUserId("");
+      setInitialMessage("");
+      if (cid) router.push(`/conversations/${{cid}}`);
+    }} catch (err: unknown) {{
+      setCreateError(err instanceof Error ? err.message : "Failed to start conversation");
+    }}
   }}
 
   return (
@@ -1566,25 +1674,18 @@ export default function ConversationsPage() {{
             <DialogHeader>
               <DialogTitle>Start a conversation</DialogTitle>
               <DialogDescription>
-                Enter the other participant&apos;s profile or user id.
+                Enter the recipient&apos;s user id. Use the search page to find
+                participants and then start a conversation from their profile.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3 py-2">
               <div className="space-y-2">
-                <Label htmlFor="conv-recipient">Recipient id</Label>
+                <Label htmlFor="conv-recipient">Recipient user id</Label>
                 <Input
                   id="conv-recipient"
-                  value={{recipientId}}
-                  onChange={{(e) => setRecipientId(e.target.value)}}
-                  placeholder="Profile or user id"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="conv-subject">Subject (optional)</Label>
-                <Input
-                  id="conv-subject"
-                  value={{subject}}
-                  onChange={{(e) => setSubject(e.target.value)}}
+                  value={{receiverUserId}}
+                  onChange={{(e) => setReceiverUserId(e.target.value)}}
+                  placeholder="User id"
                 />
               </div>
               <div className="space-y-2">
@@ -1595,6 +1696,11 @@ export default function ConversationsPage() {{
                   onChange={{(e) => setInitialMessage(e.target.value)}}
                 />
               </div>
+              {{createError && (
+                <p className="rounded-md bg-destructive/10 p-2 text-sm text-destructive">
+                  {{createError}}
+                </p>
+              )}}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={{() => setOpen(false)}}>
@@ -1602,7 +1708,7 @@ export default function ConversationsPage() {{
               </Button>
               <Button
                 type="button"
-                disabled={{!recipientId.trim() || createConversation.isPending}}
+                disabled={{!receiverUserId.trim() || createConversation.isPending}}
                 onClick={{() => void handleCreateConversation()}}
               >
                 {{createConversation.isPending ? "Creating…" : "Create"}}
@@ -1615,6 +1721,11 @@ export default function ConversationsPage() {{
             <CardTitle>Inbox ({{rows.length}})</CardTitle>
           </CardHeader>
           <CardContent>
+            {{rowError && (
+              <p className="mb-3 rounded-md bg-destructive/10 p-2 text-sm text-destructive">
+                {{rowError}}
+              </p>
+            )}}
             {{conversations.isLoading ? (
               <p className="text-muted-foreground">Loading conversations…</p>
             ) : conversations.error ? (
@@ -1627,11 +1738,16 @@ export default function ConversationsPage() {{
               <ul className="divide-y">
                 {{rows.map((row) => {{
                   const id = String(row._id ?? row.id ?? "");
+                  const status = row.status ?? "";
+                  const initiatorId = row.initiator_id ?? "";
+                  const isInitiator = Boolean(myUserId && initiatorId && myUserId === initiatorId);
+                  const canAct = status === "pending" && Boolean(myUserId) && !isInitiator;
+                  const rowBusy = pendingRowId === id;
                   return (
-                    <li key={{id}} className="py-3">
+                    <li key={{id}} className="flex items-center gap-3 py-3">
                       <Link
                         href={{`/conversations/${{id}}`}}
-                        className="flex items-center justify-between rounded-md p-2 hover:bg-muted"
+                        className="flex min-w-0 flex-1 items-center justify-between rounded-md p-2 hover:bg-muted"
                       >
                         <div className="min-w-0 flex-1 pr-4">
                           <p className="truncate font-medium">
@@ -1641,12 +1757,41 @@ export default function ConversationsPage() {{
                             {{row.last_message_preview ?? ""}}
                           </p>
                         </div>
-                        {{row.status && (
-                          <span className="rounded bg-muted px-2 py-1 text-xs capitalize">
-                            {{row.status}}
+                        {{status && (
+                          <span
+                            className={{`rounded px-2 py-1 text-xs capitalize ${{
+                              status === "pending"
+                                ? "bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+                                : status === "active"
+                                  ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+                                  : "bg-muted"
+                            }}`}}
+                          >
+                            {{status}}
                           </span>
                         )}}
                       </Link>
+                      {{canAct && (
+                        <div className="flex shrink-0 gap-2 pr-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={{() => void handleRejectRow(id)}}
+                            disabled={{rowBusy}}
+                          >
+                            Decline
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={{() => void handleAcceptRow(id)}}
+                            disabled={{rowBusy}}
+                          >
+                            {{rowBusy && pendingRowId === id ? "Accepting…" : "Accept"}}
+                          </Button>
+                        </div>
+                      )}}
                     </li>
                   );
                 }})}}
@@ -1668,10 +1813,18 @@ def _conversation_detail_page(ir: FrontendIR) -> str:
 "use client";
 
 import {{ use, useEffect, useMemo, useState }} from "react";
+import {{ useQueryClient }} from "@tanstack/react-query";
 import {{ Input }} from "@/components/ui/input";
 import {{ Button }} from "@/components/ui/button";
 import {{ useConversationWebSocket }} from "@/generated/hooks/use-websocket";
-import {{ useListMessages }} from "@/generated/hooks/use-communication";
+import {{
+  useAcceptConversation,
+  useConversation,
+  useListMessages,
+  useRejectConversation,
+  useSendMessage,
+  communicationKeys,
+}} from "@/generated/hooks/use-communication";
 
 interface MessageRow {{
   _id?: string;
@@ -1681,24 +1834,95 @@ interface MessageRow {{
   created_at?: string;
 }}
 
+interface ConversationParticipant {{
+  user_id?: string;
+  participant_type?: string;
+}}
+
+interface ConversationDetail {{
+  id?: string;
+  status?: string;
+  initiator_id?: string;
+  participants?: ConversationParticipant[];
+}}
+
+interface MeResponse {{
+  /** ``GET /api/auth/me`` returns ``user_id`` (not ``_id``/``id``).
+      Keep the legacy keys as fallbacks in case other endpoints are reused. */
+  user_id?: string;
+  _id?: string;
+  id?: string;
+  email?: string;
+  participant_type?: string;
+  role?: string;
+}}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:18000";
+
+async function fetchMe(): Promise<MeResponse | null> {{
+  try {{
+    const res = await fetch(`${{API_BASE}}/api/auth/me`, {{ credentials: "include" }});
+    if (!res.ok) return null;
+    return (await res.json()) as MeResponse;
+  }} catch {{
+    return null;
+  }}
+}}
+
 export default function ConversationDetailPage({{
   params,
 }}: {{
   params: Promise<{{ id: string }}>
 }}) {{
   const {{ id }} = use(params);
+  const qc = useQueryClient();
   const [draft, setDraft] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [liveEvents, setLiveEvents] = useState<MessageRow[]>([]);
+  const [me, setMe] = useState<MeResponse | null>(null);
+
+  useEffect(() => {{
+    let cancelled = false;
+    void fetchMe().then((value) => {{
+      if (!cancelled) setMe(value);
+    }});
+    return () => {{
+      cancelled = true;
+    }};
+  }}, []);
 
   const history = useListMessages(id);
+  const conversationQ = useConversation(id);
+  const sendMessage = useSendMessage();
+  const acceptConversation = useAcceptConversation();
+  const rejectConversation = useRejectConversation();
 
   useEffect(() => {{
     setLiveEvents([]);
   }}, [id]);
 
+  const conversation: ConversationDetail | null = useMemo(() => {{
+    const data = conversationQ.data;
+    if (!data || typeof data !== "object") return null;
+    return data as ConversationDetail;
+  }}, [conversationQ.data]);
+
+  const status = conversation?.status ?? "";
+  const myUserId = String(me?.user_id ?? me?._id ?? me?.id ?? "");
+  const initiatorId = conversation?.initiator_id ?? "";
+  const isInitiator = Boolean(myUserId && initiatorId && myUserId === initiatorId);
+  const isParticipant = Boolean(
+    myUserId &&
+      conversation?.participants?.some((p) => p?.user_id === myUserId),
+  );
+  const canAcceptOrReject = status === "pending" && isParticipant && !isInitiator;
+  const canSend = status === "active";
+
+  // Open the WS only once the conversation is active. Pending sockets get
+  // hard-closed by the backend on the first send_message call (status check
+  // raises ForbiddenError), which would leak as a silent reconnect cycle.
   const socket = useConversationWebSocket(id, {{
-    enabled: true,
+    enabled: canSend,
     onEvent: (event) => {{
       if (event.type === "new_message") {{
         const message = event.message as MessageRow | undefined;
@@ -1708,12 +1932,19 @@ export default function ConversationDetailPage({{
     }},
   }});
 
-  const statusText = useMemo(() => {{
-    if (socket.state === "connected") return "Live";
-    if (socket.state === "connecting") return "Connecting…";
-    if (socket.state === "error") return "Connection error";
-    return "Offline";
-  }}, [socket.state]);
+  const statusBadge = useMemo(() => {{
+    if (!conversation) return "Loading…";
+    if (status === "active") {{
+      if (socket.state === "connected") return "Live";
+      if (socket.state === "connecting") return "Connecting…";
+      if (socket.state === "error") return "Reconnecting…";
+      return "Offline";
+    }}
+    if (status === "pending") return isInitiator ? "Awaiting approval" : "Pending — review below";
+    if (status === "rejected") return "Declined";
+    if (status === "closed") return "Closed";
+    return status || "Unknown";
+  }}, [conversation, status, isInitiator, socket.state]);
 
   const messages: MessageRow[] = useMemo(() => {{
     const raw = history.data;
@@ -1725,16 +1956,45 @@ export default function ConversationDetailPage({{
     return [...base, ...extras];
   }}, [history.data, liveEvents]);
 
-  function handleSend() {{
+  // Send via REST so backend validation errors (forbidden, not active, etc.)
+  // surface as a real message instead of a silent WS close + reconnect. The
+  // WS is still authoritative for *receiving* live broadcasts.
+  async function handleSend() {{
     const content = draft.trim();
     if (!content) return;
-    const ok = socket.sendMessage(content);
-    if (!ok) {{
-      setLocalError("Chat socket is not connected yet.");
+    if (!canSend) {{
+      setLocalError("This conversation isn't active yet — you can't send messages.");
       return;
     }}
     setLocalError(null);
-    setDraft("");
+    try {{
+      await sendMessage.mutateAsync({{
+        conv_id: id,
+        body: {{ content, content_type: "text" }},
+      }} as Parameters<typeof sendMessage.mutateAsync>[0]);
+      setDraft("");
+      qc.invalidateQueries({{ queryKey: communicationKeys.listmessages(id) }});
+    }} catch (err: unknown) {{
+      setLocalError(err instanceof Error ? err.message : "Failed to send message");
+    }}
+  }}
+
+  async function handleAccept() {{
+    setLocalError(null);
+    try {{
+      await acceptConversation.mutateAsync(id as Parameters<typeof acceptConversation.mutateAsync>[0]);
+    }} catch (err: unknown) {{
+      setLocalError(err instanceof Error ? err.message : "Failed to accept");
+    }}
+  }}
+
+  async function handleReject() {{
+    setLocalError(null);
+    try {{
+      await rejectConversation.mutateAsync(id as Parameters<typeof rejectConversation.mutateAsync>[0]);
+    }} catch (err: unknown) {{
+      setLocalError(err instanceof Error ? err.message : "Failed to decline");
+    }}
   }}
 
   return (
@@ -1742,8 +2002,47 @@ export default function ConversationDetailPage({{
       <div className="border-b p-4">
         <h1 className="text-lg font-semibold">Conversation</h1>
         <p className="text-sm text-muted-foreground">ID: {{id}}</p>
-        <p className="text-xs text-muted-foreground">Status: {{statusText}}</p>
+        <p className="text-xs text-muted-foreground">Status: {{statusBadge}}</p>
       </div>
+      {{canAcceptOrReject && (
+        <div className="flex items-center justify-between gap-3 border-b bg-amber-50 px-4 py-3 text-sm dark:bg-amber-950/30">
+          <p className="text-amber-900 dark:text-amber-200">
+            Someone wants to start a conversation with you. Accept to chat, or decline to dismiss.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={{() => void handleReject()}}
+              disabled={{rejectConversation.isPending || acceptConversation.isPending}}
+            >
+              Decline
+            </Button>
+            <Button
+              size="sm"
+              onClick={{() => void handleAccept()}}
+              disabled={{acceptConversation.isPending || rejectConversation.isPending}}
+            >
+              {{acceptConversation.isPending ? "Accepting…" : "Accept"}}
+            </Button>
+          </div>
+        </div>
+      )}}
+      {{status === "pending" && isInitiator && (
+        <div className="border-b bg-muted px-4 py-3 text-sm text-muted-foreground">
+          Waiting for the other party to accept this conversation. You&apos;ll be able to send messages once they do.
+        </div>
+      )}}
+      {{status === "rejected" && (
+        <div className="border-b bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          This conversation was declined. You can&apos;t send new messages.
+        </div>
+      )}}
+      {{status === "closed" && (
+        <div className="border-b bg-muted px-4 py-3 text-sm text-muted-foreground">
+          This conversation is closed.
+        </div>
+      )}}
       <div className="flex-1 overflow-y-auto p-4">
         {{/* AGENT_FILL:conversation_messages:start */}}
         {{history.isLoading ? (
@@ -1756,14 +2055,21 @@ export default function ConversationDetailPage({{
           <div className="space-y-2">
             {{messages.map((item, idx) => {{
               const key = String(item._id ?? item.id ?? `msg-${{idx}}`);
+              const mine = Boolean(myUserId && item.sender_id === myUserId);
               return (
-                <div key={{key}} className="rounded-md border p-3 text-sm">
-                  {{item.sender_id && (
-                    <p className="mb-1 text-xs text-muted-foreground">
-                      {{item.sender_id}}
-                    </p>
-                  )}}
-                  <p className="whitespace-pre-wrap">{{item.content ?? ""}}</p>
+                <div
+                  key={{key}}
+                  className={{`flex ${{mine ? "justify-end" : "justify-start"}}`}}
+                >
+                  <div
+                    className={{`max-w-[75%] rounded-lg px-3 py-2 text-sm ${{
+                      mine
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-foreground"
+                    }}`}}
+                  >
+                    <p className="whitespace-pre-wrap break-words">{{item.content ?? ""}}</p>
+                  </div>
                 </div>
               );
             }})}}
@@ -1777,18 +2083,24 @@ export default function ConversationDetailPage({{
         )}}
         <div className="flex gap-2">
           <Input
-            placeholder="Type a message..."
+            placeholder={{canSend ? "Type a message..." : "Messaging is disabled until the conversation is active"}}
             className="flex-1"
             value={{draft}}
             onChange={{(e) => setDraft(e.target.value)}}
+            disabled={{!canSend || sendMessage.isPending}}
             onKeyDown={{(e) => {{
               if (e.key === "Enter") {{
                 e.preventDefault();
-                handleSend();
+                void handleSend();
               }}
             }}}}
           />
-          <Button onClick={{handleSend}}>Send</Button>
+          <Button
+            onClick={{() => void handleSend()}}
+            disabled={{!canSend || sendMessage.isPending || !draft.trim()}}
+          >
+            {{sendMessage.isPending ? "Sending…" : "Send"}}
+          </Button>
         </div>
       </div>
     </div>
@@ -1806,40 +2118,142 @@ def _notifications_page(ir: FrontendIR) -> str:
 "use client";
 
 import {{ useMemo }} from "react";
+import Link from "next/link";
 import {{ Button }} from "@/components/ui/button";
 import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ Bell, MessageSquare, Check, X }} from "lucide-react";
 import {{
   useListNotifications,
   useMarkRead,
 }} from "@/generated/hooks/use-notifications";
 
+/** Backend shape: {{ id, user_id, type, data, is_read, created_at }}.
+    The list page synthesises the headline + body from ``type`` and ``data``
+    so each row is meaningful — the API does not store pre-rendered text. */
 interface NotificationRow {{
   _id?: string;
   id?: string;
-  title?: string;
-  message?: string;
-  body?: string;
+  type?: string;
+  data?: Record<string, unknown> | null;
   is_read?: boolean;
   created_at?: string;
+}}
+
+interface RenderedNotification {{
+  id: string;
+  title: string;
+  body: string;
+  href: string | null;
+  icon: "message" | "approved" | "declined" | "bell";
+  isRead: boolean;
+  createdAt: string;
+}}
+
+function pickString(d: Record<string, unknown> | null | undefined, key: string): string {{
+  if (!d) return "";
+  const v = d[key];
+  return typeof v === "string" ? v : "";
+}}
+
+function describe(row: NotificationRow): RenderedNotification {{
+  const id = String(row._id ?? row.id ?? "");
+  const data = row.data ?? {{}};
+  const convId = pickString(data, "conversation_id");
+  const initiatorId = pickString(data, "initiator_id");
+  const senderId = pickString(data, "sender_id");
+  const href = convId ? `/conversations/${{convId}}` : null;
+  const createdAt = row.created_at ? new Date(row.created_at).toLocaleString() : "";
+
+  switch (row.type) {{
+    case "chat_request":
+      return {{
+        id,
+        title: "New conversation request",
+        body: initiatorId
+          ? `User ${{initiatorId}} wants to start a conversation. Open it to accept or decline.`
+          : "Someone wants to start a conversation with you.",
+        href,
+        icon: "message",
+        isRead: Boolean(row.is_read),
+        createdAt,
+      }};
+    case "chat_request_approved":
+      return {{
+        id,
+        title: "Conversation approved",
+        body: "Your conversation request was accepted.",
+        href,
+        icon: "approved",
+        isRead: Boolean(row.is_read),
+        createdAt,
+      }};
+    case "chat_request_declined":
+      return {{
+        id,
+        title: "Conversation declined",
+        body: "Your conversation request was declined.",
+        href,
+        icon: "declined",
+        isRead: Boolean(row.is_read),
+        createdAt,
+      }};
+    case "new_message":
+      return {{
+        id,
+        title: "New message",
+        body: senderId
+          ? `New message from ${{senderId}}.`
+          : "You received a new message.",
+        href,
+        icon: "message",
+        isRead: Boolean(row.is_read),
+        createdAt,
+      }};
+    default:
+      return {{
+        id,
+        title: row.type ? row.type.replace(/_/g, " ") : "Notification",
+        body: "",
+        href,
+        icon: "bell",
+        isRead: Boolean(row.is_read),
+        createdAt,
+      }};
+  }}
+}}
+
+function NotificationIcon({{ icon }}: {{ icon: RenderedNotification["icon"] }}) {{
+  if (icon === "message") return <MessageSquare className="h-4 w-4 text-primary" />;
+  if (icon === "approved") return <Check className="h-4 w-4 text-emerald-600" />;
+  if (icon === "declined") return <X className="h-4 w-4 text-destructive" />;
+  return <Bell className="h-4 w-4 text-muted-foreground" />;
 }}
 
 export default function NotificationsPage() {{
   const notifications = useListNotifications();
   const markRead = useMarkRead();
 
-  const rows: NotificationRow[] = useMemo(() => {{
+  const rows: RenderedNotification[] = useMemo(() => {{
     const data = notifications.data;
-    if (Array.isArray(data)) return data as NotificationRow[];
-    return [];
+    if (!Array.isArray(data)) return [];
+    return (data as NotificationRow[]).map(describe);
   }}, [notifications.data]);
+
+  const unreadCount = rows.filter((r) => !r.isRead).length;
 
   return (
     <>
       {{/* AGENT_FILL:notifications_page:start */}}
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Notifications</h1>
-          <p className="text-muted-foreground">Stay up to date</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Notifications</h1>
+            <p className="text-muted-foreground">
+              {{unreadCount > 0
+                ? `${{unreadCount}} unread`
+                : "You're all caught up"}}
+            </p>
+          </div>
         </div>
         <Card>
           <CardHeader>
@@ -1856,34 +2270,49 @@ export default function NotificationsPage() {{
               </p>
             ) : (
               <ul className="divide-y">
-                {{rows.map((row) => {{
-                  const id = String(row._id ?? row.id ?? "");
-                  const text = row.message ?? row.body ?? "";
-                  return (
-                    <li key={{id}} className="flex items-start justify-between py-3">
-                      <div className="flex-1 pr-4">
-                        <p className="font-medium">
-                          {{row.title ?? "Notification"}}
-                        </p>
-                        {{text && (
-                          <p className="text-sm text-muted-foreground">
-                            {{text}}
-                          </p>
+                {{rows.map((row) => (
+                  <li
+                    key={{row.id}}
+                    className={{`flex items-start gap-3 py-3 ${{
+                      row.isRead ? "" : "bg-primary/5"
+                    }}`}}
+                  >
+                    <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                      <NotificationIcon icon={{row.icon}} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium">
+                        {{row.href ? (
+                          <Link href={{row.href}} className="hover:underline">
+                            {{row.title}}
+                          </Link>
+                        ) : (
+                          row.title
                         )}}
-                      </div>
-                      {{!row.is_read && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={{() => markRead.mutate(id)}}
-                          disabled={{markRead.isPending}}
-                        >
-                          Mark read
-                        </Button>
+                      </p>
+                      {{row.body && (
+                        <p className="break-words text-sm text-muted-foreground">
+                          {{row.body}}
+                        </p>
                       )}}
-                    </li>
-                  );
-                }})}}
+                      {{row.createdAt && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {{row.createdAt}}
+                        </p>
+                      )}}
+                    </div>
+                    {{!row.isRead && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={{() => markRead.mutate(row.id)}}
+                        disabled={{markRead.isPending}}
+                      >
+                        Mark read
+                      </Button>
+                    )}}
+                  </li>
+                ))}}
               </ul>
             )}}
           </CardContent>
@@ -2353,31 +2782,33 @@ export default function RegisterPage({{
     }}
 
     // Schema-typed file fields live in `fields` state but can't be JSON
-    // serialised. Split them out so they're appended as multipart file parts
-    // and the JSON payload stays clean.
-    const fileFieldNames = new Set(
-      sections
-        .flatMap((s) => s.fields)
-        .filter((f) => f.type === "file" || f.type === "files")
-        .map((f) => f.name),
-    );
+    // serialised. Split them out so each field's files are appended under
+    // that field's *name* — the backend turns the multipart key into the
+    // file's category, so e.g. certification_documents and farm_photos stay
+    // distinguishable downstream.
     const jsonFields: Record<string, unknown> = {{}};
-    const filesToUpload: File[] = [];
+    const filesByField: Record<string, File[]> = {{}};
     for (const [key, val] of Object.entries(fields)) {{
       if (fileFieldNames.has(key)) {{
+        const bucket: File[] = [];
         if (val instanceof File) {{
-          filesToUpload.push(val);
+          bucket.push(val);
         }} else if (Array.isArray(val)) {{
           for (const item of val) {{
-            if (item instanceof File) filesToUpload.push(item);
+            if (item instanceof File) bucket.push(item);
           }}
         }}
+        if (bucket.length > 0) filesByField[key] = bucket;
         continue;
       }}
       jsonFields[key] = val;
     }}
+    const totalSchemaFiles = Object.values(filesByField).reduce(
+      (s, arr) => s + arr.length,
+      0,
+    );
 
-    if (uploadRequired && !file && filesToUpload.length === 0) {{
+    if (uploadRequired && !file && totalSchemaFiles === 0) {{
       setError("At least one onboarding document is required for this role");
       return;
     }}
@@ -2399,8 +2830,10 @@ export default function RegisterPage({{
       if (file) {{
         fd.append("file", file, file.name || "onboarding-upload");
       }}
-      for (const f of filesToUpload) {{
-        fd.append("files", f, f.name || "onboarding-upload");
+      for (const [fieldName, bucket] of Object.entries(filesByField)) {{
+        for (const f of bucket) {{
+          fd.append(fieldName, f, f.name || "onboarding-upload");
+        }}
       }}
       const res = await fetch(url, {{ method: "POST", body: fd }});
       const text = await res.text();

@@ -60,7 +60,7 @@ Changes take effect immediately — no restart required.
 | Provider | Recommended model | Notes |
 |----------|-----------------|-------|
 | OpenAI | `gpt-4o` | Best quality; supports embeddings |
-| OpenRouter | `anthropic/claude-3.5-sonnet` | Good quality; no embeddings (use OpenAI for embeddings) |
+| OpenRouter | `anthropic/claude-sonnet-4` (default for **frontend agent fill** only) | Agent fill accepts **Sonnet** slugs only (`anthropic/claude-…` + `sonnet` in id). Other OpenRouter chat defaults in the API may still use non-Sonnet models. |
 | Gemini | `gemini-1.5-pro` | Cost-effective; supports embeddings |
 
 ### 3. Verify

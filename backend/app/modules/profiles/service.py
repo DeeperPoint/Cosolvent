@@ -68,11 +68,15 @@ async def submit_application_without_account(
     participant_type: str,
     config: MarketplaceConfig,
     fields: dict | None,
-    file_parts: list[tuple[str, str, bytes]] | None = None,
+    file_parts: list[tuple[str, str, str, bytes]] | None = None,
 ) -> dict:
     """
     Public registration: store a pending application only (no user account, no session).
-    Optional multipart file payloads ``file_parts`` as (filename, content_type, bytes).
+    Optional multipart file payloads ``file_parts`` as
+    ``(field_name, filename, content_type, bytes)``. ``field_name`` becomes the
+    file's ``category`` so display code can group/filter (e.g. distinguish
+    ``certification_documents`` from ``farm_photos``); generic ``file``/``files``
+    keys fall back to ``"onboarding"``.
     Admin approves via ``approve_application``, which creates the account and emails credentials.
     """
     if not email or not str(email).strip():
@@ -95,7 +99,7 @@ async def submit_application_without_account(
             f"At most {MAX_REGISTER_UPLOAD_FILES} files may be attached to an application",
             status_code=422,
         )
-    total_bytes = sum(len(raw) for _, _, raw in uploads)
+    total_bytes = sum(len(raw) for _, _, _, raw in uploads)
     if total_bytes > MAX_REGISTER_UPLOAD_TOTAL_BYTES:
         cap_mb = MAX_REGISTER_UPLOAD_TOTAL_BYTES // (1024 * 1024)
         used_mb = total_bytes / (1024 * 1024)
@@ -146,9 +150,14 @@ async def submit_application_without_account(
     app_id = str(app["_id"])
 
     try:
-        for filename, content_type, raw in uploads:
+        for field_name, filename, content_type, raw in uploads:
             if len(raw) > settings.files_max_upload_bytes:
                 raise AppError("File exceeds upload size limit", status_code=413)
+            # Generic legacy keys ("file"/"files") have no semantic meaning, so
+            # group them under "onboarding". Schema field names ride through
+            # as-is so display code can render certification_documents vs
+            # farm_photos differently.
+            category = "onboarding" if field_name in ("file", "files") else field_name
             await files_service.upload_file_for_application(
                 app_id,
                 config,
@@ -156,7 +165,7 @@ async def submit_application_without_account(
                 filename,
                 content_type,
                 len(raw),
-                category="onboarding",
+                category=category,
             )
     except Exception:
         await files_service.delete_stored_files_for_application(app_id)

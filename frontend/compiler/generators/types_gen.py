@@ -187,8 +187,7 @@ def _conversation_types() -> str:
 // ── Conversations ────────────────────────────────────────────────────
 
 export interface CreateConversationRequest {
-  recipient_id: string;
-  subject?: string;
+  receiver_user_id: string;
   initial_message?: string;
 }
 

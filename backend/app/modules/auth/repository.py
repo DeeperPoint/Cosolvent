@@ -58,3 +58,48 @@ async def delete_session(token: str) -> None:
 
 async def count_admins() -> int:
     return await get_collection("users").count_documents({"role": "admin"})
+
+
+# ── WebSocket auth tickets ────────────────────────────────────────────────
+#
+# HttpOnly session cookies aren't reliably attached to cross-port WebSocket
+# upgrades from the browser, so authenticated callers exchange their cookie
+# for a short-lived, single-use ticket they can pass in the WS auth message.
+
+WS_TICKET_TTL_SECONDS = 60
+
+
+async def create_ws_ticket(user_id: str) -> tuple[str, int]:
+    token = generate_session_token()
+    now = datetime.now(timezone.utc)
+    await get_collection("ws_tickets").insert_one({
+        "token": token,
+        "user_id": user_id,
+        "created_at": now,
+        "expires_at": now + timedelta(seconds=WS_TICKET_TTL_SECONDS),
+        "used_at": None,
+    })
+    return token, WS_TICKET_TTL_SECONDS
+
+
+async def consume_ws_ticket(token: str) -> str | None:
+    """Return the user_id for a valid, unused ticket and mark it spent.
+
+    Returns ``None`` if the ticket is unknown, already spent, or expired.
+    """
+    if not token:
+        return None
+    coll = get_collection("ws_tickets")
+    doc = await coll.find_one({"token": token})
+    if not doc:
+        return None
+    if doc.get("used_at") is not None:
+        return None
+    expires_at = doc.get("expires_at")
+    if isinstance(expires_at, datetime) and expires_at < datetime.now(timezone.utc):
+        return None
+    await coll.update_one(
+        {"token": token, "used_at": None},
+        {"$set": {"used_at": datetime.now(timezone.utc)}},
+    )
+    return str(doc["user_id"])

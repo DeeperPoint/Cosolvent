@@ -13,6 +13,7 @@ metadata = MetaData()
 DOCUMENT_COLLECTIONS = [
     "users",
     "sessions",
+    "ws_tickets",
     "profiles",
     "drafts",
     "applications",

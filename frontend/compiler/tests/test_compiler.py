@@ -981,7 +981,7 @@ class TestF1PageStubs:
         page = files["src/app/(dashboard)/notifications/page.tsx"]
         assert "useListNotifications" in page
         assert "useMarkRead" in page
-        assert "markRead.mutate(id)" in page
+        assert "markRead.mutate(row.id)" in page
 
     def test_search_page_uses_search_mutation(self):
         from compiler.generators.routes_gen import emit_routes

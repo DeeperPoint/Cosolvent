@@ -193,7 +193,10 @@ async def test_approve_application_pre_account_creates_user_and_profile(mock_rep
             ):
                 result = await service.approve_application("app-1")
 
-    assert result == {"status": "approved", "profile_id": "p1"}
+    assert result["status"] == "approved"
+    assert result["profile_id"] == "p1"
+    assert result["applicant_email"] == "new@example.com"
+    assert isinstance(result.get("temporary_password"), str) and result["temporary_password"]
     mock_auth.create_user.assert_awaited_once()
     mock_repo.create_profile.assert_awaited_once_with(
         user_id="u-new",

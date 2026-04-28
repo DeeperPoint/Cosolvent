@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.core.dependencies import get_config, get_current_user
 from app.core.exceptions import ForbiddenError
 from app.core.marketplace_config import MarketplaceConfig
+from app.modules.auth import repository as auth_repo
 from app.modules.auth import service
 from app.modules.auth.cookies import clear_session_cookie, set_session_cookie
 from app.modules.auth.signup_policy import public_signup_allowed
@@ -98,3 +99,21 @@ async def change_password(
     except ValueError as exc:
         raise AppError(str(exc), status_code=422)
     return {"detail": "Password updated"}
+
+
+class _WsTicketResponse(BaseModel):
+    ticket: str
+    expires_in: int
+
+
+@router.get(
+    "/ws-ticket",
+    response_model=_WsTicketResponse,
+    summary="Issue a short-lived WebSocket auth ticket",
+)
+async def ws_ticket(user: dict = Depends(get_current_user)):
+    """Exchange a session cookie for a one-shot ticket the browser can pass
+    in the WebSocket auth message. HttpOnly cookies aren't reliably attached
+    to cross-port WS upgrades, so the JS client uses this ticket instead."""
+    token, ttl = await auth_repo.create_ws_ticket(str(user["_id"]))
+    return {"ticket": token, "expires_in": ttl}

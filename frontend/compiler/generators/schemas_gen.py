@@ -121,8 +121,7 @@ def _conversation_schemas() -> str:
 // ── Conversations ────────────────────────────────────────────────────
 
 export const createConversationSchema = z.object({
-  recipient_id: z.string().min(1, "Recipient is required"),
-  subject: z.string().optional(),
+  receiver_user_id: z.string().min(1, "Recipient is required"),
   initial_message: z.string().optional(),
 });
 

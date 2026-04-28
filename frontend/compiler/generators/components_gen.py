@@ -53,8 +53,16 @@ def _app_sidebar(ir: FrontendIR) -> str:
 import Link from "next/link";
 import {{ usePathname }} from "next/navigation";
 import {{ useEffect, useMemo, useState }} from "react";
+import {{ useQuery }} from "@tanstack/react-query";
 import {{ cn }} from "@/lib/utils";
 import {{ navigationItems, marketplaceName, marketplaceLogo }} from "@/generated/navigation";
+import * as notificationsApi from "@/generated/api/notifications";
+
+interface NotificationLite {{
+  is_read?: boolean;
+}}
+
+const NOTIFICATION_POLL_MS = 30_000;
 
 export function AppSidebar() {{
   const pathname = usePathname();
@@ -81,6 +89,27 @@ export function AppSidebar() {{
       cancelled = true;
     }};
   }}, []);
+
+  // Poll the inbox for the unread count so the badge stays in sync without
+  // requiring a websocket. Gated on ``activeRole`` so anonymous visitors
+  // don't 401-spam the API. ``staleTime`` lines up with the poll interval to
+  // keep tab focuses from triggering extra refetches.
+  // Key starts with "notifications" so ``useMarkRead``'s ``invalidateQueries``
+  // (which targets ``notificationsKeys.all`` = ``["notifications"]``) also
+  // refreshes this sidebar query, keeping the badge in step with the inbox.
+  const notifications = useQuery({{
+    queryKey: ["notifications", "sidebar-badge"] as const,
+    queryFn: () => notificationsApi.listNotifications(),
+    enabled: Boolean(activeRole),
+    refetchInterval: NOTIFICATION_POLL_MS,
+    refetchIntervalInBackground: false,
+    staleTime: NOTIFICATION_POLL_MS,
+  }});
+  const unreadCount = useMemo(() => {{
+    const data = notifications.data;
+    if (!Array.isArray(data)) return 0;
+    return (data as NotificationLite[]).filter((n) => !n?.is_read).length;
+  }}, [notifications.data]);
 
   const visibleItems = useMemo(
     () =>
@@ -113,6 +142,10 @@ export function AppSidebar() {{
           const isActive =
             pathname === item.route ||
             (item.route !== "/" && pathname.startsWith(item.route));
+          const badge =
+            item.route === "/notifications" && unreadCount > 0
+              ? unreadCount
+              : 0;
           return (
             <Link
               key={{`${{item.route}}:${{item.label}}`}}
@@ -125,7 +158,15 @@ export function AppSidebar() {{
               )}}
             >
               <Icon className="h-4 w-4" />
-              {{item.label}}
+              <span className="flex-1">{{item.label}}</span>
+              {{badge > 0 && (
+                <span
+                  aria-label={{`${{badge}} unread`}}
+                  className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-semibold leading-none text-destructive-foreground"
+                >
+                  {{badge > 99 ? "99+" : badge}}
+                </span>
+              )}}
             </Link>
           );
         }})}}
