@@ -122,12 +122,84 @@ async def close_conversation(conv_id: str, user: dict) -> dict[str, Any]:
 async def get_conversation(conv_id: str, user: dict) -> dict[str, Any]:
     conv = await _get_conversation_or_404(conv_id)
     _assert_participant(conv, user["_id"])
-    return _serialize(conv)
+    serialized = _serialize(conv)
+    await _enrich_participants([serialized])
+    return serialized
 
 
 async def list_conversations(user: dict) -> list[dict]:
     convs = await repo.list_conversations_for_user(user["_id"])
-    return [_serialize(c) for c in convs]
+    serialized = [_serialize(c) for c in convs]
+    await _enrich_participants(serialized)
+    return serialized
+
+
+# ── Display-name enrichment ───────────────────────────────────────────────
+#
+# The conversations payload only stores ``user_id`` per participant. The UI
+# (inbox + detail header) needs human-readable names — fetch each
+# participant's profile + user once and inline ``display_name`` / ``email``
+# so the frontend doesn't N+1 the API.
+
+_DISPLAY_NAME_FIELDS = (
+    "farm_name", "company_name", "org_name", "name", "title", "display_name",
+    "full_name", "first_name", "business_name",
+)
+
+
+def _pick_display_name(profile_fields: dict | None) -> str:
+    if not isinstance(profile_fields, dict):
+        return ""
+    for key in _DISPLAY_NAME_FIELDS:
+        value = profile_fields.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+async def _enrich_participants(conversations: list[dict[str, Any]]) -> None:
+    if not conversations:
+        return
+
+    from app.modules.auth import repository as auth_repo
+    from app.modules.profiles import repository as profile_repo
+
+    user_ids: set[str] = set()
+    for conv in conversations:
+        for p in conv.get("participants", []) or []:
+            uid = p.get("user_id") if isinstance(p, dict) else None
+            if uid:
+                user_ids.add(str(uid))
+
+    if not user_ids:
+        return
+
+    name_by_user: dict[str, str] = {}
+    email_by_user: dict[str, str] = {}
+    for uid in user_ids:
+        user = await auth_repo.find_user_by_id(uid)
+        if user:
+            email = user.get("email")
+            if isinstance(email, str):
+                email_by_user[uid] = email
+        profile = await profile_repo.get_profile_by_user(uid)
+        if profile:
+            name_by_user[uid] = _pick_display_name(profile.get("fields"))
+
+    for conv in conversations:
+        enriched: list[dict[str, Any]] = []
+        for p in conv.get("participants", []) or []:
+            if not isinstance(p, dict):
+                enriched.append(p)
+                continue
+            uid = str(p.get("user_id", ""))
+            display = name_by_user.get(uid) or email_by_user.get(uid) or ""
+            enriched.append({
+                **p,
+                "display_name": display or None,
+                "email": email_by_user.get(uid) or None,
+            })
+        conv["participants"] = enriched
 
 
 async def send_message(

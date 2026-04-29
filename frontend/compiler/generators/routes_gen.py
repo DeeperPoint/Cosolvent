@@ -1541,6 +1541,13 @@ import {{
   useRejectConversation,
 }} from "@/generated/hooks/use-communication";
 
+interface ConversationParticipant {{
+  user_id?: string;
+  participant_type?: string;
+  display_name?: string | null;
+  email?: string | null;
+}}
+
 interface ConversationRow {{
   _id?: string;
   id?: string;
@@ -1549,6 +1556,7 @@ interface ConversationRow {{
   initiator_id?: string;
   last_message_preview?: string;
   updated_at?: string;
+  participants?: ConversationParticipant[];
 }}
 
 interface MeResponse {{
@@ -1743,6 +1751,16 @@ export default function ConversationsPage() {{
                   const isInitiator = Boolean(myUserId && initiatorId && myUserId === initiatorId);
                   const canAct = status === "pending" && Boolean(myUserId) && !isInitiator;
                   const rowBusy = pendingRowId === id;
+                  // Pick the participant who isn't us; fall back to ``other``
+                  // when the API hasn't enriched display names (older data).
+                  const other = (row.participants ?? []).find(
+                    (p) => p?.user_id && p.user_id !== myUserId,
+                  );
+                  const otherName =
+                    other?.display_name?.trim() || other?.email || "Unknown participant";
+                  const otherSubtitle = other?.participant_type
+                    ? other.participant_type.charAt(0).toUpperCase() + other.participant_type.slice(1)
+                    : (row.last_message_preview ?? "");
                   return (
                     <li key={{id}} className="flex items-center gap-3 py-3">
                       <Link
@@ -1750,11 +1768,9 @@ export default function ConversationsPage() {{
                         className="flex min-w-0 flex-1 items-center justify-between rounded-md p-2 hover:bg-muted"
                       >
                         <div className="min-w-0 flex-1 pr-4">
-                          <p className="truncate font-medium">
-                            {{row.subject ?? "Conversation"}}
-                          </p>
+                          <p className="truncate font-medium">{{otherName}}</p>
                           <p className="truncate text-sm text-muted-foreground">
-                            {{row.last_message_preview ?? ""}}
+                            {{row.last_message_preview ?? otherSubtitle}}
                           </p>
                         </div>
                         {{status && (
@@ -1837,6 +1853,8 @@ interface MessageRow {{
 interface ConversationParticipant {{
   user_id?: string;
   participant_type?: string;
+  display_name?: string | null;
+  email?: string | null;
 }}
 
 interface ConversationDetail {{
@@ -1917,6 +1935,36 @@ export default function ConversationDetailPage({{
   );
   const canAcceptOrReject = status === "pending" && isParticipant && !isInitiator;
   const canSend = status === "active";
+
+  /** Map user_id → human-readable name so we can label both the header and
+      the per-message "from" tag. The backend enriches each participant with
+      ``display_name`` (profile field) and ``email`` (fallback). */
+  const nameByUser: Record<string, string> = useMemo(() => {{
+    const out: Record<string, string> = {{}};
+    for (const p of conversation?.participants ?? []) {{
+      const uid = p?.user_id ?? "";
+      if (!uid) continue;
+      out[uid] = (p.display_name && p.display_name.trim())
+        || p.email
+        || "Unknown";
+    }}
+    return out;
+  }}, [conversation?.participants]);
+
+  const otherParticipant = useMemo(
+    () => (conversation?.participants ?? []).find(
+      (p) => p?.user_id && p.user_id !== myUserId,
+    ),
+    [conversation?.participants, myUserId],
+  );
+  const otherName =
+    (otherParticipant?.display_name && otherParticipant.display_name.trim())
+      || otherParticipant?.email
+      || "Conversation";
+  const otherTypeLabel = otherParticipant?.participant_type
+    ? otherParticipant.participant_type.charAt(0).toUpperCase() +
+      otherParticipant.participant_type.slice(1)
+    : "";
 
   // Open the WS only once the conversation is active. Pending sockets get
   // hard-closed by the backend on the first send_message call (status check
@@ -2000,8 +2048,10 @@ export default function ConversationDetailPage({{
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col">
       <div className="border-b p-4">
-        <h1 className="text-lg font-semibold">Conversation</h1>
-        <p className="text-sm text-muted-foreground">ID: {{id}}</p>
+        <h1 className="text-lg font-semibold">{{otherName}}</h1>
+        {{otherTypeLabel && (
+          <p className="text-sm text-muted-foreground">{{otherTypeLabel}}</p>
+        )}}
         <p className="text-xs text-muted-foreground">Status: {{statusBadge}}</p>
       </div>
       {{canAcceptOrReject && (
@@ -2056,11 +2106,18 @@ export default function ConversationDetailPage({{
             {{messages.map((item, idx) => {{
               const key = String(item._id ?? item.id ?? `msg-${{idx}}`);
               const mine = Boolean(myUserId && item.sender_id === myUserId);
+              const senderName =
+                (item.sender_id && nameByUser[item.sender_id]) || "";
               return (
                 <div
                   key={{key}}
-                  className={{`flex ${{mine ? "justify-end" : "justify-start"}}`}}
+                  className={{`flex flex-col ${{mine ? "items-end" : "items-start"}}`}}
                 >
+                  {{!mine && senderName && (
+                    <span className="mb-0.5 px-1 text-xs text-muted-foreground">
+                      {{senderName}}
+                    </span>
+                  )}}
                   <div
                     className={{`max-w-[75%] rounded-lg px-3 py-2 text-sm ${{
                       mine
