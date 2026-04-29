@@ -17,6 +17,8 @@ Emits:
 
 from __future__ import annotations
 
+import json
+
 from ..ir import FrontendIR
 from ..naming import slug_to_pascal
 
@@ -134,6 +136,7 @@ import {{ NextResponse }} from "next/server";
 import type {{ NextRequest }} from "next/server";
 
 const PUBLIC_PATHS = new Set([
+  "/",
   "/login",
   "/signup",
   "/bootstrap",
@@ -280,12 +283,267 @@ export default function AuthLayout({{
 
 
 def _landing_page(ir: FrontendIR) -> str:
+    """Public marketing landing page at ``/``.
+
+    Anonymous visitors land here first. Anyone with a live session is
+    bounced straight to ``/dashboard`` so the marketing surface is only
+    shown to logged-out users. Role CTAs are derived from
+    ``ir.entities`` so a marketplace with extra participant types
+    (e.g. ``Investor``) gets its own card automatically.
+    """
+
+    def _entity_card(entity) -> str:
+        # Pull a short blurb out of the entity's first text-ish field
+        # description if present; otherwise fall back to a generic line.
+        slug_js = json.dumps(entity.slug)
+        name_js = json.dumps(entity.name)
+        role_js = json.dumps(entity.role)
+        approval_note = (
+            "Reviewed by an admin before activation"
+            if entity.permissions.requires_approval
+            else "Instant access"
+        )
+        approval_js = json.dumps(approval_note)
+        sections_summary = ", ".join(s.name for s in entity.sections[:3]) or "Profile fields"
+        sections_js = json.dumps(sections_summary)
+        return (
+            "{ "
+            f"slug: {slug_js}, name: {name_js}, role: {role_js}, "
+            f"approval: {approval_js}, fields: {sections_js}"
+            " }"
+        )
+
+    entity_entries = ",\n  ".join(_entity_card(e) for e in ir.entities) or ""
+    show_apply = "true" if ir.auth.allow_public_application else "false"
+    show_signup = "true" if ir.auth.allow_public_signup else "false"
+
     return f"""\
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
-import {{ redirect }} from "next/navigation";
+"use client";
+
+import {{ useEffect, useState }} from "react";
+import Link from "next/link";
+import {{ useRouter }} from "next/navigation";
+import {{ Button }} from "@/components/ui/button";
+import {{ Card, CardContent, CardHeader, CardTitle, CardDescription }} from "@/components/ui/card";
+import {{ Badge }} from "@/components/ui/badge";
+import {{ ArrowRight, Bot, FileText, MessageSquare, Search, Shield, Sparkles }} from "lucide-react";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:18000";
+const ALLOW_APPLY = {show_apply};
+const ALLOW_SIGNUP = {show_signup};
+
+interface RoleEntry {{
+  slug: string;
+  name: string;
+  role: string;
+  approval: string;
+  fields: string;
+}}
+
+const ROLES: RoleEntry[] = [
+  {entity_entries}
+];
 
 export default function LandingPage() {{
-  redirect("/dashboard");
+  const router = useRouter();
+  // ``checking`` keeps the marketing surface hidden during the auth probe so
+  // logged-in users don't see a flicker of the landing before the redirect.
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {{
+    let cancelled = false;
+    (async () => {{
+      try {{
+        const res = await fetch(`${{API_BASE}}/api/auth/me`, {{ credentials: "include" }});
+        if (!cancelled && res.ok) {{
+          router.replace("/dashboard");
+          return;
+        }}
+      }} catch {{
+        /* network error → fall through and show landing */
+      }}
+      if (!cancelled) setChecking(false);
+    }})();
+    return () => {{
+      cancelled = true;
+    }};
+  }}, [router]);
+
+  if (checking) {{
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-sm text-muted-foreground">Loading {ir.marketplace.name}…</p>
+      </div>
+    );
+  }}
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/40">
+      <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
+          <Link href="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+            <span aria-hidden className="text-2xl">{{"{ir.theme.logo_emoji}"}}</span>
+            {ir.marketplace.name}
+          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/login">
+              <Button variant="ghost" size="sm">Sign in</Button>
+            </Link>
+            {{ALLOW_APPLY && ROLES.length > 0 && (
+              <Link href={{`/register/${{ROLES[0].slug}}`}}>
+                <Button size="sm">
+                  Get started <ArrowRight className="ml-1 h-4 w-4" />
+                </Button>
+              </Link>
+            )}}
+            {{!ALLOW_APPLY && ALLOW_SIGNUP && (
+              <Link href="/login">
+                <Button size="sm">
+                  Sign up <ArrowRight className="ml-1 h-4 w-4" />
+                </Button>
+              </Link>
+            )}}
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-6xl space-y-20 px-4 py-16">
+        {{/* ── Hero ──────────────────────────────────────────────── */}}
+        <section className="space-y-6 text-center">
+          <Badge variant="outline" className="mx-auto">
+            <Sparkles className="mr-1 h-3 w-3" />
+            {ir.marketplace.industry}
+          </Badge>
+          <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
+            {ir.marketplace.name}
+          </h1>
+          <p className="mx-auto max-w-2xl text-lg text-muted-foreground sm:text-xl">
+            {ir.marketplace.description}
+          </p>
+          <div className="flex flex-wrap justify-center gap-3">
+            {{ALLOW_APPLY && ROLES.map((r) => (
+              <Link key={{r.slug}} href={{`/register/${{r.slug}}`}}>
+                <Button size="lg">Join as {{r.name}}</Button>
+              </Link>
+            ))}}
+            <Link href="/login">
+              <Button size="lg" variant="outline">I already have an account</Button>
+            </Link>
+          </div>
+        </section>
+
+        {{/* ── Role cards ────────────────────────────────────────── */}}
+        {{ALLOW_APPLY && ROLES.length > 0 && (
+          <section className="space-y-6">
+            <div className="text-center">
+              <h2 className="text-3xl font-bold tracking-tight">Choose how you want to participate</h2>
+              <p className="mt-2 text-muted-foreground">
+                Pick the role that matches what you bring to {ir.marketplace.name}.
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {{ROLES.map((r) => (
+                <Card key={{r.slug}} className="flex flex-col animate-fade-in-up">
+                  <CardHeader>
+                    <Badge variant="secondary" className="w-fit capitalize">{{r.role}}</Badge>
+                    <CardTitle className="mt-2">{{r.name}}</CardTitle>
+                    <CardDescription>{{r.fields}}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="mt-auto space-y-3">
+                    <p className="text-xs text-muted-foreground">{{r.approval}}</p>
+                    <Link href={{`/register/${{r.slug}}`}} className="block">
+                      <Button className="w-full">
+                        Apply as {{r.name}} <ArrowRight className="ml-1 h-4 w-4" />
+                      </Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              ))}}
+            </div>
+          </section>
+        )}}
+
+        {{/* ── Feature highlights ────────────────────────────────── */}}
+        <section className="space-y-6">
+          <div className="text-center">
+            <h2 className="text-3xl font-bold tracking-tight">Built around an AI assistant</h2>
+            <p className="mt-2 text-muted-foreground">
+              Ask, search, and connect — grounded in real {ir.marketplace.name} knowledge.
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Card className="animate-fade-in-up">
+              <CardHeader>
+                <Bot className="h-6 w-6 text-primary" />
+                <CardTitle className="text-base">RAG-grounded answers</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                The assistant reads admin-curated documents (uploaded under
+                <span className="mx-1 inline-flex items-center gap-1">
+                  <FileText className="h-3 w-3" /> Documents
+                </span>) and cites them in its responses.
+              </CardContent>
+            </Card>
+            <Card className="animate-fade-in-up" style={{{{ animationDelay: "60ms" }}}}>
+              <CardHeader>
+                <Search className="h-6 w-6 text-primary" />
+                <CardTitle className="text-base">Vector + keyword search</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                Buyers find producers using semantic search on profile content,
+                filtered by country, crops, and certifications.
+              </CardContent>
+            </Card>
+            <Card className="animate-fade-in-up" style={{{{ animationDelay: "120ms" }}}}>
+              <CardHeader>
+                <MessageSquare className="h-6 w-6 text-primary" />
+                <CardTitle className="text-base">Real-time messaging</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                WebSocket-backed conversations with approve/decline gating
+                so producers stay in control of their inbox.
+              </CardContent>
+            </Card>
+            <Card className="animate-fade-in-up" style={{{{ animationDelay: "180ms" }}}}>
+              <CardHeader>
+                <Shield className="h-6 w-6 text-primary" />
+                <CardTitle className="text-base">Reviewed onboarding</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                Applications are screened by an admin before profiles go live,
+                so the network stays trustworthy.
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+
+        {{/* ── Final CTA ─────────────────────────────────────────── */}}
+        <section className="rounded-xl border bg-card p-10 text-center shadow-sm">
+          <h2 className="text-2xl font-semibold tracking-tight">Ready to get started?</h2>
+          <p className="mt-2 text-muted-foreground">
+            {{ALLOW_APPLY
+              ? "Submit an application — an admin will review and email your credentials once you're approved."
+              : "Sign in with the credentials your administrator gave you."}}
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            {{ALLOW_APPLY && ROLES.map((r) => (
+              <Link key={{r.slug}} href={{`/register/${{r.slug}}`}}>
+                <Button>Apply as {{r.name}}</Button>
+              </Link>
+            ))}}
+            <Link href="/login">
+              <Button variant="outline">Sign in</Button>
+            </Link>
+          </div>
+        </section>
+      </main>
+
+      <footer className="border-t bg-background/60 py-6 text-center text-xs text-muted-foreground">
+        © {{new Date().getFullYear()}} {ir.marketplace.name}
+      </footer>
+    </div>
+  );
 }}
 """
 
