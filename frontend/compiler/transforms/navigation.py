@@ -91,12 +91,15 @@ def derive_navigation(
         )
 
     if "files" in page_ids:
+        # Backed by ``POST /api/ai/documents`` (admin-only). The page is the
+        # knowledge base the AI assistant retrieves from, so it's hidden from
+        # participant roles — they only see the AI Assistant itself.
         items.append(
             NavItemIR(
-                label="Files",
+                label="Documents",
                 route="/files",
-                icon="FolderOpen",
-                roles=all_roles,
+                icon="FileText",
+                roles=("admin",),
             )
         )
 

@@ -3175,50 +3175,137 @@ export default function OnboardingPage() {{
 """
 
 
-# ── Files manager ─────────────────────────────────────────────────────
+# ── Documents manager (admin RAG knowledge base) ─────────────────────
 
 
 def _files_page(ir: FrontendIR) -> str:
+    """Admin-only "Documents" page wired to ``POST /api/ai/documents``.
+
+    Uploaded files are queued for chunking + embedding by the AI worker, then
+    the AI assistant chat (``POST /api/ai/query``) retrieves matching chunks
+    and grounds its answers in them — that's the entire RAG loop.
+    """
     return f"""\
 {_HEADER.format(version=ir.generator_version, hash=ir.spec_hash)}
 "use client";
 
 import {{ useState }} from "react";
 import {{ Button }} from "@/components/ui/button";
-import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
+import {{ Card, CardContent, CardHeader, CardTitle, CardDescription }} from "@/components/ui/card";
 import {{ Input }} from "@/components/ui/input";
 import {{ Label }} from "@/components/ui/label";
+import {{ Badge }} from "@/components/ui/badge";
+import {{ FileText, Trash2, Upload }} from "lucide-react";
+import {{
+  useListDocuments,
+  useUploadDocument,
+  useDeleteDocument,
+}} from "@/generated/hooks/use-ai";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:18000";
+interface DocumentRow {{
+  id?: string;
+  _id?: string;
+  filename?: string;
+  content_type?: string;
+  status?: string;
+  chunk_count?: number;
+  created_at?: string;
+}}
+
+const TEXT_MIME_PREFIXES = ["text/", "application/json", "application/xml"];
+const IMAGE_MIME_PREFIX = "image/";
+
+function isTextLike(contentType: string): boolean {{
+  return TEXT_MIME_PREFIXES.some((p) => contentType.startsWith(p));
+}}
+
+function readAsText(file: File): Promise<string> {{
+  return new Promise((resolve, reject) => {{
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("Read failed"));
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.readAsText(file);
+  }});
+}}
+
+function readAsBase64(file: File): Promise<string> {{
+  return new Promise((resolve, reject) => {{
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("Read failed"));
+    reader.onload = () => {{
+      const result = typeof reader.result === "string" ? reader.result : "";
+      // strip "data:<mime>;base64," prefix — backend wants raw base64
+      const idx = result.indexOf(",");
+      resolve(idx >= 0 ? result.slice(idx + 1) : result);
+    }};
+    reader.readAsDataURL(file);
+  }});
+}}
+
+function statusVariant(status?: string): "default" | "secondary" | "destructive" | "outline" {{
+  switch ((status ?? "").toUpperCase()) {{
+    case "INDEXED":
+      return "default";
+    case "FAILED":
+      return "destructive";
+    case "PROCESSING":
+    case "QUEUED":
+      return "secondary";
+    default:
+      return "outline";
+  }}
+}}
 
 export default function FilesPage() {{
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const documents = useListDocuments();
+  const uploadDocument = useUploadDocument();
+  const deleteDocument = useDeleteDocument();
+
+  const rows: DocumentRow[] = Array.isArray(documents.data)
+    ? (documents.data as DocumentRow[])
+    : [];
 
   async function handleUpload(e: React.FormEvent) {{
     e.preventDefault();
     if (!file) return;
-    setUploading(true);
     setStatus(null);
+    setError(null);
+
+    const contentType = file.type || "text/plain";
     try {{
-      const fd = new FormData();
-      fd.append("file", file, file.name);
-      const res = await fetch(`${{API_BASE}}/api/files/upload`, {{
-        method: "POST",
-        body: fd,
-        credentials: "include",
-      }});
-      if (!res.ok) {{
-        const text = await res.text();
-        throw new Error(text || res.statusText);
-      }}
-      setStatus("Upload complete");
+      const content = isTextLike(contentType)
+        ? await readAsText(file)
+        : contentType.startsWith(IMAGE_MIME_PREFIX)
+          ? await readAsBase64(file)
+          : await readAsText(file); // best-effort fallback for unknown types
+
+      await uploadDocument.mutateAsync({{
+        filename: file.name,
+        content,
+        content_type: contentType,
+      }} as Parameters<typeof uploadDocument.mutateAsync>[0]);
+      setStatus(
+        `Queued "${{file.name}}" for indexing. The assistant will start using ` +
+          `it once the worker finishes embedding the chunks.`,
+      );
       setFile(null);
+      const input = document.getElementById("doc-file-input") as HTMLInputElement | null;
+      if (input) input.value = "";
     }} catch (err: unknown) {{
-      setStatus(err instanceof Error ? err.message : "Upload failed");
-    }} finally {{
-      setUploading(false);
+      setError(err instanceof Error ? err.message : "Upload failed");
+    }}
+  }}
+
+  async function handleDelete(id: string) {{
+    setError(null);
+    try {{
+      await deleteDocument.mutateAsync(id as Parameters<typeof deleteDocument.mutateAsync>[0]);
+    }} catch (err: unknown) {{
+      setError(err instanceof Error ? err.message : "Delete failed");
     }}
   }}
 
@@ -3227,30 +3314,110 @@ export default function FilesPage() {{
       {{/* AGENT_FILL:files_manager:start */}}
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Files</h1>
-          <p className="text-muted-foreground">Upload and manage your files</p>
+          <h1 className="text-3xl font-bold tracking-tight">Documents</h1>
+          <p className="text-muted-foreground">
+            Knowledge base for the AI assistant. Uploaded documents are chunked,
+            embedded, and used to answer questions on the AI Assistant page.
+          </p>
         </div>
+
         <Card>
           <CardHeader>
-            <CardTitle>Upload a file</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5" /> Add a document
+            </CardTitle>
+            <CardDescription>
+              Plain text, Markdown, JSON, or images. Each document is queued
+              for embedding and becomes searchable once its status flips to
+              <span className="mx-1 font-mono text-xs">INDEXED</span>.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={{handleUpload}} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="file-input">File</Label>
+                <Label htmlFor="doc-file-input">File</Label>
                 <Input
-                  id="file-input"
+                  id="doc-file-input"
                   type="file"
+                  accept=".txt,.md,.markdown,.json,.csv,.html,.htm,.xml,image/*"
                   onChange={{(e) => setFile(e.target.files?.[0] ?? null)}}
                 />
+                {{file && (
+                  <p className="text-xs text-muted-foreground">
+                    {{file.name}} · {{Math.max(1, Math.round(file.size / 1024))}} KB · {{file.type || "unknown"}}
+                  </p>
+                )}}
               </div>
-              <Button type="submit" disabled={{!file || uploading}}>
-                {{uploading ? "Uploading…" : "Upload"}}
+              <Button type="submit" disabled={{!file || uploadDocument.isPending}}>
+                {{uploadDocument.isPending ? "Uploading…" : "Upload to knowledge base"}}
               </Button>
               {{status && (
-                <p className="text-sm text-muted-foreground">{{status}}</p>
+                <p className="rounded-md bg-emerald-500/10 p-2 text-sm text-emerald-800 dark:text-emerald-200">
+                  {{status}}
+                </p>
+              )}}
+              {{error && (
+                <p className="rounded-md bg-destructive/10 p-2 text-sm text-destructive">
+                  {{error}}
+                </p>
               )}}
             </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Indexed documents ({{rows.length}})</CardTitle>
+            <CardDescription>
+              Delete a document to remove its chunks from the vector store.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {{documents.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading documents…</p>
+            ) : documents.error ? (
+              <p className="text-sm text-destructive">{{documents.error.message}}</p>
+            ) : rows.length === 0 ? (
+              <p className="text-center text-sm text-muted-foreground">
+                No documents yet. Upload one above to give the assistant something
+                to read.
+              </p>
+            ) : (
+              <ul className="divide-y rounded-md border">
+                {{rows.map((doc) => {{
+                  const id = String(doc.id ?? doc._id ?? "");
+                  return (
+                    <li key={{id}} className="flex items-center gap-3 p-3">
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {{doc.filename ?? "Untitled"}}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {{doc.content_type ?? "unknown"}}
+                          {{typeof doc.chunk_count === "number"
+                            ? ` · ${{doc.chunk_count}} chunks`
+                            : ""}}
+                        </p>
+                      </div>
+                      <Badge variant={{statusVariant(doc.status)}} className="uppercase">
+                        {{doc.status ?? "—"}}
+                      </Badge>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Delete document"
+                        onClick={{() => void handleDelete(id)}}
+                        disabled={{deleteDocument.isPending}}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </li>
+                  );
+                }})}}
+              </ul>
+            )}}
           </CardContent>
         </Card>
       </div>
