@@ -1,8 +1,8 @@
 <!-- Copyright © 2026 Mustafa Uzumeri. All rights reserved. -->
 
-# Cosolvent
+# Cosolvent — Headless Marketplace Engine
 
-An open-source, config-driven backend for launching marketplace platforms in thin markets.
+An open-source, headless marketplace engine for launching marketplace platforms in thin markets. Includes a full sponsor admin dashboard; the participant-facing frontend is yours to build — using AI or any stack you choose.
 
 ## The Problem
 

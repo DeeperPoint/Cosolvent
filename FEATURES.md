@@ -2,7 +2,7 @@
 
 # Cosolvent — Product Feature Sheet
 
-> **An open-source, config-driven backend for launching marketplace platforms in thin markets.**
+> **An open-source, headless marketplace engine for launching marketplace platforms in thin markets.** Includes a full sponsor admin dashboard; the participant-facing frontend is yours to build.
 
 | Icon | Meaning |
 |:---:|---|

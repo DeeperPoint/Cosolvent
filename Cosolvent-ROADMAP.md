@@ -563,7 +563,7 @@ This phasing assumes Cosolvent's existing codebase and architecture. Conflict de
 | ---- | -------------------------------------------------------- | ---------- |
 | B2.1 | Define Cosolvent ↔ ClientSynth API contract              | B1.6       |
 | B2.2 | Synthetic mode (clearly labelled synthetic participants) | B2.1       |
-| B2.3 | Digital Twin simulation harness                          | B2.2, B1.8 |
+| B2.3 | Digital Twin simulation environment                          | B2.2, B1.8 |
 | B2.4 | Geolocation and logistics estimation                     | None       |
 | B2.5 | Regulatory context module                                | B1.7       |
 | B2.6 | WhatsApp/SMS/USSD interface layer                        | B1.3, A1.8 |
@@ -615,7 +615,7 @@ These principles from the whitepaper guide implementation across all phases.
 
 #### B — What the platform does
 
-4. **The framework defines structure; the vertical defines content.** Cosolvent's YAML compiler already embodies this.
+4. **The engine defines structure; the vertical defines content.** Cosolvent's YAML compiler already embodies this.
 5. **Deals need more than two parties.** Real transactions require facilitators.
 6. **The platform's job is to get parties to the table, not to run the table.** V1 ends at a Handoff Artifact.
 
