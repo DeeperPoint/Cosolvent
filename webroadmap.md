@@ -2,7 +2,7 @@
 
 # Cosolvent Roadmap
 
-> **Purpose:** An open-source framework for thin market automation — translating market engineering theory into deployable infrastructure.
+> **Purpose:** An open-source headless marketplace engine for thin market automation — translating market engineering theory into deployable infrastructure.
 >
 > **Date:** March 6, 2026
 > **Author:** Mustafa Uzumeri
@@ -11,9 +11,9 @@
 
 ## Executive Summary
 
-Cosolvent is an open-source framework for building AI-assisted marketplace platforms designed for thin markets — markets where transactions are infrequent, matching is difficult, and beneficial exchanges fail to occur despite willing participants on both sides.
+Cosolvent is an open-source headless marketplace engine for building AI-assisted marketplace platforms designed for thin markets — markets where transactions are infrequent, matching is difficult, and beneficial exchanges fail to occur despite willing participants on both sides.
 
-The framework already provides working implementations of several foundational capabilities. The remaining work extends this foundation across three categories:
+The engine already provides working implementations of several foundational capabilities. The remaining work extends this foundation across three categories:
 
 | Category | Description |
 | --- | --- |
@@ -475,7 +475,7 @@ Docker Compose deployment, background job workers, database with vector search, 
 **B2 — ClientSynth, Digital Twins & Global Scale**
 - Cosolvent ↔ ClientSynth API contract (synthetic participant integration for testing and demonstration)
 - Synthetic mode with clearly labelled synthetic participants
-- Digital Twin simulation harness
+- Digital Twin simulation environment
 - Geolocation and logistics estimation
 - Regulatory context module
 - WhatsApp / SMS / low-bandwidth interface layer
@@ -513,7 +513,7 @@ These principles from the thin market framework guide implementation across all 
 
 ### What the platform does
 
-4. **The framework defines structure; the vertical defines content.** The YAML compiler already embodies this principle.
+4. **The engine defines structure; the vertical defines content.** The YAML compiler already embodies this principle.
 5. **Deals need more than two parties.** Real transactions in thin markets require facilitators.
 6. **The platform's job is to get parties to the table, not to run the table.** The initial deliverable is a Handoff Artifact, not a closed transaction.
 
@@ -532,4 +532,4 @@ These principles from the thin market framework guide implementation across all 
 
 ---
 
-*This roadmap will be updated as implementation progresses and as the thin market framework evolves.*
+*This roadmap will be updated as implementation progresses and as the thin market engine evolves.*
