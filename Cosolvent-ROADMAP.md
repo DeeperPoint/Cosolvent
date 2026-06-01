@@ -207,9 +207,41 @@ pgvector search with cosine distance, metadata filtering, `hybrid` and `rag_stri
 
 - **4.1 — Bidirectional matching** — mutual preference matching considering both parties' profiles.
 - **4.2 — Multi-signal embedding enrichment** — structured templates blending multiple profile signals, different templates per participant type.
-- **4.3 — Match rationale generation** — LLM-generated "why this match" explanations respecting privacy boundaries.
+- **4.3 — Match rationale generation** — LLM-generated "why this match" explanations respecting privacy boundaries. The full design for this feature is captured in the **Content Match Story** pattern (see §4.6).
 - **4.4 — Generative preference elicitation** — conversational discovery of requirements replacing free-text search.
 - **4.5 — Three search modes** — gallery search (public profiles), participant-to-participant match search (deep, private signals), deal-to-facilitator search (deal requirements → service providers).
+- **4.6 — Content Match Story** — a named, three-stage match narrative delivered to proposed match pairs. Extends §4.3 from a backend rationale into a participant-facing feature. See detailed design below.
+
+#### 4.6 — Content Match Story (Design Proposal)
+
+> **Status:** Design proposal — not yet on implementation schedule. Full reference document: [`DPContentPublishing/sources/ref/ContentMatchStory.md`](https://github.com/DeeperPoint/DPContentPublishing/blob/main/sources/ref/ContentMatchStory.md). Published rationale: [deeperpoint.com/blog/content-match-story.html](https://deeperpoint.com/blog/content-match-story.html).
+>
+> **Origin:** Surfaced during a competitive teardown of Boardy.ai (Apr 2026). Boardy's approach — withholding match context to preserve confidentiality — pushes match-qualification work into post-match phone calls, increasing attrition on good matches. The Content Match Story is the proposed alternative.
+
+**The problem:** Most matching platforms announce a match without arguing for it. Both parties must independently invest time in a post-match conversation just to determine whether the match is worth pursuing. In thin markets — where counterparties are rare and trust is fragile — this post-match attrition is a structural risk, not an acceptable friction cost.
+
+**The solution:** At match time, the platform generates an AI-authored narrative explaining *why* the pairing is promising and what the two parties could plausibly accomplish together. This is not a profile summary — it is a *match argument*, a case made on behalf of the pairing.
+
+**Three-stage delivery model (privacy-respecting):**
+
+| Stage | Content | Identity disclosed? | Trigger |
+|---|---|---|---|
+| **1 — Anonymous narrative** | Capabilities, needs, potential outcomes of the pairing | Neither party | Automatic at match time |
+| **2 — Named introduction** | Richer narrative with named parties, organizations, specific fit dimensions | Both parties simultaneously | Double opt-in after Stage 1 |
+| **3 — Deal context story** | Running account of agreed terms, open items, what a completed transaction looks like | Full engagement | Mutual commitment to active engagement |
+
+**Privacy constraint (critical):** The narrative is generated from the platform's matching profile data (private signals from both parties) but must reference only information each participant has authorized for disclosure at their current trust stage. The system reads from both profiles; the story reveals only what §5 (Trusted Intermediary Protocol) and §9.3 (Progressive trust stages) permit at the current stage. This is the same constraint that governs the confidential matching pipeline — the platform knows more than it shows.
+
+**Dependencies:** §4.3 (match rationale generation — the LLM engine), §5 (trusted intermediary — the privacy constraint), §3.5 (structured disclosure gates — controls Stage 1→2→3 transitions), §9.3 (progressive trust stages — governs when named and deal-context narratives are released), §2 (three-layer information architecture — determines which profile data enters the narrative).
+
+**Impact on thin market viability:** The Content Match Story reduces the attrition rate at the post-match stage, meaning a platform can achieve adequate deal flow with fewer matches — which extends viability to lower participant densities. This directly addresses one of the most challenging structural problems in thin market cold starts.
+
+**Placeholder prompt intent** (to be added to `prompt_manager.py` when implemented):
+```
+match_narrative_stage1  # anonymous match argument
+match_narrative_stage2  # named introduction narrative
+match_narrative_stage3  # deal context summary
+```
 
 ---
 

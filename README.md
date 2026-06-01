@@ -149,7 +149,7 @@ See [`Cosolvent-ROADMAP.md`](Cosolvent-ROADMAP.md) for the full development road
 | Project | Description |
 |---|---|
 | [MarketForge](https://github.com/DeeperPoint/MarketForge) | Market configuration and deployment orchestration |
-| [KnowledgeSlot](https://github.com/DeeperPoint/KnowledgeSlot) | AI-curated reference library for domain knowledge |
+| [CommonContext](https://github.com/DeeperPoint/CommonContext) | AI-curated reference library for domain knowledge |
 | [ClientSynth](https://github.com/DeeperPoint/ClientSynth) | Synthetic participant generation for testing and demos |
 
 ## Documentation
