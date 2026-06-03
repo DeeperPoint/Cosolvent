@@ -16,3 +16,24 @@ class SearchResult(BaseModel):
     fields: dict
     score: float | None = None
     ai_profile: str | None = None
+
+
+class SuggestedMatchScoreBreakdown(BaseModel):
+    vector: float
+    field_overlap: float
+    vector_weight: float
+    field_overlap_weight: float
+
+
+class SuggestedMatchResult(BaseModel):
+    id: str
+    participant_type: str
+    score: float
+    score_breakdown: SuggestedMatchScoreBreakdown
+    fields: dict
+
+
+class SuggestedMatchesResponse(BaseModel):
+    results: list[SuggestedMatchResult]
+    total: int
+    target_type: str

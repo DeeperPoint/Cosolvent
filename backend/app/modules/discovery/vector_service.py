@@ -143,6 +143,89 @@ async def count_profile_vectors_strict(
     return int(value)
 
 
+async def get_profile_embedding(profile_id: str) -> list[float] | None:
+    """Return the stored embedding for a profile, or None if not indexed yet."""
+    profile_uuid = _to_uuid(profile_id)
+    if profile_uuid is None:
+        return None
+    async with session_scope() as session:
+        row = (
+            await session.execute(
+                select(profile_vectors.c.embedding).where(
+                    profile_vectors.c.profile_id == profile_uuid
+                )
+            )
+        ).first()
+    if row is None:
+        return None
+    raw = row[0]
+    if raw is None:
+        return None
+    return [float(v) for v in raw]
+
+
+async def find_similar_profiles(
+    *,
+    embedding: list[float],
+    participant_types: list[str],
+    exclude_profile_ids: list[str] | None = None,
+    filters: dict[str, Any] | None = None,
+    min_score: float = 0.0,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Find active profiles nearest to a given embedding.
+
+    Designed for profile-to-profile matching: pass an existing profile's stored
+    embedding, optionally exclude that profile's own id, and apply marketplace
+    filter fields. Visibility-tier filtering is the caller's responsibility.
+    """
+    if not participant_types:
+        return []
+
+    profiles = table_for_collection("profiles")
+    distance = profile_vectors.c.embedding.cosine_distance(embedding)
+    similarity = 1 - distance
+    score = similarity.label("score")
+    stmt: Select[Any] = (
+        select(
+            profile_vectors.c.profile_id,
+            score,
+            profile_vectors.c.vector_metadata,
+            profiles.c.data.label("profile_data"),
+        )
+        .select_from(profile_vectors.join(profiles, profiles.c.id == profile_vectors.c.profile_id))
+        .where(profiles.c.data["status"].astext == "active")
+        .where(profiles.c.data["participant_type"].astext.in_(participant_types))
+    )
+
+    if exclude_profile_ids:
+        exclude_uuids = [
+            u for u in (_to_uuid(pid) for pid in exclude_profile_ids) if u is not None
+        ]
+        if exclude_uuids:
+            stmt = stmt.where(profile_vectors.c.profile_id.not_in(exclude_uuids))
+
+    if min_score > 0:
+        stmt = stmt.where(similarity >= min_score)
+
+    stmt = _apply_profile_field_filters(stmt, profiles.c.data, filters or {})
+    stmt = stmt.order_by(score.desc(), profile_vectors.c.profile_id.asc())
+    stmt = stmt.limit(max(1, limit))
+
+    async with session_scope() as session:
+        rows = (await session.execute(stmt)).all()
+
+    return [
+        {
+            "id": str(row.profile_id),
+            "score": float(row.score),
+            "metadata": row.vector_metadata or {},
+            "profile": dict(row.profile_data or {}),
+        }
+        for row in rows
+    ]
+
+
 async def delete_profile_vector(profile_id: str) -> None:
     profile_uuid = _to_uuid(profile_id)
     if profile_uuid is None:
