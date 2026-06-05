@@ -83,8 +83,36 @@ def main() -> None:
         help="Export directory (default: exports)",
     )
 
+    # generate-config subcommand — build marketplace.yaml from a domain schema
+    gen_parser = subparsers.add_parser(
+        "generate-config",
+        help="Generate marketplace.yaml from a CommonContext domain schema",
+    )
+    gen_parser.add_argument("--domain-schema", required=True, help="Path to <vertical>_schema.yaml")
+    gen_parser.add_argument("-o", "--output", default="marketplace.yaml", help="Output path")
+    gen_parser.add_argument("--name", help="Marketplace display name")
+    gen_parser.add_argument("--industry", help="Industry label")
+    gen_parser.add_argument("--enrich", action="store_true", help="Use OpenRouter LLM for repair")
+    gen_parser.add_argument("--stdout", action="store_true", help="Print YAML instead of writing a file")
+    gen_parser.add_argument("--provenance", action="store_true", help="Print field->source provenance map")
+
     args = parser.parse_args()
 
+    if args.command == "generate-config":
+        from configgen.cli import main as gen_main
+
+        argv = ["--domain-schema", args.domain_schema, "-o", args.output]
+        if args.name:
+            argv += ["--name", args.name]
+        if args.industry:
+            argv += ["--industry", args.industry]
+        if args.enrich:
+            argv.append("--enrich")
+        if args.stdout:
+            argv.append("--stdout")
+        if args.provenance:
+            argv.append("--provenance")
+        sys.exit(gen_main(argv))
     if args.command == "validate":
         from cli.validate import validate_config_file
 
