@@ -96,8 +96,21 @@ def main() -> None:
     gen_parser.add_argument("--stdout", action="store_true", help="Print YAML instead of writing a file")
     gen_parser.add_argument("--provenance", action="store_true", help="Print field->source provenance map")
 
+    # load-references subcommand — load a CommonContext reference export into the DB
+    refs_parser = subparsers.add_parser(
+        "load-references",
+        help="Load a CommonContext reference-library JSONL export into reference_library",
+    )
+    refs_parser.add_argument("file", help="Path to the ingestion JSONL export")
+    refs_parser.add_argument("--vertical", help="Default vertical if records omit it")
+
     args = parser.parse_args()
 
+    if args.command == "load-references":
+        from cli.load_references import load_references_file
+
+        ok = load_references_file(args.file, args.vertical)
+        sys.exit(0 if ok else 1)
     if args.command == "generate-config":
         from configgen.cli import main as gen_main
 
