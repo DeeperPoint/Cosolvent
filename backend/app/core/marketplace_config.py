@@ -14,6 +14,11 @@ import yaml
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 _ROLE_SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
+
+# Max participant types allowed in one marketplace. Raised from the original MVP cap
+# of 3 (ROADMAP "Conflict C3") so a market can have multiple types per role kind.
+MAX_PARTICIPANT_TYPES = 8
+
 _RESERVED_ROLE_SLUGS = {
     "admin",
     "auth",
@@ -235,11 +240,15 @@ class MarketplaceConfig(StrictModel):
         slug_list = self.type_slugs()
         slugs = set(slug_list)
 
-        # Need at least 2 participant types
+        # Need at least 2 participant types (a market needs both sides of an exchange).
+        # Upper bound relaxes the original MVP cap of 3 (ROADMAP "Conflict C3", option A):
+        # multiple types may share a role kind, e.g. several distinct facilitators
+        # (inspector, carrier, financier). Matching, permissions, communication, and both
+        # compilers iterate types generically, so any count in range works.
         if len(self.participant_types) < 2:
             raise ValueError("At least 2 participant types required")
-        if len(self.participant_types) > 3:
-            raise ValueError("Maximum 3 participant types for MVP")
+        if len(self.participant_types) > MAX_PARTICIPANT_TYPES:
+            raise ValueError(f"Maximum {MAX_PARTICIPANT_TYPES} participant types")
 
         if len(slugs) != len(slug_list):
             duplicate_slugs = sorted({slug for slug in slug_list if slug_list.count(slug) > 1})
