@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Path, Request
+from fastapi import APIRouter, Depends, Path, Query, Request
 from app.core.dependencies import get_config, get_current_user, get_optional_user, require_admin
 from app.core.exceptions import AppError, ForbiddenError, UnauthorizedError
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.auth.signup_policy import public_application_allowed
+from app.modules.discovery import matching as discovery_matching
+from app.modules.discovery.schemas import SuggestedMatchesResponse
 from app.modules.profiles import service
 from app.modules.profiles.register_helpers import ensure_role_matches_route
 from app.modules.profiles.register_request import parse_anonymous_register, parse_authenticated_register_body
@@ -141,3 +143,28 @@ async def ai_reject(
     _admin: dict = Depends(require_admin),
 ):
     return await service.ai_reject_profile(profile_id)
+
+
+@router.get(
+    "/{type_slug}/{profile_id}/suggested-matches",
+    response_model=SuggestedMatchesResponse,
+)
+async def suggested_matches(
+    type_slug: str = Path(...),
+    profile_id: str = Path(...),
+    target_type: str | None = Query(None, description="Counterpart participant type to score against. Defaults to the first opposite-role type."),
+    limit: int = Query(20, ge=1, le=100),
+    min_score: float = Query(0.0, ge=0.0, le=1.0, description="Minimum cosine similarity (pre-composite) for a candidate to be considered."),
+    user: dict = Depends(get_current_user),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    _validate_type(type_slug, config)
+    return await discovery_matching.suggested_matches(
+        config,
+        profile_id=profile_id,
+        type_slug=type_slug,
+        viewer=user,
+        target_type=target_type,
+        limit=limit,
+        min_score=min_score,
+    )

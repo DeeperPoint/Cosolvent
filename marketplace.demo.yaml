@@ -1,0 +1,189 @@
+marketplace:
+  name: "MachineMarket"
+  description: "A curated marketplace for buying, selling, and shipping industrial machinery"
+  industry: "Industrial Machinery"
+
+# Curated marketplace: admin-reviewed onboarding for every role.
+# Anyone can apply via the public registration form.
+auth:
+  allow_public_signup: false
+  allow_public_application: true
+
+participant_types:
+  - name: "Seller"
+    slug: "seller"
+    role: "supply"
+    permissions:
+      can_list: true
+      can_search: ["provider"]             # sellers search transport providers
+      can_initiate_conversation: true      # so they can reach the providers they find
+      can_receive_conversation: true
+      can_share_private_assets: true
+      requires_onboarding: true
+      requires_approval: true
+      visible_in_search: true
+
+
+  - name: "Buyer"
+    slug: "buyer"
+    role: "demand"
+    permissions:
+      can_list: false
+      can_search: ["seller", "provider"]   # buyers search sellers + providers
+      can_initiate_conversation: true
+      can_receive_conversation: true
+      can_share_private_assets: false
+      requires_onboarding: true
+      requires_approval: true
+      visible_in_search: false             # nobody searches buyers in this model
+
+  - name: "Provider"
+    slug: "provider"
+    role: "supply"
+    permissions:
+      can_list: true
+      can_search: []                       # providers cannot search; they get found
+      can_initiate_conversation: false     # follows from no search — nothing to initiate to
+      can_receive_conversation: true
+      can_share_private_assets: true
+      requires_onboarding: true
+      requires_approval: true
+      visible_in_search: true
+
+# ─────────────────────────────────────────────────────────────────────
+# Per-field ``visibility`` controls who can read the field's value:
+#
+#   visibility: public     → 🌐 anyone (anonymous + logged-in)
+#   visibility: protected  → 👥 any logged-in participant ("members only")
+#                            — applies to NON-FILE fields only
+#   visibility: private    → 🔒 the owner of the profile + admins only
+#
+# For FILE fields (``type: file`` / ``type: files``), only two tiers exist:
+# ``public`` and ``private``. Any other value collapses to ``private`` at
+# upload time. The YAML provides the per-field default; the registration
+# form lets the applicant override per-file (default still ``public``).
+# ─────────────────────────────────────────────────────────────────────
+profile_schemas:
+  seller:
+    sections:
+      - name: "Company"
+        fields:
+          - { name: company_name, label: "Company Name", type: text, required: true, visibility: public, searchable: true }
+          - { name: country, label: "Country", type: select, required: true, options: ["USA", "Canada", "Mexico", "Germany", "Italy", "Japan", "China", "South Korea", "India", "Brazil"], visibility: public, searchable: true }
+          - { name: region, label: "State / Province", type: text, required: false, visibility: public, searchable: true }
+          - { name: years_in_business, label: "Years in Business", type: number, required: false, visibility: public, searchable: true }
+          - { name: description, label: "About the Company", type: rich_text, required: false, visibility: public, searchable: true }
+      - name: "Inventory"
+        fields:
+          - { name: machinery_categories, label: "Machinery Categories", type: multi_select, required: true, options: ["Construction", "Agriculture", "Manufacturing / CNC", "Material Handling", "Mining", "Power Generation", "Forestry", "Oil & Gas"], visibility: public, searchable: true }
+          - { name: brands_carried, label: "Brands Carried", type: multi_select, required: false, options: ["Caterpillar", "Komatsu", "John Deere", "Volvo", "Hitachi", "JCB", "Liebherr", "Doosan", "Mitsubishi", "Other"], visibility: public, searchable: true }
+          - { name: condition_handled, label: "Condition", type: multi_select, required: true, options: ["New", "Used", "Refurbished", "Parts Only"], visibility: public, searchable: true }
+          - { name: average_unit_price_usd, label: "Average Unit Price (USD)", type: number, required: false, visibility: protected, searchable: true }
+          - { name: machinery_photos, label: "Machinery Photos (JPG/PNG)", type: files, required: false, visibility: public, searchable: false }
+          - { name: spec_sheets, label: "Spec Sheets / Brochures (PDF)", type: files, required: false, visibility: private, searchable: false }
+      - name: "Compliance"
+        fields:
+          - { name: certifications, label: "Certifications", type: multi_select, required: false, options: ["ISO 9001", "CE Marking", "OSHA Compliant", "EPA Tier 4"], visibility: public, searchable: true }
+          - { name: certification_documents, label: "Certificate Documents", type: files, required: false, visibility: private, searchable: false }
+      - name: "Internal"
+        fields:
+          - { name: internal_notes, label: "Internal Notes", type: text, required: false, visibility: private, searchable: false }
+
+  buyer:
+    sections:
+      - name: "Organization"
+        fields:
+          - { name: org_name, label: "Organization Name", type: text, required: true, visibility: public, searchable: true }
+          - { name: country, label: "Country", type: select, required: true, options: ["USA", "Canada", "Mexico", "UK", "Germany", "France", "UAE", "Saudi Arabia", "Australia", "Singapore"], visibility: public, searchable: true }
+          - { name: business_type, label: "Business Type", type: select, required: true, options: ["Construction Contractor", "Manufacturer", "Mining Operator", "Logistics / Rental", "Government / Municipal", "Reseller", "Other"], visibility: public, searchable: true }
+          - { name: description, label: "About the Buyer", type: rich_text, required: false, visibility: public, searchable: true }
+      - name: "Procurement Needs"
+        fields:
+          - { name: machinery_interests, label: "Machinery Categories of Interest", type: multi_select, required: true, options: ["Construction", "Agriculture", "Manufacturing / CNC", "Material Handling", "Mining", "Power Generation", "Forestry", "Oil & Gas"], visibility: protected, searchable: true }
+          - { name: condition_preference, label: "Condition Preference", type: multi_select, required: false, options: ["New", "Used", "Refurbished", "No Preference"], visibility: protected, searchable: true }
+          - { name: budget_range_usd, label: "Typical Budget per Unit (USD)", type: select, required: false, options: ["Under 25k", "25k-100k", "100k-500k", "500k-2M", "2M+"], visibility: protected, searchable: false }
+          - { name: planned_purchases_per_year, label: "Planned Purchases per Year", type: number, required: false, visibility: protected, searchable: false }
+      - name: "Logistics Needs"
+        fields:
+          - { name: needs_transport_quotes, label: "Wants Transport Quotes", type: select, required: false, options: ["Yes", "No", "Sometimes"], visibility: protected, searchable: true }
+          - { name: delivery_country, label: "Primary Delivery Country", type: text, required: false, visibility: protected, searchable: true }
+
+  provider:
+    sections:
+      - name: "Company"
+        fields:
+          - { name: company_name, label: "Company Name", type: text, required: true, visibility: public, searchable: true }
+          - { name: country, label: "Headquarters Country", type: select, required: true, options: ["USA", "Canada", "Mexico", "Germany", "Netherlands", "Poland", "UAE", "Singapore", "Australia", "Brazil"], visibility: public, searchable: true }
+          - { name: years_in_business, label: "Years in Business", type: number, required: false, visibility: public, searchable: true }
+          - { name: description, label: "About the Carrier", type: rich_text, required: false, visibility: public, searchable: true }
+      - name: "Service Coverage"
+        fields:
+          - { name: service_regions, label: "Service Regions", type: multi_select, required: true, options: ["North America", "South America", "Europe", "Middle East", "Africa", "South Asia", "East Asia", "Southeast Asia", "Oceania"], visibility: public, searchable: true }
+          - { name: cross_border, label: "Handles Cross-Border", type: select, required: true, options: ["Yes", "No"], visibility: public, searchable: true }
+          - { name: lanes_served, label: "Common Lanes", type: text, required: false, visibility: public, searchable: true }
+      - name: "Fleet & Capacity"
+        fields:
+          - { name: equipment_types, label: "Equipment Types", type: multi_select, required: true, options: ["Flatbed", "Step Deck", "Double Drop / Lowboy", "Removable Gooseneck (RGN)", "Container", "Roll-On/Roll-Off", "Heavy Haul Specialized"], visibility: public, searchable: true }
+          - { name: max_load_tonnes, label: "Maximum Load (Tonnes)", type: number, required: false, visibility: public, searchable: true }
+          - { name: fleet_size, label: "Fleet Size (units)", type: number, required: false, visibility: public, searchable: true }
+          - { name: fleet_photos, label: "Fleet Photos (JPG/PNG)", type: files, required: false, visibility: public, searchable: false }
+      - name: "Compliance"
+        fields:
+          - { name: insurance_coverage_usd, label: "Cargo Insurance Coverage (USD)", type: number, required: false, visibility: protected, searchable: true }
+          - { name: certifications, label: "Certifications", type: multi_select, required: false, options: ["DOT Compliant", "ADR (EU)", "TIR Carnet", "ISO 9001", "C-TPAT"], visibility: public, searchable: true }
+          - { name: insurance_documents, label: "Insurance & Certificate Documents", type: files, required: false, visibility: private, searchable: false }
+      - name: "Internal"
+        fields:
+          - { name: internal_notes, label: "Internal Notes", type: text, required: false, visibility: private, searchable: false }
+
+onboarding:
+  seller:
+    requires_approval: true
+    approval_type: "manual"
+    document_upload_required: true
+    ai_extraction_enabled: true
+    ai_profile_generation: true
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 80
+
+  buyer:
+    requires_approval: true
+    approval_type: "manual"
+    document_upload_required: false
+    ai_extraction_enabled: false
+    ai_profile_generation: false
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 70
+
+  provider:
+    requires_approval: true
+    approval_type: "manual"
+    document_upload_required: true
+    ai_extraction_enabled: true
+    ai_profile_generation: true
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 80
+
+communication:
+  conversation_rules:
+    - { initiator: buyer,  receiver: seller,   requires_approval: true }
+    - { initiator: buyer,  receiver: provider, requires_approval: true }
+    - { initiator: seller, receiver: provider, requires_approval: true }
+
+discovery:
+  searchable_types: ["seller", "provider"]
+  filter_fields: ["country", "machinery_categories", "condition_handled", "equipment_types", "service_regions"]
+  result_visibility:
+    anonymous: "public"
+    authenticated: "protected"
+  access:
+    anonymous_search_enabled: true
+    anonymous_filter_mode: "public_only"
+  ai:
+    vector_search_enabled: true
+    rag_query_enabled: true
+    follow_up_suggestions: true
+    profile_retrieval_mode: "hybrid"
+    rag_failure_behavior: "empty"
+    profile_similarity_threshold: 0.25
+    max_vector_candidates: 500
