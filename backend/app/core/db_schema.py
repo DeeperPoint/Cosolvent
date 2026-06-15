@@ -133,6 +133,21 @@ reference_chunks = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
 )
 
+# Knowledge gap signals: questions the reference library could not answer.
+# The curatorial "pull signal" — tells curators what authoritative content is
+# missing. Written from the domain-Q&A path; read by curators via the admin API.
+knowledge_gap_signals = Table(
+    "knowledge_gap_signals",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+    Column("query", Text, nullable=False),
+    Column("vertical", Text, nullable=True),
+    Column("filters", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    # Why the gap was recorded: "no_matching_chunks" | "model_not_covered".
+    Column("reason", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
+)
+
 
 def table_for_collection(name: str) -> Table:
     table = DOC_TABLES.get(name)

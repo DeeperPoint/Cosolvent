@@ -618,6 +618,13 @@ async def _ensure_indexes(conn) -> None:
             "ON reference_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
         )
     )
+    # Knowledge gap signals: curators read newest-first.
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_knowledge_gap_signals_created_at "
+            "ON knowledge_gap_signals (created_at DESC)"
+        )
+    )
 
     # Cleanup stale vector rows before enforcing referential integrity.
     await conn.execute(
