@@ -591,6 +591,34 @@ async def _ensure_indexes(conn) -> None:
         text("CREATE INDEX IF NOT EXISTS ix_ai_document_chunks_document_id ON ai_document_chunks (document_id)")
     )
 
+    # Reference library (Knowledge Slot) indexes.
+    await conn.execute(
+        text("CREATE UNIQUE INDEX IF NOT EXISTS uq_reference_documents_doc_key ON reference_documents (doc_key)")
+    )
+    await conn.execute(
+        text("CREATE INDEX IF NOT EXISTS ix_reference_documents_vertical ON reference_documents (vertical)")
+    )
+    await conn.execute(
+        text("CREATE UNIQUE INDEX IF NOT EXISTS uq_reference_chunks_chunk_id ON reference_chunks (chunk_id)")
+    )
+    await conn.execute(
+        text("CREATE INDEX IF NOT EXISTS ix_reference_chunks_document_id ON reference_chunks (document_id)")
+    )
+    # GIN with jsonb_path_ops: smaller/faster for the @> containment pre-filter
+    # used by metadata-filtered retrieval (jurisdiction/topic/doc_type).
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_reference_chunks_metadata_gin "
+            "ON reference_chunks USING gin (chunk_metadata jsonb_path_ops)"
+        )
+    )
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_reference_chunks_embedding "
+            "ON reference_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
+        )
+    )
+
     # Cleanup stale vector rows before enforcing referential integrity.
     await conn.execute(
         text(
@@ -633,6 +661,29 @@ async def _ensure_indexes(conn) -> None:
                     ALTER TABLE profile_vectors
                     ADD CONSTRAINT fk_profile_vectors_profile_id
                     FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE;
+                END IF;
+            END
+            $$;
+            """
+        )
+    )
+    await conn.execute(
+        text(
+            "DELETE FROM reference_chunks c "
+            "WHERE NOT EXISTS (SELECT 1 FROM reference_documents d WHERE d.id = c.document_id)"
+        )
+    )
+    await conn.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'fk_reference_chunks_document_id'
+                ) THEN
+                    ALTER TABLE reference_chunks
+                    ADD CONSTRAINT fk_reference_chunks_document_id
+                    FOREIGN KEY (document_id) REFERENCES reference_documents(id) ON DELETE CASCADE;
                 END IF;
             END
             $$;
