@@ -25,7 +25,7 @@ DOCKER_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
 .PHONY: help venv install install-frontend lint lint-fix format type-check clean \
 	unit unit-frontend integration e2e live test-all \
 	docker-cache setup-up setup-down up down reset ps logs logs-api logs-worker wait-api bootstrap-admin \
-	api worker validate-config wizard onboarding smoke-setup compile compile-check export postman-export regenerate-auto \
+	api worker validate-config wizard gen-config onboarding smoke-setup compile compile-check export postman-export regenerate-auto \
 	generate-frontend
 
 help: ## Show available commands
@@ -180,6 +180,11 @@ validate-config: ## Validate marketplace config file (uses marketplace.example.y
 
 wizard: ## Launch CLI onboarding wizard
 	cd backend && $(BE_PYTHON) -m cli wizard -o ../marketplace.yaml
+
+SCHEMA ?= ../../CommonContext/schemas/grain_trade_schema.yaml
+GEN_OUT ?= ../marketplace.yaml
+gen-config: ## Generate marketplace.yaml from a domain schema via Claude/OpenRouter (override SCHEMA=, GEN_OUT=, MODEL=)
+	cd backend && $(BE_PYTHON) -m configgen --domain-schema $(SCHEMA) -o $(GEN_OUT) $(if $(MODEL),--model $(MODEL),)
 
 compile: ## Generate backend marketplace artifacts from marketplace.yaml
 	cd backend && $(BE_PYTHON) -m cli compile --config ../marketplace.yaml --mode mvp

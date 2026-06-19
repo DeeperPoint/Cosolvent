@@ -1,12 +1,16 @@
-"""Top-level orchestration: domain schema (+ optional LLM) -> validated marketplace.yaml.
+"""Top-level orchestration: domain schema (+ Claude LLM) -> validated marketplace.yaml.
 
 Pipeline:
   1. load domain schema            (CommonContext output)
   2. extract MarketDefinition      (deterministic pivot; extract.py)
-  3. [optional] LLM enrichment     (refine fields/labels)
+  3. LLM enrichment                (Claude via OpenRouter: refine fields/labels)
   4. assemble config dict          (assemble.py)
   5. validate + repair             (validate.py — imports the real MarketplaceConfig)
   6. emit YAML
+
+The CLI always supplies an ``llm_client`` (Claude via OpenRouter); enrichment + repair
+are therefore standard in the generation path. ``llm_client`` stays injectable here so
+the deterministic pipeline remains unit-testable offline (and stub clients can be used).
 """
 
 from __future__ import annotations
@@ -71,8 +75,9 @@ def generate_from_schema(
 
     draft = assemble(market)
 
-    # Optional LLM enrichment: refine visibility / select-vs-multi / labels before
-    # validation. Applied through a whitelist (see enrich.py); validation is the backstop.
+    # LLM enrichment (Claude via OpenRouter when the CLI supplies a client): refine
+    # visibility / select-vs-multi / labels before validation. Applied through a
+    # whitelist (see enrich.py); validation is the backstop.
     if llm_client is not None:
         from .enrich import enrich_fields
 

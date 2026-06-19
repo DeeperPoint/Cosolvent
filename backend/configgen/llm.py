@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 _PROMPTS = Path(__file__).parent / "prompts"
-_DEFAULT_MODEL = "google/gemini-2.5-flash"
+# Claude via OpenRouter. Opus 4.8 is the most capable; override with OPENROUTER_MODEL
+# (e.g. "anthropic/claude-sonnet-4.6") for cheaper/faster enrichment runs.
+_DEFAULT_MODEL = "anthropic/claude-opus-4.8"
 _API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
@@ -50,7 +52,8 @@ class OpenRouterClient:
         self.api_key = api_key or _discover_api_key()
         if not self.api_key:
             raise RuntimeError(
-                "OPENROUTER_API_KEY not found (env or Cosolvent/.env). Required for --enrich."
+                "OPENROUTER_API_KEY not found (env or Cosolvent/.env). "
+                "configgen requires Claude via OpenRouter — set OPENROUTER_API_KEY."
             )
 
     def complete(self, system: str, user: str) -> str:

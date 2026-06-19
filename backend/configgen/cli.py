@@ -2,8 +2,9 @@
 
     python -m configgen --domain-schema <vertical>_schema.yaml -o marketplace.yaml
 
-Add ``--enrich`` to use an LLM (OpenRouter) to refine and repair; otherwise the run
-is fully deterministic and offline.
+LLM enrichment + repair is mandatory and runs on Claude via OpenRouter (default
+``anthropic/claude-opus-4.8``). Requires ``OPENROUTER_API_KEY`` (env or Cosolvent/.env).
+Override the model with ``--model`` or the ``OPENROUTER_MODEL`` env var.
 """
 
 from __future__ import annotations
@@ -25,16 +26,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-o", "--output", default="marketplace.yaml", help="Output path (default: marketplace.yaml)")
     parser.add_argument("--name", help="Marketplace display name (default: derived from vertical)")
     parser.add_argument("--industry", help="Industry label (default: derived from vertical)")
-    parser.add_argument("--enrich", action="store_true", help="Use OpenRouter LLM for repair (needs OPENROUTER_API_KEY)")
+    parser.add_argument("--model", help="OpenRouter model override (default: anthropic/claude-opus-4.8 or OPENROUTER_MODEL)")
     parser.add_argument("--stdout", action="store_true", help="Print YAML to stdout instead of writing a file")
     parser.add_argument("--provenance", action="store_true", help="Also print the field->source provenance map")
     args = parser.parse_args(argv)
 
-    llm_client = None
-    if args.enrich:
-        from .llm import OpenRouterClient
+    # LLM enrichment + repair is mandatory: always run on Claude via OpenRouter.
+    from .llm import OpenRouterClient
 
-        llm_client = OpenRouterClient()
+    try:
+        llm_client = OpenRouterClient(model=args.model)
+    except RuntimeError as e:
+        print(f"Cannot initialize Claude (OpenRouter): {e}", file=sys.stderr)
+        return 1
 
     try:
         result = generate_from_schema(
