@@ -19,6 +19,7 @@ from app.modules.ai.embedding_client import get_embedding
 from app.modules.ai.llm_client import generate
 from app.modules.ai.prompt_manager import format_prompt, get_prompt_template
 from app.modules.discovery.vector_service import search_vectors
+from app.modules.knowledge import search_reference_library
 
 logger = logging.getLogger("cosolvent.ai.service")
 
@@ -47,9 +48,19 @@ async def query(
             vector_filter.update(filters)
         results = await search_vectors(embedding, top_k=5, filter_dict=vector_filter)
         context_parts = [r.get("metadata", {}).get("text", "") for r in results]
-        context = "\n\n".join(context_parts)
+        context = "\n\n".join(p for p in context_parts if p)
     except Exception as exc:
         raise ServiceUnavailableError("AI retrieval unavailable: vector search failed") from exc
+
+    # Blend in the sponsor-curated reference library (Knowledge Slot), if any is loaded.
+    # Non-fatal: an empty or unavailable library must not break the main answer.
+    try:
+        ref_hits = await search_reference_library(embedding, top_k=5)
+        if ref_hits:
+            ref_block = "\n\n".join(h["chunk_text"] for h in ref_hits)
+            context = (context + "\n\n" if context else "") + "Curated reference library:\n" + ref_block
+    except Exception:
+        logger.warning("Reference library retrieval failed; continuing without it", exc_info=True)
 
     # Build prompt — try use_case template first, fall back to rag_query
     template = await get_prompt_template(use_case, config)
@@ -74,6 +85,34 @@ async def query(
     return {
         "answer": answer,
         "thread_id": thread_id,
+    }
+
+
+async def knowledge_query(
+    query_text: str,
+    config: MarketplaceConfig,
+    *,
+    vertical: str | None = None,
+    filters: dict | None = None,
+    top_k: int = 5,
+    use_case: str = "rag_query",
+) -> dict[str, Any]:
+    """Reference-library-only RAG (the Knowledge Slot Q&A path).
+
+    Unlike ``query``, this is scoped entirely to the curated reference library and
+    returns citations. Intended for a dedicated 'Knowledge Q&A' / Demo-Mode endpoint.
+    """
+    embedding = await get_embedding(query_text)
+    hits = await search_reference_library(embedding, top_k=top_k, vertical=vertical, filters=filters)
+    context = "\n\n".join(h["chunk_text"] for h in hits)
+
+    template = await get_prompt_template("rag_query", config)
+    prompt = format_prompt(template, config, context=context, query=query_text)
+    answer = await generate([{"role": "user", "content": prompt}], use_case=use_case)
+
+    return {
+        "answer": answer,
+        "sources": [{"id": h["id"], "score": h["score"], "metadata": h["metadata"]} for h in hits],
     }
 
 

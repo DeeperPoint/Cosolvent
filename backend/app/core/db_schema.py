@@ -82,6 +82,24 @@ profile_vectors = Table(
 )
 
 
+# Knowledge Slot — sponsor-curated reference library (CommonContext output).
+# Unlike ai_document_chunks (per-participant uploads), these are vertical-wide
+# reference documents (contracts, standards, regulations) loaded by the sponsor and
+# queried by the marketplace AI at runtime. See MarketForge ks-to-cosolvent contract.
+reference_library = Table(
+    "reference_library",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+    Column("source_doc_id", UUID(as_uuid=True), nullable=False),
+    Column("vertical", Text, nullable=False),
+    Column("chunk_text", Text, nullable=False),
+    Column("embedding", Vector(1536), nullable=False),
+    Column("reference_metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
+    UniqueConstraint("source_doc_id", "chunk_text", name="uq_reference_library_doc_chunk"),
+)
+
+
 def table_for_collection(name: str) -> Table:
     table = DOC_TABLES.get(name)
     if table is None:

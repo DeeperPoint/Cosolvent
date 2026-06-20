@@ -587,6 +587,18 @@ async def _ensure_indexes(conn) -> None:
             "ON ai_document_chunks (document_id, chunk_index)"
         )
     )
+
+    # Reference library (Knowledge Slot) indexes
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_reference_library_embedding "
+            "ON reference_library USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
+        )
+    )
+    await conn.execute(
+        text("CREATE INDEX IF NOT EXISTS ix_reference_library_metadata_gin ON reference_library USING gin (reference_metadata)")
+    )
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reference_library_vertical ON reference_library (vertical)"))
     await conn.execute(
         text("CREATE INDEX IF NOT EXISTS ix_ai_document_chunks_document_id ON ai_document_chunks (document_id)")
     )

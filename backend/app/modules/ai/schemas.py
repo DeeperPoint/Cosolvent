@@ -14,6 +14,15 @@ class FollowUpRequest(BaseModel):
     thread_id: str
 
 
+class KnowledgeQueryRequest(BaseModel):
+    """Reference-library-only Q&A (the Knowledge Slot path)."""
+
+    query: str
+    vertical: str | None = None
+    filters: dict | None = None
+    top_k: int = 5
+
+
 class DocumentUpload(BaseModel):
     filename: str
     content: str
