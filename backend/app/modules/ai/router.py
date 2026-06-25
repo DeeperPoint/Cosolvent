@@ -10,6 +10,7 @@ from app.modules.ai import service
 from app.modules.ai.schemas import (
     DocumentUpload,
     FollowUpRequest,
+    KnowledgeQueryRequest,
     LLMSettingsUpdate,
     PromptUpdate,
     ProviderValidateRequest,
@@ -35,6 +36,18 @@ async def follow_up(
     user: dict = Depends(get_current_user),
 ):
     return await service.follow_up(body.thread_id, config)
+
+
+@router.post("/knowledge")
+async def knowledge_query(
+    body: KnowledgeQueryRequest,
+    user: dict = Depends(get_current_user),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Knowledge Slot Q&A: answer from the curated reference library, with citations."""
+    return await service.knowledge_query(
+        body.query, config, vertical=body.vertical, filters=body.filters, top_k=body.top_k
+    )
 
 
 @router.post("/documents")
