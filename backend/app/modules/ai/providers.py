@@ -37,9 +37,11 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         id=ProviderID.openrouter,
         name="OpenRouter",
         base_url="https://openrouter.ai/api/v1",
-        supports_embeddings=False,
-        default_embedding_model=None,
-        default_embedding_dimensions=None,
+        # OpenRouter now proxies OpenAI embeddings (openai/text-embedding-3-small, 1536-dim),
+        # so a single OpenRouter key can power both chat and embeddings.
+        supports_embeddings=True,
+        default_embedding_model="openai/text-embedding-3-small",
+        default_embedding_dimensions=1536,
         api_key_env_name="openrouter_api_key",
     ),
     ProviderID.gemini: ProviderSpec(

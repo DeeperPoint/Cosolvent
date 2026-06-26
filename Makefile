@@ -25,7 +25,7 @@ DOCKER_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
 .PHONY: help venv install install-frontend lint lint-fix format type-check clean \
 	unit unit-frontend integration e2e live test-all \
 	docker-cache setup-up setup-down up down reset ps logs logs-api logs-worker wait-api bootstrap-admin \
-	api worker validate-config wizard onboarding smoke-setup compile compile-check export postman-export regenerate-auto \
+	api worker validate-config wizard gen-config build-from-docs onboarding smoke-setup compile compile-check export postman-export regenerate-auto \
 	generate-frontend
 
 help: ## Show available commands
@@ -180,6 +180,30 @@ validate-config: ## Validate marketplace config file (uses marketplace.example.y
 
 wizard: ## Launch CLI onboarding wizard
 	cd backend && $(BE_PYTHON) -m cli wizard -o ../marketplace.yaml
+
+SCHEMA ?= ../../CommonContext/schemas/grain_trade_schema.yaml
+GEN_OUT ?= ../marketplace.yaml
+gen-config: ## Generate marketplace.yaml from a domain schema via Claude/OpenRouter (override SCHEMA=, GEN_OUT=, MODEL=)
+	cd backend && $(BE_PYTHON) -m configgen --domain-schema $(SCHEMA) -o $(GEN_OUT) $(if $(MODEL),--model $(MODEL),)
+
+CC_DIR ?= ../CommonContext
+GEN_SCHEMA ?= schemas/generated_schema.yaml
+build-from-docs: ## Build marketplace + backend from ALL CommonContext/inputs/ docs: synth schema -> marketplace.yaml -> compile -> (load knowledge if embeddable). Override MODEL=.
+	@echo "==> [1/4] CommonContext: convert inputs/ -> synthesize schema (+ knowledge if OPENAI_API_KEY)"
+	cd $(CC_DIR) && .venv/bin/python build_from_inputs.py --out-schema $(GEN_SCHEMA) --refs-out generated_refs.jsonl $(if $(MODEL),--model $(MODEL),)
+	@echo "==> [2/4] Cosolvent: generate marketplace.yaml from the synthesized schema"
+	cd backend && $(BE_PYTHON) -m configgen --domain-schema ../$(CC_DIR)/$(GEN_SCHEMA) -o ../marketplace.yaml $(if $(MODEL),--model $(MODEL),)
+	@echo "==> [3/4] Cosolvent: compile backend artifacts"
+	cd backend && $(BE_PYTHON) -m cli compile --config ../marketplace.yaml --mode mvp
+	@echo "==> [4/4] Cosolvent: load knowledge library (only if generated and stack is up)"
+	@if [ -f $(CC_DIR)/generated_refs.jsonl ]; then \
+		vert=$$(grep -E '^vertical:' $(CC_DIR)/$(GEN_SCHEMA) | head -1 | sed 's/^vertical:[[:space:]]*//'); \
+		echo "    loading reference_library (vertical=$$vert) — needs the stack running (make up)"; \
+		cd backend && $(BE_PYTHON) -m cli load-references ../$(CC_DIR)/generated_refs.jsonl --vertical $$vert; \
+	else \
+		echo "    no generated_refs.jsonl — knowledge library skipped (no embedding key)."; \
+	fi
+	@echo "==> done. To serve the new marketplace live: make reset && make up && make wait-api"
 
 compile: ## Generate backend marketplace artifacts from marketplace.yaml
 	cd backend && $(BE_PYTHON) -m cli compile --config ../marketplace.yaml --mode mvp

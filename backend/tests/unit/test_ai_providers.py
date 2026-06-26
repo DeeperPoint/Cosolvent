@@ -28,7 +28,10 @@ class TestProviderRegistry:
     def test_openrouter_spec(self):
         spec = PROVIDER_REGISTRY[ProviderID.openrouter]
         assert spec.base_url == "https://openrouter.ai/api/v1"
-        assert spec.supports_embeddings is False
+        # OpenRouter now proxies OpenAI embeddings (openai/text-embedding-3-small, 1536-dim).
+        assert spec.supports_embeddings is True
+        assert spec.default_embedding_model == "openai/text-embedding-3-small"
+        assert spec.default_embedding_dimensions == 1536
 
     def test_gemini_spec(self):
         spec = PROVIDER_REGISTRY[ProviderID.gemini]
@@ -64,12 +67,13 @@ class TestClientFactory:
             get_chat_client("nonexistent")
 
     @patch("app.modules.ai.client_factory.settings")
-    def test_get_embedding_client_rejects_openrouter(self, mock_settings):
+    def test_get_embedding_client_openrouter(self, mock_settings):
+        # OpenRouter now supports embeddings, so a client should be returned.
         mock_settings.openrouter_api_key = "or-test"
         from app.modules.ai.client_factory import get_embedding_client
 
-        with pytest.raises(ServiceUnavailableError, match="does not support embeddings"):
-            get_embedding_client("openrouter")
+        client = get_embedding_client("openrouter")
+        assert client is not None
 
     @patch("app.modules.ai.client_factory.settings")
     def test_get_embedding_client_openai(self, mock_settings):
