@@ -25,7 +25,7 @@ DOCKER_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
 .PHONY: help venv install install-frontend lint lint-fix format type-check clean \
 	unit unit-frontend integration e2e live test-all \
 	docker-cache setup-up setup-down up down reset ps logs logs-api logs-worker wait-api bootstrap-admin \
-	api worker validate-config wizard gen-config build-from-docs onboarding smoke-setup compile compile-check export postman-export regenerate-auto \
+	api worker validate-config wizard gen-config build-from-docs live-from-docs load-knowledge onboarding smoke-setup compile compile-check export postman-export regenerate-auto \
 	generate-frontend
 
 help: ## Show available commands
@@ -188,6 +188,9 @@ gen-config: ## Generate marketplace.yaml from a domain schema via Claude/OpenRou
 
 CC_DIR ?= ../CommonContext
 GEN_SCHEMA ?= schemas/generated_schema.yaml
+# Host CLI must target the Docker Postgres (published on $(POSTGRES_HOST_PORT)),
+# NOT a local :5432 — otherwise load-references silently hits the wrong server.
+HOST_POSTGRES_DSN ?= postgresql+asyncpg://postgres:postgres@localhost:$(POSTGRES_HOST_PORT)/cosolvent
 build-from-docs: ## Build marketplace + backend from ALL CommonContext/inputs/ docs: synth schema -> marketplace.yaml -> compile -> (load knowledge if embeddable). Override MODEL=.
 	@echo "==> [1/4] CommonContext: convert inputs/ -> synthesize schema (+ knowledge if OPENAI_API_KEY)"
 	cd $(CC_DIR) && .venv/bin/python build_from_inputs.py --out-schema $(GEN_SCHEMA) --refs-out generated_refs.jsonl $(if $(MODEL),--model $(MODEL),)
@@ -199,11 +202,32 @@ build-from-docs: ## Build marketplace + backend from ALL CommonContext/inputs/ d
 	@if [ -f $(CC_DIR)/generated_refs.jsonl ]; then \
 		vert=$$(grep -E '^vertical:' $(CC_DIR)/$(GEN_SCHEMA) | head -1 | sed 's/^vertical:[[:space:]]*//'); \
 		echo "    loading reference_library (vertical=$$vert) — needs the stack running (make up)"; \
-		cd backend && $(BE_PYTHON) -m cli load-references ../$(CC_DIR)/generated_refs.jsonl --vertical $$vert; \
+		cd backend && POSTGRES_DSN='$(HOST_POSTGRES_DSN)' $(BE_PYTHON) -m cli load-references ../$(CC_DIR)/generated_refs.jsonl --vertical $$vert \
+			|| echo "    !! knowledge load failed — is the stack up (make up)? Re-run 'make load-knowledge' once healthy."; \
 	else \
 		echo "    no generated_refs.jsonl — knowledge library skipped (no embedding key)."; \
 	fi
 	@echo "==> done. To serve the new marketplace live: make reset && make up && make wait-api"
+
+load-knowledge: ## Load CommonContext's generated_refs.jsonl into the RUNNING stack (DSN pinned to :$(POSTGRES_HOST_PORT))
+	@if [ ! -f $(CC_DIR)/generated_refs.jsonl ]; then echo "no $(CC_DIR)/generated_refs.jsonl — run 'make build-from-docs' first"; exit 1; fi
+	@vert=$$(grep -E '^vertical:' $(CC_DIR)/$(GEN_SCHEMA) | head -1 | sed 's/^vertical:[[:space:]]*//'); \
+		echo "Loading reference_library (vertical=$${vert:-<from records>}) via $(HOST_POSTGRES_DSN)"; \
+		cd backend && POSTGRES_DSN='$(HOST_POSTGRES_DSN)' $(BE_PYTHON) -m cli load-references ../$(CC_DIR)/generated_refs.jsonl $${vert:+--vertical $$vert}
+
+live-from-docs: ## FULL end-to-end: inputs/ -> schema+knowledge -> marketplace.yaml -> compile -> fresh stack -> load knowledge -> live APIs. Override MODEL=.
+	@echo "==> [1/5] CommonContext: synthesize schema (+ knowledge library) from inputs/"
+	cd $(CC_DIR) && .venv/bin/python build_from_inputs.py --out-schema $(GEN_SCHEMA) --refs-out generated_refs.jsonl $(if $(MODEL),--model $(MODEL),)
+	@echo "==> [2/5] Cosolvent: generate marketplace.yaml from the schema"
+	cd backend && $(BE_PYTHON) -m configgen --domain-schema ../$(CC_DIR)/$(GEN_SCHEMA) -o ../marketplace.yaml $(if $(MODEL),--model $(MODEL),)
+	@echo "==> [3/5] Cosolvent: compile backend API artifacts from marketplace.yaml"
+	cd backend && $(BE_PYTHON) -m cli compile --config ../marketplace.yaml --mode mvp
+	@echo "==> [4/5] Cosolvent: bring up a FRESH stack with the new config (reset wipes old data)"
+	$(MAKE) reset && $(MAKE) up && $(MAKE) wait-api
+	@echo "==> [5/5] Cosolvent: load the knowledge library into the running stack"
+	$(MAKE) load-knowledge
+	@echo ""
+	@echo "==> LIVE — open Swagger at http://localhost:$(API_HOST_PORT)/docs"
 
 compile: ## Generate backend marketplace artifacts from marketplace.yaml
 	cd backend && $(BE_PYTHON) -m cli compile --config ../marketplace.yaml --mode mvp
