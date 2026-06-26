@@ -3,7 +3,26 @@
 End-to-end: drop documents in, build the marketplace, and verify the generated
 backend APIs (including the knowledge library) actually work.
 
-All commands run from `~/cosolvent_beta/Cosolvent` unless noted.
+All commands run from `/Cosolvent` unless noted.
+
+---
+
+## 0. Start Docker first (required)
+
+The marketplace runs in Docker (Postgres, Redis, the API). Docker must be running
+**before** step 3 and everything after it. Steps 1–2 don't need it.
+
+- **macOS / Windows:** open **Docker Desktop** and wait until it says it's running.
+  (On Windows, run all `make` commands inside **WSL2** — native PowerShell/CMD can't run this Makefile.)
+- **Linux:** make sure the Docker daemon is up (`sudo systemctl start docker`).
+
+Verify it's ready:
+
+```bash
+docker ps        # should print a (possibly empty) table, not an error
+```
+
+If you see `Cannot connect to the Docker daemon`, Docker isn't started yet.
 
 ---
 
@@ -25,7 +44,7 @@ from **whatever is in this folder** — keep only the documents for the vertical
 ## 2. Set the AI key (one-time prerequisite)
 
 Stage 1 reads the docs with an LLM and creates embeddings, so a key must be set.
-Put it in `~/cosolvent_beta/Cosolvent/.env` (or `CommonContext/.env`):
+Put it in `/Cosolvent/.env` (or `CommonContext/.env`):
 
 ```
 OPENROUTER_API_KEY=sk-or-...      # powers schema synthesis + embeddings
