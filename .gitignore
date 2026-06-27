@@ -27,6 +27,7 @@ frontend/components.json
 frontend/.generated-manifest.json
 frontend/node_modules/
 frontend/.next/
+frontend/.npm-*.log
 
 # Local workspace artifacts
 marketplace.yaml
