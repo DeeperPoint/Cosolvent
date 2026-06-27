@@ -514,11 +514,27 @@ def _search_page(ir: FrontendIR) -> str:
 import {{ useState }} from "react";
 import {{ Button }} from "@/components/ui/button";
 import {{ Input }} from "@/components/ui/input";
-import {{ Card, CardContent, CardHeader, CardTitle }} from "@/components/ui/card";
-import {{ SearchFilters }} from "@/components/shared/search-filters";
+import {{ Card, CardContent }} from "@/components/ui/card";
+import {{ ProfileCard }} from "@/components/shared/profile-card";
+import {{ useSearch_api_search_post }} from "@/generated/hooks/use-discovery";
+
+interface SearchHit {{
+  id: string;
+  participant_type?: string;
+  fields?: Record<string, unknown>;
+  score?: number;
+}}
 
 export default function SearchPage() {{
   const [query, setQuery] = useState("");
+  const search = useSearch_api_search_post();
+  const hits =
+    ((search.data as {{ results?: SearchHit[] }} | undefined)?.results) ?? [];
+
+  function runSearch(e: React.FormEvent) {{
+    e.preventDefault();
+    search.mutate({{ query, page_size: 24 }});
+  }}
 
   return (
     <div className="space-y-6">
@@ -526,25 +542,43 @@ export default function SearchPage() {{
         <h1 className="text-3xl font-bold tracking-tight">Search</h1>
         <p className="text-muted-foreground">Find {searchable}</p>
       </div>
-      <div className="flex gap-4">
+      <form onSubmit={{runSearch}} className="flex gap-4">
         <Input
           placeholder="Search..."
           value={{query}}
           onChange={{(e) => setQuery(e.target.value)}}
           className="max-w-md"
         />
-        <Button>Search</Button>
-      </div>
-      <SearchFilters />
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Button type="submit" disabled={{search.isPending}}>
+          {{search.isPending ? "Searching..." : "Search"}}
+        </Button>
+      </form>
+      {{search.isError && (
+        <p className="text-sm text-destructive">
+          Search failed — make sure you are signed in.
+        </p>
+      )}}
+      {{hits.length > 0 ? (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {{hits.map((hit) => (
+            <ProfileCard
+              key={{hit.id}}
+              id={{hit.id}}
+              name={{String(hit.fields?.company_name ?? hit.fields?.name ?? "Profile")}}
+              type={{hit.participant_type ?? ""}}
+              fields={{hit.fields ?? {{}}}}
+            />
+          ))}}
+        </div>
+      ) : (
         <Card>
           <CardContent className="pt-6">
             <p className="text-center text-muted-foreground">
-              Search results will appear here.
+              {{search.isSuccess ? "No results found." : "Enter a query and press Search."}}
             </p>
           </CardContent>
         </Card>
-      </div>
+      )}}
     </div>
   );
 }}
