@@ -114,6 +114,7 @@ def _register_routers(application: FastAPI) -> None:
     from app.modules.ai.router import router as ai_router
     from app.modules.auth.router import router as auth_router
     from app.modules.communication.router import router as comms_router
+    from app.modules.deals.router import router as deals_router
     from app.modules.discovery.router import router as discovery_router
     from app.modules.files.router import router as files_router
     from app.modules.notifications.router import router as notif_router
@@ -124,6 +125,7 @@ def _register_routers(application: FastAPI) -> None:
     application.include_router(profiles_router, prefix="/api/profiles", tags=["profiles"])
     application.include_router(files_router, prefix="/api/files", tags=["files"])
     application.include_router(comms_router, prefix="/api", tags=["communication"])
+    application.include_router(deals_router, prefix="/api/deals", tags=["deals"])
     application.include_router(discovery_router, prefix="/api/search", tags=["discovery"])
     application.include_router(notif_router, prefix="/api/notifications", tags=["notifications"])
     application.include_router(ai_router, prefix="/api/ai", tags=["ai"])
