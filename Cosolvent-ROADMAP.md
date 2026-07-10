@@ -195,6 +195,8 @@ Deal feed, active engagements, capacity management.
 
 The platform's primary deliverable — a structured output assembled from profiles, matching signals, conversation context, shared documents, facilitator recommendations, and regulatory flags. Template is admin-configurable per marketplace deployment, connected to the YAML configuration.
 
+The Handoff Artifact is the **mature form of the Content Match Story** (§4.6): the generator consumes the latest version of the living match narrative — with the original match argument preserved as the "why this deal" context layer — rather than assembling a brief from scratch. One versioned narrative entity runs from anonymous match to Deal Brief.
+
 ---
 
 ## 4. Semantic Matching Engine — Extensions (Module 1)
@@ -214,13 +216,15 @@ pgvector search with cosine distance, metadata filtering, `hybrid` and `rag_stri
 
 #### 4.6 — Content Match Story (Design Proposal)
 
-> **Status:** Design proposal — not yet on implementation schedule. Full reference document: [`DPContentPublishing/sources/ref/ContentMatchStory.md`](https://github.com/DeeperPoint/DPContentPublishing/blob/main/sources/ref/ContentMatchStory.md). Published rationale: [deeperpoint.com/blog/content-match-story.html](https://deeperpoint.com/blog/content-match-story.html).
+> **Status:** Scheduled — Track A item A1.10 (after Phase 1 rationale generation and Phase 2 progressive trust stages land). Canonical reference document: [`DeeperPointWiki/canonical/ContentMatchStory.md`](https://github.com/DeeperPoint/DeeperPointWiki/blob/main/canonical/ContentMatchStory.md). Published rationale: [deeperpoint.com/blog/content-match-story.html](https://deeperpoint.com/blog/content-match-story.html).
 >
 > **Origin:** Surfaced during a competitive teardown of Boardy.ai (Apr 2026). Boardy's approach — withholding match context to preserve confidentiality — pushes match-qualification work into post-match phone calls, increasing attrition on good matches. The Content Match Story is the proposed alternative.
 
 **The problem:** Most matching platforms announce a match without arguing for it. Both parties must independently invest time in a post-match conversation just to determine whether the match is worth pursuing. In thin markets — where counterparties are rare and trust is fragile — this post-match attrition is a structural risk, not an acceptable friction cost.
 
 **The solution:** At match time, the platform generates an AI-authored narrative explaining *why* the pairing is promising and what the two parties could plausibly accomplish together. This is not a profile summary — it is a *match argument*, a case made on behalf of the pairing.
+
+**Cross-cutting position:** the Content Match Story is the *join* of §4 (semantic matching) and §5 (trusted intermediary) — the human-readable output of matching, generated under the intermediary's privacy constraint. And it is not a one-shot artifact: it is a **living, versioned narrative**, rewritten at each trust-gate opening and deal-state change (§9.3, §3.1), whose mature form **is** the Handoff Artifact / Deal Brief (§3.6). The stages below are anchor points on that continuum, not three separate documents. Along the continuum the artifact's center of gravity shifts from *argument* → *argument + provisional facts* → *record*, with the original match argument preserved as the brief's "why this deal" context layer — it still has to clear the highest-stakes approval gate (committing funds) and travel to downstream enablers (lawyers, banks, insurers) who need the deal's logic to act.
 
 **Three-stage delivery model (privacy-respecting):**
 
@@ -232,15 +236,18 @@ pgvector search with cosine distance, metadata filtering, `hybrid` and `rag_stri
 
 **Privacy constraint (critical):** The narrative is generated from the platform's matching profile data (private signals from both parties) but must reference only information each participant has authorized for disclosure at their current trust stage. The system reads from both profiles; the story reveals only what §5 (Trusted Intermediary Protocol) and §9.3 (Progressive trust stages) permit at the current stage. This is the same constraint that governs the confidential matching pipeline — the platform knows more than it shows.
 
-**Dependencies:** §4.3 (match rationale generation — the LLM engine), §5 (trusted intermediary — the privacy constraint), §3.5 (structured disclosure gates — controls Stage 1→2→3 transitions), §9.3 (progressive trust stages — governs when named and deal-context narratives are released), §2 (three-layer information architecture — determines which profile data enters the narrative).
+**Dependencies:** §4.3 (match rationale generation — the LLM engine), §5 (trusted intermediary — the privacy constraint), §3.5 (structured disclosure gates — controls Stage 1→2→3 transitions), §9.3 (progressive trust stages — governs when named and deal-context narratives are released), §2 (three-layer information architecture — determines which profile data enters the narrative), §3.6 (Handoff Artifact — the narrative's mature form; the generator consumes the latest story version rather than assembling a brief from scratch).
+
+**Rewrite triggers:** a trust gate opens (§9.3) → re-project the story at the new disclosure level; a term is agreed or changed (§3.1) → fold it into the record and update what remains open; a facilitator is added (§3.2) → grow the two-party argument into a multi-party deal narrative; a material objection is answered → bake the resolution into the skeptic-addressed layer. **Fidelity rises as the narrative matures:** the generation register tightens from evocative → exact as it converges on the Deal Brief, and "forwarding-safe" evolves from *safe before identity reveal* to *safe within the deal's authorized circle*.
 
 **Impact on thin market viability:** The Content Match Story reduces the attrition rate at the post-match stage, meaning a platform can achieve adequate deal flow with fewer matches — which extends viability to lower participant densities. This directly addresses one of the most challenging structural problems in thin market cold starts.
 
 **Placeholder prompt intent** (to be added to `prompt_manager.py` when implemented):
 ```
-match_narrative_stage1  # anonymous match argument
-match_narrative_stage2  # named introduction narrative
-match_narrative_stage3  # deal context summary
+match_narrative  # one prompt family, parameterized by disclosure level + deal state:
+                 #   stage1 anonymous match argument
+                 #   stage2 named introduction narrative
+                 #   stage3 deal context summary → Deal Brief (Handoff Artifact)
 ```
 
 ---
@@ -257,6 +264,7 @@ Operationally implemented through the three-layer architecture (§2):
 - **Confidential matching pipeline** — LLM reads from both gallery and matching profiles, evaluates fit, reveals only *that* a match exists, not the underlying sensitive data.
 - **Structured disclosure gates** — parties progressively share information by elevating document privacy levels.
 - **Privacy-respecting rationale** — match explanations must not leak private signals.
+- **Narrative projection** — this privacy constraint governs every version of the Content Match Story (§4.6): the living narrative is re-projected at each disclosure level, revealing only what both parties have authorized at the current trust stage. §5 is the constraint engine; §4.6 is its participant-facing output.
 
 ---
 
@@ -515,19 +523,19 @@ This phasing assumes Cosolvent's existing codebase and architecture. Conflict de
 ### Phase 1 — Three-Layer Architecture & Multilateral Foundation
 *Builds on Cosolvent's existing profile and visibility infrastructure. 4–6 weeks.*
 
-| #    | Item                                                     | Dependency  |
-| ---- | -------------------------------------------------------- | ----------- |
-| 1.1  | Add gallery/matching profile separation                  | None        |
-| 1.2  | Expand file privacy to multi-level                       | None        |
-| 1.3  | Build gallery profile editor UI                          | 1.1, **C5** |
-| 1.4  | Privacy-aware extraction routing                         | 1.2, §1.5   |
-| 1.5  | Dual embedding pipeline (gallery + matching)             | 1.1, **C4** |
-| 1.6  | Bidirectional matching                                   | 1.5         |
-| 1.7  | Match rationale generation                               | 1.6         |
-| 1.8  | **Resolve C1** — architectural decision before Deals     | —           |
-| 1.9  | Deal data model with role slots                          | 1.8         |
-| 1.10 | Deal-triggered facilitator search                        | 1.9         |
-| 1.11 | Handoff Artifact generator (admin-configurable template) | 1.9, 1.7    |
+| #    | Item                                                                                                                  | Dependency    |
+| ---- | --------------------------------------------------------------------------------------------------------------------- | ------------- |
+| 1.1  | Add gallery/matching profile separation                                                                               | None          |
+| 1.2  | Expand file privacy to multi-level                                                                                    | None          |
+| 1.3  | Build gallery profile editor UI                                                                                       | 1.1, **C5**   |
+| 1.4  | Privacy-aware extraction routing                                                                                      | 1.2, §1.5    |
+| 1.5  | Dual embedding pipeline (gallery + matching)                                                                          | 1.1, **C4**   |
+| 1.6  | Bidirectional matching                                                                                                | 1.5           |
+| 1.7  | Match rationale generation                                                                                            | 1.6           |
+| 1.8  | **Resolve C1** — architectural decision before Deals                                                                | —           |
+| 1.9  | Deal data model with role slots                                                                                       | 1.8           |
+| 1.10 | Deal-triggered facilitator search                                                                                     | 1.9           |
+| 1.11 | Handoff Artifact generator (admin-configurable template; consumes the latest match-narrative version — §3.6/§4.6) | 1.9, 1.7      |
 
 ### Phase 2 — Trust, Verification & Admin
 *3–5 weeks.*
@@ -547,17 +555,18 @@ This phasing assumes Cosolvent's existing codebase and architecture. Conflict de
 
 #### A1 — Deals, Agents & Memory
 
-| #    | Item                                              | Dependency |
-| ---- | ------------------------------------------------- | ---------- |
-| A1.1 | User interaction logging                          | Phase 1    |
-| A1.2 | Preference evolution analysis                     | A1.1       |
-| A1.3 | Anticipatory matching notifications               | A1.2       |
-| A1.4 | Match-scoped and deal-scoped communication        | 1.9, §1.9  |
-| A1.5 | User Agent entity and configuration               | Phase 2    |
-| A1.6 | Asynchronous conversation engine                  | A1.5       |
-| A1.7 | Deal progression workflow → Handoff Artifact      | A1.6, 1.11 |
-| A1.8 | Notification service expansion (email, SMS, push) | §1.12      |
-| A1.9 | ZKP credential verification research spike (§9.5) | 2.1, 2.3   |
+| #     | Item                                                                             | Dependency  |
+| ----- | -------------------------------------------------------------------------------- | ----------- |
+| A1.1  | User interaction logging                                                         | Phase 1     |
+| A1.2  | Preference evolution analysis                                                    | A1.1        |
+| A1.3  | Anticipatory matching notifications                                              | A1.2        |
+| A1.4  | Match-scoped and deal-scoped communication                                       | 1.9, §1.9  |
+| A1.5  | User Agent entity and configuration                                              | Phase 2     |
+| A1.6  | Asynchronous conversation engine                                                 | A1.5        |
+| A1.7  | Deal progression workflow → Handoff Artifact                                   | A1.6, 1.11  |
+| A1.8  | Notification service expansion (email, SMS, push)                                | §1.12      |
+| A1.9  | ZKP credential verification research spike (§9.5)                               | 2.1, 2.3    |
+| A1.10 | Content Match Story — living narrative (versioned, three anchor stages; §4.6) | 1.7, 2.3    |
 
 #### A2 — Pricing, Aggregation & Disputes
 
