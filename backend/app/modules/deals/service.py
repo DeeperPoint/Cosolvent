@@ -282,7 +282,7 @@ def _advance(deal: dict[str, Any]) -> str:
 
 
 def _build_deal_facts(deal: dict[str, Any]) -> str:
-    lines = [f"# Deal facts", f"Vertical: {deal.get('vertical') or 'n/a'}"]
+    lines = ["# Deal facts", f"Vertical: {deal.get('vertical') or 'n/a'}"]
     lines.append("\n## Parties (principals)")
     for p in deal.get("principals", []):
         agreed = "agreed" if p.get("agreed") else "not yet agreed"
