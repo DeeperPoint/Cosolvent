@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import delete, false, insert, or_, select
+from sqlalchemy import case, delete, false, insert, or_, select
 from sqlalchemy.sql import Select
 
 from app.core.database import session_scope
@@ -108,22 +108,45 @@ def _apply_filters(stmt: Select[Any], filters: dict[str, Any]) -> Select[Any]:
     return stmt
 
 
+# Soft preference for curated wiki chunks over raw ones (CommonContext tags each chunk's
+# reference_metadata.source_layer = "wiki" | "raw"). A small cosine-distance discount re-ranks
+# wiki chunks above raw chunks of comparable relevance, while strong raw matches still surface
+# — a hybrid preference, not a hard filter.
+PREFERRED_SOURCE_LAYER = "wiki"
+SOURCE_LAYER_BOOST = 0.05
+
+
 async def search_reference_library(
     query_embedding: list[float],
     *,
     top_k: int = 5,
     vertical: str | None = None,
     filters: dict[str, Any] | None = None,
+    prefer_source_layer: str | None = PREFERRED_SOURCE_LAYER,
+    source_layer_boost: float = SOURCE_LAYER_BOOST,
 ) -> list[dict[str, Any]]:
-    """Metadata-filtered cosine-similarity search over the reference library."""
+    """Metadata-filtered cosine-similarity search over the reference library.
+
+    When ``prefer_source_layer`` is set (default "wiki"), chunks whose
+    ``reference_metadata.source_layer`` matches receive a small distance discount so
+    curated wiki chunks outrank raw chunks of comparable relevance. This is a soft
+    preference: raw chunks remain available as fallback coverage. Pass
+    ``source_layer_boost=0`` (or ``prefer_source_layer=None``) to disable.
+    """
     distance = reference_library.c.embedding.cosine_distance(query_embedding)
     score = (1 - distance).label("score")
+
+    order_expr: Any = distance
+    if prefer_source_layer and source_layer_boost:
+        layer = reference_library.c.reference_metadata["source_layer"].astext
+        order_expr = distance - case((layer == prefer_source_layer, source_layer_boost), else_=0.0)
+
     stmt: Select[Any] = select(
         reference_library.c.id,
         reference_library.c.chunk_text,
         reference_library.c.reference_metadata,
         score,
-    ).order_by(distance)
+    ).order_by(order_expr)
 
     if vertical:
         stmt = stmt.where(reference_library.c.vertical == vertical)

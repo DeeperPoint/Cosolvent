@@ -21,6 +21,7 @@ DOCUMENT_COLLECTIONS = [
     "conversations",
     "conversation_participants",
     "messages",
+    "deals",
     "notifications",
     "faqs",
     "ai_documents",
