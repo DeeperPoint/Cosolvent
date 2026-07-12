@@ -22,6 +22,12 @@ DOCUMENT_COLLECTIONS = [
     "conversation_participants",
     "messages",
     "deals",
+    # Story Progression System (GAP-4): the deal's witnessed story-version chain.
+    # Versions are immutable; responses and consents are the event-sourced source of
+    # truth from which milestone/deal state is derived (never a free-standing flag).
+    "story_versions",
+    "version_responses",
+    "consent_records",
     "notifications",
     "faqs",
     "ai_documents",

@@ -1,34 +1,187 @@
-"""Deals service: the collaborative deal record + Deal Brief (Handoff Artifact).
+"""Deals service — the confidential deal-assembly intermediary (GAP-4/5/6/15).
 
-Aligned with the repo's stated direction (see DealStateDiagram.mmd): the Deal Brief is a
-*collaborative record* of a deal's moving parts (principals, parameters, facilitators,
-documents, context) — NOT an automated negotiation engine. Lifecycle:
+The deal is a **witnessed story-version chain**, not a mutable CRUD record. A match yields
+an anonymous Stage-1 story version; parties respond with acknowledge / annotate / correct;
+a version every required party has acknowledged (uncorrected, within the window) becomes a
+**milestone**. Milestones accumulate detail until one validates as template-complete for the
+chosen deal instrument and is acknowledged under the final wording — that milestone **is** the
+Deal Brief. Two primitives only: ACKNOWLEDGE (epistemic) and CONSENT (authorization).
 
-    draft → active → agreed → brief_ready → handoff        (+ cancelled)
-
-``agreed`` is computed: every principal has agreed AND no facilitator slot is still "needed".
+Design source: MarketForge `framework/story-progression-system.md`.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from app.core.exceptions import AppError, ConflictError, ForbiddenError, NotFoundError, ServiceUnavailableError
+from app.core.exceptions import AppError, ConflictError, ForbiddenError, NotFoundError
 from app.core.marketplace_config import MarketplaceConfig
-from app.modules.deals import repository as repo
+from app.modules.deals import composer, repository as repo, story
+from app.modules.deals.hashing import content_hash
+from app.modules.deals.templates import validate_snapshot
 
 logger = logging.getLogger("cosolvent.deals.service")
 
-TERMINAL_STATUSES = {"handoff", "cancelled"}
+TERMINAL_DEAL_STATES = {"handoff", "closed", "cancelled"}
 
 
-# ── Creation ─────────────────────────────────────────────────────────────────
+# ── small helpers ────────────────────────────────────────────────────────────
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _window(config: MarketplaceConfig) -> timedelta:
+    return timedelta(days=config.story_progression.acknowledgment_window_days)
+
+
+def _disclosure_levels(config: MarketplaceConfig) -> list[str]:
+    return list(config.story_progression.disclosure_levels)
+
+
+def _final_level(config: MarketplaceConfig) -> str:
+    return _disclosure_levels(config)[-1]
+
+
+def _vertical(config: MarketplaceConfig) -> str | None:
+    ident = getattr(config, "marketplace", None)
+    return getattr(ident, "name", None)
+
+
+def _serialize(doc: dict[str, Any] | None) -> dict[str, Any]:
+    if not doc:
+        return {}
+    doc = dict(doc)
+    if "_id" in doc:
+        doc["id"] = str(doc.pop("_id"))
+    return doc
+
+
+async def _get_or_404(deal_id: str) -> dict[str, Any]:
+    deal = await repo.get_deal(deal_id)
+    if not deal:
+        raise NotFoundError("Deal not found")
+    return deal
+
+
+def _assert_party(deal: dict[str, Any], user_id: str) -> None:
+    if not story.is_party(deal, user_id):
+        raise ForbiddenError("Not a party to this deal")
+
+
+def _assert_principal(deal: dict[str, Any], user_id: str) -> None:
+    if story.party_role(deal, user_id) != "principal":
+        raise ForbiddenError("Only deal principals can perform this action")
+
+
+def _assert_not_terminal(deal: dict[str, Any]) -> None:
+    if deal.get("status") in TERMINAL_DEAL_STATES:
+        raise ConflictError(f"Deal is {deal['status']} and can no longer be modified")
+
+
+def _instrument_required_fields(config: MarketplaceConfig, instrument: str | None) -> list[str]:
+    inst = config.get_instrument(instrument) if instrument else None
+    return list(inst.required_fields) if inst else []
+
+
+# ── state recomputation (milestone status is always derived) ──────────────────
+async def _recompute_versions(
+    deal: dict[str, Any], config: MarketplaceConfig
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Recompute every version's derived state from responses; persist changed caches.
+
+    Returns (versions, responses).
+    """
+    versions = await repo.list_versions(str(deal["_id"]))
+    responses = await repo.list_responses_for_deal(str(deal["_id"]))
+    window = _window(config)
+    now = _now()
+    for v in versions:
+        if v.get("state") == story.SUPERSEDED:
+            continue
+        derived = story.compute_version_state(v, responses, now=now, window=window)
+        if derived != v.get("state"):
+            await repo.set_version_state(str(v["_id"]), derived)
+            v["state"] = derived
+    return versions, responses
+
+
+def _current_version(versions: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The live version = highest-seq non-superseded version."""
+    live = [v for v in versions if v.get("state") != story.SUPERSEDED]
+    return max(live, key=lambda v: v.get("seq", 0)) if live else None
+
+
+def _latest_milestone(versions: list[dict[str, Any]]) -> dict[str, Any] | None:
+    ms = [v for v in versions if v.get("state") == story.MILESTONE]
+    return max(ms, key=lambda v: v.get("seq", 0)) if ms else None
+
+
+def _next_seq(versions: list[dict[str, Any]]) -> int:
+    return (max((v.get("seq", 0) for v in versions), default=0)) + 1
+
+
+def _is_final_candidate(deal: dict[str, Any], version: dict[str, Any], config: MarketplaceConfig) -> bool:
+    """A version can carry the final Deal-Brief acknowledgment iff it is at the final
+    disclosure level, an instrument is chosen, and its snapshot is template-complete."""
+    if version.get("disclosure_level") != _final_level(config):
+        return False
+    result = validate_snapshot(
+        version.get("snapshot", {}), deal.get("instrument"), _instrument_required_fields(config, deal.get("instrument"))
+    )
+    return result.complete
+
+
+def _ack_wording(deal: dict[str, Any], version: dict[str, Any], config: MarketplaceConfig) -> str:
+    sp = config.story_progression
+    return sp.final_signoff_wording if _is_final_candidate(deal, version, config) else sp.signoff_wording
+
+
+# ── version composition ───────────────────────────────────────────────────────
+async def _compose_and_publish(
+    deal: dict[str, Any],
+    config: MarketplaceConfig,
+    *,
+    versions: list[dict[str, Any]],
+    base_snapshot: dict[str, Any],
+    param_updates: list[dict[str, Any]],
+    text_inputs: list[str],
+    composed_from: dict[str, Any],
+) -> dict[str, Any]:
+    """Compose the next immutable story version and publish it."""
+    disclosure = deal.get("disclosure_level", _disclosure_levels(config)[0])
+    snapshot = story.merge_snapshot(base_snapshot, param_updates)
+
+    narrative = composer.compose_narrative(deal, snapshot, disclosure, text_inputs)
+    narrative = await composer.enhance_narrative(narrative, disclosure)
+
+    seq = _next_seq(versions)
+    required = story.active_party_ids(deal)
+    template_result = validate_snapshot(
+        snapshot, deal.get("instrument"), _instrument_required_fields(config, deal.get("instrument"))
+    ).to_dict()
+
+    version = {
+        "deal_id": str(deal["_id"]),
+        "seq": seq,
+        "disclosure_level": disclosure,
+        "narrative": narrative,
+        "snapshot": snapshot,
+        "content_hash": content_hash(disclosure, narrative, snapshot),
+        "required_acknowledgers": required,
+        "composed_from": composed_from,
+        "state": story.PUBLISHED,
+        "published_at": _now().isoformat(),
+        "template_result": template_result,
+        "is_final": False,
+    }
+    return await repo.create_version(version)
+
+
+# ── creation ──────────────────────────────────────────────────────────────────
 async def create_deal(user: dict[str, Any], body: Any, config: MarketplaceConfig) -> dict[str, Any]:
-    """Create a deal from a conversation (preferred) or directly with a counterparty."""
-    principals: list[dict[str, Any]]
-    conversation_id: str | None = None
+    parties: list[dict[str, Any]]
 
     if body.conversation_id:
         from app.modules.communication import repository as comms_repo
@@ -39,92 +192,289 @@ async def create_deal(user: dict[str, Any], body: Any, config: MarketplaceConfig
         if user["_id"] not in [p["user_id"] for p in conv.get("participants", [])]:
             raise ForbiddenError("Not a participant in this conversation")
         conversation_id = str(conv["_id"])
-        principals = [_principal(p["user_id"], p.get("participant_type", ""), config)
-                      for p in conv["participants"]]
+        parties = [_principal_party(p["user_id"], p.get("participant_type", "")) for p in conv["participants"]]
     elif body.counterparty_user_id:
         from app.modules.auth.repository import find_user_by_id
 
         other = await find_user_by_id(body.counterparty_user_id)
         if not other:
             raise NotFoundError("Counterparty not found")
-        principals = [
-            _principal(user["_id"], user.get("participant_type", ""), config),
-            _principal(other["_id"], other.get("participant_type", ""), config),
+        conversation_id = None
+        parties = [
+            _principal_party(user["_id"], user.get("participant_type", "")),
+            _principal_party(other["_id"], other.get("participant_type", "")),
         ]
     else:
         raise AppError("Provide either conversation_id or counterparty_user_id", 400)
 
-    participants = _members_from_principals(principals)
-    doc = {
-        "status": "draft",
+    if len({p["user_id"] for p in parties}) < 2:
+        raise AppError("A deal needs at least two distinct principals", 400)
+
+    deal_doc = {
+        "status": "active",
         "vertical": _vertical(config),
         "conversation_id": conversation_id,
-        "principals": principals,
-        # Membership index (array-of-objects) used for listing + permission checks.
-        "participants": participants,
+        "instrument": None,
+        "framework_scenario": getattr(body, "framework_scenario", None),
+        "disclosure_level": _disclosure_levels(config)[0],
+        "parties": parties,
+        "participants": [{"user_id": p["user_id"], "role": p["role"]} for p in parties],
         "facilitator_slots": _facilitator_slots(config),
-        "parameters": [],
         "documents": [],
-        "context": body.context or "",
-        "brief": None,
+        "context": getattr(body, "context", None) or "",
         "created_by": user["_id"],
     }
-    deal = await repo.create_deal(doc)
-    await _notify([m["user_id"] for m in participants], exclude=user["_id"], ntype="deal_created",
+    deal = await repo.create_deal(deal_doc)
+
+    # A match exists → the platform composes the first (anonymous) story version.
+    seed_snapshot: dict[str, Any] = {}
+    await _compose_and_publish(
+        deal,
+        config,
+        versions=[],
+        base_snapshot=seed_snapshot,
+        param_updates=[],
+        text_inputs=[deal_doc["context"]] if deal_doc["context"] else [],
+        composed_from={"origin": "match"},
+    )
+    await _notify([p["user_id"] for p in parties], exclude=user["_id"], ntype="deal_created",
                   data={"deal_id": str(deal["_id"])})
-    return _serialize(deal)
+    return await _deal_view(str(deal["_id"]), user, config)
 
 
-# ── Reads ──────────────────────────────────────────────────────────────────
+def _principal_party(user_id: str, participant_type: str) -> dict[str, Any]:
+    return {
+        "user_id": user_id,
+        "participant_type": participant_type,
+        "role": "principal",
+        "joined_seq": 1,
+        "exited_seq": None,
+        "status": "active",
+    }
+
+
+def _facilitator_slots(config: MarketplaceConfig) -> list[dict[str, Any]]:
+    return [
+        {"role_type": pt.slug, "status": "needed", "user_id": None, "note": None}
+        for pt in config.participant_types
+        if pt.role == "facilitator"
+    ]
+
+
+# ── reads / views ──────────────────────────────────────────────────────────────
+async def _deal_view(deal_id: str, user: dict[str, Any], config: MarketplaceConfig) -> dict[str, Any]:
+    """Party-scoped view. Principals see the working chain; facilitators see only the
+    current milestone (late joiners never read chain history — trajectory privacy, §7)."""
+    deal = await _get_or_404(deal_id)
+    _assert_party(deal, user["_id"])
+    versions, responses = await _recompute_versions(deal, config)
+    current = _current_version(versions)
+    milestone = _latest_milestone(versions)
+    role = story.party_role(deal, user["_id"])
+
+    view = _serialize(deal)
+    view["current_version"] = _version_view(deal, current, responses, config) if current else None
+    view["current_milestone"] = _version_view(deal, milestone, responses, config) if milestone else None
+    if role == "principal":
+        view["versions"] = [_version_view(deal, v, responses, config) for v in versions]
+    else:
+        # facilitator: only the current milestone is visible, and only once audience consent cleared.
+        party: dict[str, Any] = next((p for p in deal.get("parties", []) if p["user_id"] == user["_id"]), {})
+        if party.get("status") != "active":
+            view["current_milestone"] = None
+            view["access"] = "pending_audience_consent"
+        view["versions"] = []
+    return view
+
+
+def _version_view(
+    deal: dict[str, Any], version: dict[str, Any] | None, responses: list[dict[str, Any]], config: MarketplaceConfig
+) -> dict[str, Any] | None:
+    if not version:
+        return None
+    v = _serialize(version)
+    v["acknowledged_by"] = sorted(story.effective_acknowledgers(version, responses))
+    v["pending_acknowledgers"] = story.pending_acknowledgers(version, responses)
+    v["is_final_candidate"] = _is_final_candidate(deal, version, config)
+    v["acknowledgment_wording"] = _ack_wording(deal, version, config)
+    if not config.story_progression.pending_visibility:
+        # pending-visibility is a social-pressure lever, off by default (§8).
+        v.pop("pending_acknowledgers", None)
+    return v
+
+
 async def list_deals(user: dict[str, Any]) -> list[dict[str, Any]]:
     return [_serialize(d) for d in await repo.list_deals_for_user(user["_id"])]
 
 
-async def get_deal(deal_id: str, user: dict[str, Any]) -> dict[str, Any]:
+async def get_deal(deal_id: str, user: dict[str, Any], config: MarketplaceConfig) -> dict[str, Any]:
+    return await _deal_view(deal_id, user, config)
+
+
+# ── respond: acknowledge / annotate / correct (§5) ──────────────────────────────
+async def respond(deal_id: str, user: dict[str, Any], req: Any, config: MarketplaceConfig) -> dict[str, Any]:
     deal = await _get_or_404(deal_id)
     _assert_party(deal, user["_id"])
-    return _serialize(deal)
-
-
-# ── Mutations ────────────────────────────────────────────────────────────────
-async def update_context(deal_id: str, user: dict[str, Any], context: str | None) -> dict[str, Any]:
-    deal = await _get_or_404(deal_id)
-    _assert_principal(deal, user["_id"])
-    _assert_not_terminal(deal)
-    updated = await repo.update_deal(deal_id, {"context": context or "", "status": _advance(deal)})
-    return _serialize(updated)
-
-
-async def upsert_parameter(deal_id: str, user: dict[str, Any], param: Any) -> dict[str, Any]:
-    deal = await _get_or_404(deal_id)
-    _assert_principal(deal, user["_id"])
     _assert_not_terminal(deal)
 
-    params = list(deal.get("parameters", []))
-    existing = next((p for p in params if p.get("key") == param.key), None)
-    incoming = {
-        "key": param.key,
-        "label": param.label,
-        "value": param.value,
-        "unit": param.unit,
-        "agreed": bool(param.agreed) if param.agreed is not None else False,
-        "note": param.note,
-    }
-    if existing:
-        # Update only provided fields, preserve the rest.
-        for k in ("label", "value", "unit", "note"):
-            if getattr(param, k) is not None:
-                existing[k] = getattr(param, k)
-        if param.agreed is not None:
-            existing["agreed"] = bool(param.agreed)
+    party: dict[str, Any] = next((p for p in deal.get("parties", []) if p["user_id"] == user["_id"]), {})
+    if party.get("status") != "active":
+        raise ForbiddenError("You must be an active party (audience consent pending) to respond")
+
+    versions, _ = await _recompute_versions(deal, config)
+    current = _current_version(versions)
+    if not current or current.get("state") not in (story.PUBLISHED, story.STALE, story.MILESTONE, story.BLOCKED):
+        raise ConflictError("No open version to respond to")
+
+    # Hash-pinning (integrity rule 2): a response must reference the exact content shown.
+    if req.content_hash != current.get("content_hash"):
+        raise ConflictError("Stale version: the story has changed; refetch before responding")
+
+    if user["_id"] not in current.get("required_acknowledgers", []):
+        raise ForbiddenError("You are not a required acknowledger of this version")
+
+    param_updates: list[dict[str, Any]] = [
+        p.model_dump() if hasattr(p, "model_dump") else dict(p) for p in getattr(req, "params", [])
+    ]
+    payload: dict[str, Any] = {"text": getattr(req, "text", None), "params": param_updates}
+    await repo.create_response({
+        "deal_id": str(deal["_id"]),
+        "version_id": str(current["_id"]),
+        "content_hash": current["content_hash"],
+        "user_id": user["_id"],
+        "type": req.type,
+        "payload": payload,
+    })
+
+    if req.type == "correct":
+        # A correction supersedes (never edits) via the shared update-and-recompose path.
+        await repo.set_version_state(str(current["_id"]), story.SUPERSEDED)
+        versions = await repo.list_versions(str(deal["_id"]))
+        text_inputs = [f"Correction: {payload['text']}"] if payload["text"] else ["A correction was applied."]
+        await _compose_and_publish(
+            deal, config, versions=versions, base_snapshot=current.get("snapshot", {}),
+            param_updates=param_updates, text_inputs=text_inputs,
+            composed_from={"supersedes": str(current["_id"]), "reason": "correction"},
+        )
+        await _notify(story.active_party_ids(deal), exclude=None, ntype="deal_version_superseded",
+                      data={"deal_id": deal_id})
     else:
-        params.append(incoming)
+        # Recompute; if this response completes a milestone, react.
+        versions, responses = await _recompute_versions(deal, config)
+        refreshed = await repo.get_version(str(current["_id"]))
+        if refreshed and refreshed.get("state") == story.MILESTONE:
+            await _on_milestone_reached(deal, refreshed, config)
 
-    updated = await repo.update_deal(deal_id, {"parameters": params, "status": _advance(deal)})
-    return _serialize(updated)
+    return await _deal_view(deal_id, user, config)
 
 
-async def set_facilitator(deal_id: str, user: dict[str, Any], req: Any) -> dict[str, Any]:
+async def _on_milestone_reached(deal: dict[str, Any], version: dict[str, Any], config: MarketplaceConfig) -> None:
+    await _notify(story.active_party_ids(deal), exclude=None, ntype="deal_milestone",
+                  data={"deal_id": str(deal["_id"]), "seq": version.get("seq")})
+    # Final Deal Brief: a template-complete, final-level milestone acknowledged by all.
+    if _is_final_candidate(deal, version, config):
+        await _finalize_brief(deal, version, config)
+
+
+# ── advance / continue: compose the next version from queued annotations ─────────
+async def advance(deal_id: str, user: dict[str, Any], config: MarketplaceConfig) -> dict[str, Any]:
+    deal = await _get_or_404(deal_id)
+    _assert_principal(deal, user["_id"])
+    _assert_not_terminal(deal)
+
+    versions, responses = await _recompute_versions(deal, config)
+    milestone = _latest_milestone(versions)
+    if not milestone:
+        raise ConflictError("No milestone yet; the current version must be acknowledged first")
+    current = _current_version(versions)
+    if current and current.get("state") != story.MILESTONE:
+        raise ConflictError("The current version is still open; nothing to advance from")
+
+    # Queued annotations pinned to the milestone become inputs to the next version.
+    annos = [
+        r for r in responses
+        if r.get("version_id") == str(milestone["_id"]) and r.get("type") == "annotate"
+    ]
+    text_inputs = [a["payload"].get("text") for a in annos if a.get("payload", {}).get("text")]
+    param_updates: list[dict[str, Any]] = []
+    for a in annos:
+        param_updates.extend(a.get("payload", {}).get("params", []))
+
+    await _compose_and_publish(
+        deal, config, versions=versions, base_snapshot=milestone.get("snapshot", {}),
+        param_updates=param_updates, text_inputs=text_inputs or ["Continuing from the last milestone."],
+        composed_from={"from_milestone": str(milestone["_id"]), "annotations": [str(a["_id"]) for a in annos]},
+    )
+    return await _deal_view(deal_id, user, config)
+
+
+# ── consent: disclosure advance / audience expansion (§4) ────────────────────────
+async def consent(deal_id: str, user: dict[str, Any], req: Any, config: MarketplaceConfig) -> dict[str, Any]:
+    deal = await _get_or_404(deal_id)
+    _assert_party(deal, user["_id"])
+    _assert_not_terminal(deal)
+
+    scope = req.scope
+    if scope == "disclosure_advance":
+        _assert_principal(deal, user["_id"])
+        levels = _disclosure_levels(config)
+        target = req.target or story.next_disclosure_level(deal.get("disclosure_level", levels[0]), levels)
+        if not target:
+            raise ConflictError("Already at the maximum disclosure level")
+        versions, _ = await _recompute_versions(deal, config)
+        if not _latest_milestone(versions):
+            raise ConflictError("Disclosure can only advance after the first milestone is reached")
+
+        await repo.create_consent({"deal_id": deal_id, "user_id": user["_id"], "scope": scope, "target": target})
+        consents = await repo.list_consents_for_deal(deal_id)
+        if story.all_principals_consented(deal, consents, scope=scope, target=target):
+            deal = await repo.update_deal(deal_id, {"disclosure_level": target}) or deal
+            milestone = _latest_milestone(versions)
+            await _compose_and_publish(
+                deal, config, versions=versions, base_snapshot=(milestone or {}).get("snapshot", {}),
+                param_updates=[], text_inputs=[f"Disclosure advanced to '{target}'."],
+                composed_from={"disclosure_advance": target},
+            )
+            await _notify(story.active_party_ids(deal), exclude=None, ntype="deal_disclosure_advanced",
+                          data={"deal_id": deal_id, "level": target})
+
+    elif scope == "audience_expansion":
+        _assert_principal(deal, user["_id"])
+        target = req.target
+        if not target:
+            raise AppError("audience_expansion consent requires the joining party's user id as target", 400)
+        await repo.create_consent({"deal_id": deal_id, "user_id": user["_id"], "scope": scope, "target": target})
+        consents = await repo.list_consents_for_deal(deal_id)
+        if story.all_principals_consented(deal, consents, scope=scope, target=target):
+            parties = deal.get("parties", [])
+            for p in parties:
+                if p["user_id"] == target and p.get("status") == "pending_audience_consent":
+                    p["status"] = "active"
+            await repo.update_deal(deal_id, {"parties": parties})
+            await _notify([target], exclude=None, ntype="deal_audience_granted", data={"deal_id": deal_id})
+
+    else:  # attribute consent — recorded; enforcement is the composer/consent-engine's job (GAP-13)
+        await repo.create_consent(
+            {"deal_id": deal_id, "user_id": user["_id"], "scope": scope, "target": req.target}
+        )
+
+    return await _deal_view(deal_id, user, config)
+
+
+# ── instrument selection (unlocks template completeness) ─────────────────────────
+async def set_instrument(deal_id: str, user: dict[str, Any], instrument: str, config: MarketplaceConfig) -> dict[str, Any]:
+    deal = await _get_or_404(deal_id)
+    _assert_principal(deal, user["_id"])
+    _assert_not_terminal(deal)
+    if not config.get_instrument(instrument):
+        valid = ", ".join(i.name for i in config.instruments())
+        raise AppError(f"Unknown deal instrument '{instrument}'. Valid: {valid}", 400)
+    await repo.update_deal(deal_id, {"instrument": instrument})
+    return await _deal_view(deal_id, user, config)
+
+
+# ── facilitator slots + injection (GAP-7) ────────────────────────────────────────
+async def set_facilitator(deal_id: str, user: dict[str, Any], req: Any, config: MarketplaceConfig) -> dict[str, Any]:
     deal = await _get_or_404(deal_id)
     _assert_principal(deal, user["_id"])
     _assert_not_terminal(deal)
@@ -140,198 +490,132 @@ async def set_facilitator(deal_id: str, user: dict[str, Any], req: Any) -> dict[
     if req.note is not None:
         slot["note"] = req.note
 
-    # A confirmed facilitator with an assigned user joins the deal's membership index.
-    members = list(deal.get("participants", []))
-    if slot.get("user_id") and slot["user_id"] not in [m["user_id"] for m in members]:
-        members.append({"user_id": slot["user_id"], "role": "facilitator"})
+    parties = list(deal.get("parties", []))
+    participants = list(deal.get("participants", []))
+    if req.status == "confirmed" and req.user_id and not story.is_party(deal, req.user_id):
+        # Injection = a party-set edit. The joiner starts PENDING audience-expansion consent;
+        # they read nothing until every principal consents (§7).
+        versions = await repo.list_versions(deal_id)
+        parties.append({
+            "user_id": req.user_id,
+            "participant_type": req.role_type,
+            "role": "facilitator",
+            "joined_seq": _next_seq(versions),
+            "exited_seq": None,
+            "status": "pending_audience_consent",
+        })
+        participants.append({"user_id": req.user_id, "role": "facilitator"})
 
-    patched = {**deal, "facilitator_slots": slots, "participants": members}
-    updated = await repo.update_deal(
-        deal_id,
-        {"facilitator_slots": slots, "participants": members, "status": _advance(patched)},
+    await repo.update_deal(deal_id, {"facilitator_slots": slots, "parties": parties, "participants": participants})
+    if req.status == "confirmed" and req.user_id:
+        await _notify(story.principal_ids(deal), exclude=None, ntype="deal_facilitator_pending",
+                      data={"deal_id": deal_id, "facilitator": req.user_id})
+    return await _deal_view(deal_id, user, config)
+
+
+# ── reopen / revive / handoff / cancel ───────────────────────────────────────────
+async def reopen(deal_id: str, user: dict[str, Any], matter: str | None, config: MarketplaceConfig) -> dict[str, Any]:
+    deal = await _get_or_404(deal_id)
+    _assert_principal(deal, user["_id"])
+    _assert_not_terminal(deal)
+    versions, _ = await _recompute_versions(deal, config)
+    milestone = _latest_milestone(versions)
+    if not milestone:
+        raise ConflictError("Nothing to reopen: no milestone exists")
+    await _compose_and_publish(
+        deal, config, versions=versions, base_snapshot=milestone.get("snapshot", {}),
+        param_updates=[], text_inputs=[f"Reopened: {matter}" if matter else "A settled matter was reopened."],
+        composed_from={"reopen_of": str(milestone["_id"]), "matter": matter},
     )
-    return _serialize(updated)
+    if deal.get("status") == "brief_ready":
+        await repo.update_deal(deal_id, {"status": "active"})
+    return await _deal_view(deal_id, user, config)
 
 
-async def attach_document(deal_id: str, user: dict[str, Any], file_id: str) -> dict[str, Any]:
+async def revive_version(deal_id: str, version_id: str, user: dict[str, Any], config: MarketplaceConfig) -> dict[str, Any]:
     deal = await _get_or_404(deal_id)
     _assert_party(deal, user["_id"])
     _assert_not_terminal(deal)
-    docs = _dedupe([*deal.get("documents", []), file_id])
-    updated = await repo.update_deal(deal_id, {"documents": docs, "status": _advance(deal)})
-    return _serialize(updated)
+    version = await repo.get_version(version_id)
+    if not version or version.get("deal_id") != deal_id:
+        raise NotFoundError("Version not found")
+    # No timeout ever closes a deal (rule 8): a stale version is always revivable.
+    await repo.set_version_state(version_id, story.PUBLISHED, {"published_at": _now().isoformat()})
+    responses = await repo.list_responses_for_deal(deal_id)
+    await _notify(story.pending_acknowledgers(version, responses), exclude=None,
+                  ntype="deal_version_revived", data={"deal_id": deal_id, "version_id": version_id})
+    return await _deal_view(deal_id, user, config)
 
 
-async def agree(deal_id: str, user: dict[str, Any]) -> dict[str, Any]:
+async def handoff(deal_id: str, user: dict[str, Any], config: MarketplaceConfig) -> dict[str, Any]:
     deal = await _get_or_404(deal_id)
     _assert_principal(deal, user["_id"])
-    _assert_not_terminal(deal)
-
-    principals = list(deal.get("principals", []))
-    for p in principals:
-        if p["user_id"] == user["_id"]:
-            p["agreed"] = True
-    patched = {**deal, "principals": principals}
-    updated = await repo.update_deal(deal_id, {"principals": principals, "status": _advance(patched)})
-    return _serialize(updated)
+    if deal.get("status") != "brief_ready":
+        raise ConflictError("The final Deal Brief must be reached before handoff")
+    await repo.update_deal(deal_id, {"status": "handoff"})
+    return await _deal_view(deal_id, user, config)
 
 
-async def cancel(deal_id: str, user: dict[str, Any]) -> dict[str, Any]:
+async def cancel(deal_id: str, user: dict[str, Any], config: MarketplaceConfig) -> dict[str, Any]:
     deal = await _get_or_404(deal_id)
     _assert_principal(deal, user["_id"])
-    if deal["status"] in TERMINAL_STATUSES:
+    if deal.get("status") in TERMINAL_DEAL_STATES:
         raise ConflictError(f"Deal is already {deal['status']}")
-    updated = await repo.update_deal(deal_id, {"status": "cancelled"})
-    return _serialize(updated)
+    await repo.update_deal(deal_id, {"status": "cancelled"})
+    return await _deal_view(deal_id, user, config)
 
 
-async def handoff(deal_id: str, user: dict[str, Any]) -> dict[str, Any]:
-    deal = await _get_or_404(deal_id)
-    _assert_principal(deal, user["_id"])
-    if deal["status"] != "brief_ready":
-        raise ConflictError("A Deal Brief must be assembled before handoff")
-    updated = await repo.update_deal(deal_id, {"status": "handoff"})
-    return _serialize(updated)
+# ── final Deal Brief render (GAP-5) ──────────────────────────────────────────────
+async def _finalize_brief(deal: dict[str, Any], version: dict[str, Any], config: MarketplaceConfig) -> None:
+    versions = await repo.list_versions(str(deal["_id"]))
+    responses = await repo.list_responses_for_deal(str(deal["_id"]))
+    provenance = [
+        {
+            "seq": v.get("seq"),
+            "disclosure_level": v.get("disclosure_level"),
+            "acknowledged_by": sorted(story.effective_acknowledgers(v, responses)),
+        }
+        for v in versions
+        if v.get("state") == story.MILESTONE
+    ]
+    citations, ref_block = await _retrieve_domain_context(version.get("narrative", ""), deal.get("vertical"))
+    markdown = composer.render_brief_markdown(deal, version, ref_block, provenance)
+    brief = {"markdown": markdown, "citations": citations, "generated_at": _now().isoformat()}
+    await repo.set_version_state(str(version["_id"]), story.MILESTONE, {"is_final": True, "brief": brief})
+    await repo.update_deal(str(deal["_id"]), {"status": "brief_ready"})
+    await _notify(story.active_party_ids(deal), exclude=None, ntype="deal_brief_ready",
+                  data={"deal_id": str(deal["_id"])})
 
 
-# ── Deal Brief (the deliverable) ─────────────────────────────────────────────
-async def assemble_brief(deal_id: str, user: dict[str, Any], config: MarketplaceConfig) -> dict[str, Any]:
-    deal = await _get_or_404(deal_id)
-    _assert_principal(deal, user["_id"])
-    if deal["status"] not in ("agreed", "brief_ready"):
-        raise ConflictError(
-            "Deal must be 'agreed' (all principals agreed and facilitator slots resolved) "
-            "before assembling a Deal Brief"
-        )
-
-    facts = _build_deal_facts(deal)
-    citations, ref_block = await _retrieve_domain_context(facts, deal.get("vertical"))
-
-    system_prompt = (
-        "You are a neutral marketplace facilitator. Produce a Deal Brief — a structured handoff "
-        "document that carries a deal into offline execution (for a bank, lawyer, broker, or "
-        "logistics provider). Be factual; use only the information provided. Do not invent terms."
-    )
-    user_prompt = (
-        f"{facts}\n\n"
-        f"Relevant domain reference (use for context only, cite where used):\n{ref_block or '(none)'}\n\n"
-        "Write the Deal Brief in Markdown with these sections: "
-        "## Summary, ## Parties, ## Agreed Terms, ## Facilitators, ## Documents, "
-        "## Domain Notes, ## Open Items."
-    )
-
-    try:
-        from app.modules.ai.llm_client import generate
-
-        markdown = await generate(
-            [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            use_case="deal_brief",
-        )
-    except Exception as exc:  # provider/config issues shouldn't 500 opaquely
-        raise ServiceUnavailableError("Deal Brief generation unavailable: LLM call failed") from exc
-
-    brief = {
-        "markdown": markdown,
-        "citations": citations,
-        "use_case": "deal_brief",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    updated = await repo.update_deal(deal_id, {"brief": brief, "status": "brief_ready"})
-    await _notify(_party_ids(deal), exclude=None, ntype="deal_brief_ready",
-                  data={"deal_id": deal_id})
-    return _serialize(updated)
-
-
-async def get_brief(deal_id: str, user: dict[str, Any]) -> dict[str, Any]:
+async def get_brief(deal_id: str, user: dict[str, Any], config: MarketplaceConfig) -> dict[str, Any]:
     deal = await _get_or_404(deal_id)
     _assert_party(deal, user["_id"])
-    brief = deal.get("brief")
-    if not brief:
-        raise NotFoundError("No Deal Brief has been assembled yet")
-    return brief
+    versions = await repo.list_versions(deal_id)
+    final = next((v for v in versions if v.get("is_final")), None)
+    if not final or not final.get("brief"):
+        raise NotFoundError("No final Deal Brief has been reached yet")
+    return final["brief"]
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
-def _principal(user_id: str, participant_type: str, config: MarketplaceConfig) -> dict[str, Any]:
-    pt = config.get_type(participant_type)
-    role = pt.role if pt else "supply"
-    return {"user_id": user_id, "participant_type": participant_type, "role": role, "agreed": False}
-
-
-def _facilitator_slots(config: MarketplaceConfig) -> list[dict[str, Any]]:
-    return [
-        {"role_type": pt.slug, "status": "needed", "user_id": None, "note": None}
-        for pt in config.participant_types
-        if pt.role == "facilitator"
-    ]
-
-
-def _vertical(config: MarketplaceConfig) -> str | None:
-    ident = getattr(config, "marketplace", None)
-    return getattr(ident, "vertical", None) or getattr(ident, "slug", None) or getattr(ident, "name", None)
-
-
-def _advance(deal: dict[str, Any]) -> str:
-    """Compute the next non-terminal status from the deal's contents."""
-    if deal.get("status") in TERMINAL_STATUSES or deal.get("status") in ("brief_ready",):
-        return deal["status"]
-    principals = deal.get("principals", [])
-    all_agreed = len(principals) >= 2 and all(p.get("agreed") for p in principals)
-    slots_resolved = all(s.get("status") != "needed" for s in deal.get("facilitator_slots", []))
-    return "agreed" if (all_agreed and slots_resolved) else "active"
-
-
-def _build_deal_facts(deal: dict[str, Any]) -> str:
-    lines = ["# Deal facts", f"Vertical: {deal.get('vertical') or 'n/a'}"]
-    lines.append("\n## Parties (principals)")
-    for p in deal.get("principals", []):
-        agreed = "agreed" if p.get("agreed") else "not yet agreed"
-        lines.append(f"- {p.get('role', '?')}: {p.get('participant_type', '?')} "
-                     f"(user {p.get('user_id')}) — {agreed}")
-    lines.append("\n## Recorded terms")
-    params = deal.get("parameters", [])
-    if not params:
-        lines.append("- (none recorded)")
-    for t in params:
-        unit = f" {t['unit']}" if t.get("unit") else ""
-        flag = " [agreed]" if t.get("agreed") else ""
-        label = t.get("label") or t.get("key")
-        lines.append(f"- {label}: {t.get('value')}{unit}{flag}"
-                     + (f" — {t['note']}" if t.get("note") else ""))
-    lines.append("\n## Facilitators")
-    slots = deal.get("facilitator_slots", [])
-    if not slots:
-        lines.append("- (none required)")
-    for s in slots:
-        who = f" (user {s['user_id']})" if s.get("user_id") else ""
-        lines.append(f"- {s.get('role_type')}: {s.get('status')}{who}")
-    docs = deal.get("documents", [])
-    lines.append(f"\n## Documents\n- {len(docs)} attached document(s)")
-    if deal.get("context"):
-        lines.append(f"\n## Context\n{deal['context']}")
-    return "\n".join(lines)
-
-
-async def _retrieve_domain_context(facts: str, vertical: str | None) -> tuple[list[dict], str]:
-    """Pull curated domain context from the reference library (wiki-preferred). Non-fatal."""
+# ── infra ────────────────────────────────────────────────────────────────────────
+async def _retrieve_domain_context(text: str, vertical: str | None) -> tuple[list[dict], str]:
+    """Pull curated domain context (rate benchmarks, escape hatches) from the reference
+    library for the value-drivers section. Non-fatal."""
     try:
         from app.modules.ai.embedding_client import get_embedding
         from app.modules.knowledge import search_reference_library
 
-        embedding = await get_embedding(facts[:4000])
+        embedding = await get_embedding((text or "")[:4000])
         hits = await search_reference_library(embedding, top_k=5, vertical=vertical)
         citations = [
-            {
-                "id": h.get("id"),
-                "score": round(float(h.get("score", 0)), 3),
-                "source_layer": (h.get("metadata") or {}).get("source_layer"),
-            }
+            {"id": h.get("id"), "score": round(float(h.get("score", 0)), 3),
+             "source_layer": (h.get("metadata") or {}).get("source_layer")}
             for h in hits
         ]
         ref_block = "\n\n".join(h["chunk_text"] for h in hits)
         return citations, ref_block
     except Exception:
-        logger.warning("Deal Brief domain-context retrieval failed; continuing without it", exc_info=True)
+        logger.info("Deal Brief domain-context retrieval unavailable; continuing without it", exc_info=True)
         return [], ""
 
 
@@ -339,62 +623,8 @@ async def _notify(user_ids: list[str], *, exclude: str | None, ntype: str, data:
     try:
         from app.modules.notifications.service import create_notification
 
-        for uid in user_ids:
+        for uid in dict.fromkeys(user_ids):  # de-dupe, preserve order
             if uid and uid != exclude:
                 await create_notification(user_id=uid, notification_type=ntype, data=data)
     except Exception:
         logger.warning("Deal notification failed (non-fatal)", exc_info=True)
-
-
-async def _get_or_404(deal_id: str) -> dict[str, Any]:
-    deal = await repo.get_deal(deal_id)
-    if not deal:
-        raise NotFoundError("Deal not found")
-    return deal
-
-
-def _members_from_principals(principals: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen: set[str] = set()
-    members: list[dict[str, Any]] = []
-    for p in principals:
-        uid = p["user_id"]
-        if uid not in seen:
-            seen.add(uid)
-            members.append({"user_id": uid, "role": p.get("role")})
-    return members
-
-
-def _party_ids(deal: dict[str, Any]) -> list[str]:
-    return [m["user_id"] for m in deal.get("participants", [])]
-
-
-def _assert_party(deal: dict[str, Any], user_id: str) -> None:
-    if user_id not in _party_ids(deal):
-        raise ForbiddenError("Not a party to this deal")
-
-
-def _assert_principal(deal: dict[str, Any], user_id: str) -> None:
-    if user_id not in [p["user_id"] for p in deal.get("principals", [])]:
-        raise ForbiddenError("Only deal principals can perform this action")
-
-
-def _assert_not_terminal(deal: dict[str, Any]) -> None:
-    if deal.get("status") in TERMINAL_STATUSES:
-        raise ConflictError(f"Deal is {deal['status']} and can no longer be modified")
-
-
-def _dedupe(items: list[str]) -> list[str]:
-    seen: dict[str, None] = {}
-    for it in items:
-        if it is not None:
-            seen.setdefault(it, None)
-    return list(seen.keys())
-
-
-def _serialize(doc: dict[str, Any] | None) -> dict[str, Any]:
-    if not doc:
-        return {}
-    doc = dict(doc)
-    if "_id" in doc:
-        doc["id"] = str(doc.pop("_id"))
-    return doc
