@@ -212,6 +212,112 @@ class AIConfig(StrictModel):
     enabled_providers: list[str] = ["openai"]
 
 
+# ── Story Progression System (GAP-4) config ───────────────────────────────
+
+# Standard, non-binding acknowledgment wording (integrity rule 7: it appears on the
+# acknowledgment surface itself, every time — not only in a document footer).
+_DEFAULT_SIGNOFF = (
+    "I have read this summary and I have nothing to add or correct at this time. "
+    "This is not an agreement to any terms and does not create any obligation."
+)
+_DEFAULT_FINAL_SIGNOFF = (
+    "I have read this Deal Brief and it accurately captures our shared intent. "
+    "It is a summary for our own use, not a contract."
+)
+
+
+class StoryProgressionConfig(StrictModel):
+    """Per-vertical tuning of the deal-assembly story chain (see story-progression-system §11)."""
+
+    #: published → stale (dormancy, never death). Days.
+    acknowledgment_window_days: int = 14
+    #: show "waiting on party X" to the other parties. Social-pressure lever — OFF by default.
+    pending_visibility: bool = False
+    #: reminder schedule after publication, in days.
+    reminder_cadence_days: list[int] = [3, 7]
+    #: the Content Match Story's three stages; advancing requires consent from every principal.
+    disclosure_levels: list[str] = ["anonymous", "named", "deal_context"]
+    #: copy key identifying the non-binding final wording (kept for manual/UI parity).
+    final_wording_key: str = "brief_signoff"
+    #: the non-binding wording shown on every ordinary acknowledgment.
+    signoff_wording: str = _DEFAULT_SIGNOFF
+    #: the non-binding wording shown on the final Deal-Brief acknowledgment.
+    final_signoff_wording: str = _DEFAULT_FINAL_SIGNOFF
+
+    @field_validator("acknowledgment_window_days")
+    @classmethod
+    def _validate_window(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("acknowledgment_window_days must be >= 1")
+        return v
+
+    @field_validator("disclosure_levels")
+    @classmethod
+    def _validate_levels(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("disclosure_levels must not be empty")
+        return v
+
+
+class DealInstrument(StrictModel):
+    """A deal instrument + its Deal-Brief template (GAP-5/GAP-15).
+
+    ``required_fields`` doubles as the ``deal_brief_template.yaml`` for this instrument:
+    it documents the instrument AND defines the completeness guard that unlocks the
+    final acknowledgment. An instrument with no complete template is *unfinishable*.
+    """
+
+    name: str
+    label: str
+    description: str = ""
+    #: field keys the deal's structured snapshot must carry to be template-complete.
+    required_fields: list[str] = []
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        if not _ROLE_SLUG_RE.match(v):
+            raise ValueError(
+                f"Invalid instrument name '{v}'. Use lowercase letters, numbers, '_' or '-', 2-64 chars."
+            )
+        return v
+
+
+def _default_deal_instruments() -> list[DealInstrument]:
+    """Baseline instrument vocabulary. GAP-15 requires the two loan-like instruments
+    (``capacity_rental``, ``reciprocity_preference``) to exist so a demo never fails
+    its own anchor story's release-gate check."""
+    return [
+        DealInstrument(
+            name="spot_purchase",
+            label="Spot Purchase",
+            description="A one-off transfer of goods/services at an agreed price.",
+            required_fields=["instrument", "parties", "product", "quantity", "price", "delivery_window"],
+        ),
+        DealInstrument(
+            name="capacity_rental",
+            label="Capacity Rental",
+            description="Time-boxed rental of productive capacity, operator optionally included "
+            "(closer to a soccer loan than a commodity transaction).",
+            required_fields=[
+                "instrument",
+                "parties",
+                "scope",
+                "rate",
+                "delivery_window",
+                "operator_included",
+                "facilitator_confirmations",
+            ],
+        ),
+        DealInstrument(
+            name="reciprocity_preference",
+            label="Reciprocity Preference",
+            description="A registered, non-binding preference to reciprocate capacity/work in future.",
+            required_fields=["instrument", "parties", "scope", "reciprocity_terms"],
+        ),
+    ]
+
+
 # ── Root config ──────────────────────────────────────────────────────────
 
 class MarketplaceConfig(StrictModel):
@@ -223,6 +329,9 @@ class MarketplaceConfig(StrictModel):
     discovery: DiscoveryConfig
     ai: AIConfig = AIConfig()
     auth: AuthConfig = AuthConfig()
+    # Deal-assembly layer (optional; sensible defaults so existing configs keep working).
+    story_progression: StoryProgressionConfig = StoryProgressionConfig()
+    deal_instruments: list[DealInstrument] = []
 
     # ── helpers ───────────────────────────────────────────────────────
     def get_type(self, slug: str) -> ParticipantType | None:
@@ -233,6 +342,17 @@ class MarketplaceConfig(StrictModel):
 
     def type_slugs(self) -> list[str]:
         return [pt.slug for pt in self.participant_types]
+
+    def instruments(self) -> list[DealInstrument]:
+        """Configured deal instruments, or the baseline vocabulary (incl. the GAP-15
+        loan-like instruments) when the vertical config omits the block."""
+        return self.deal_instruments or _default_deal_instruments()
+
+    def get_instrument(self, name: str) -> DealInstrument | None:
+        for inst in self.instruments():
+            if inst.name == name:
+                return inst
+        return None
 
     # ── cross-validation ─────────────────────────────────────────────
     @model_validator(mode="after")
