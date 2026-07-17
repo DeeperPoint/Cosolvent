@@ -15,6 +15,7 @@ from app.modules.deals import service
 from app.modules.deals.schemas import (
     ConsentRequest,
     CreateDealRequest,
+    FacilitatorSearchRequest,
     FacilitatorSlotRequest,
     ReopenRequest,
     RespondRequest,
@@ -97,6 +98,17 @@ async def set_facilitator(
     config: MarketplaceConfig = Depends(get_config),
 ):
     return await service.set_facilitator(deal_id, user, body, config)
+
+
+@router.post("/{deal_id}/facilitators/search")
+async def search_facilitators(
+    body: FacilitatorSearchRequest,
+    deal_id: str = Path(...),
+    user: dict = Depends(get_current_user),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Ranked facilitator candidates of a role type, matched to this deal (GAP-7)."""
+    return await service.facilitator_candidates(deal_id, user, body.role_type, config)
 
 
 @router.post("/{deal_id}/reopen")

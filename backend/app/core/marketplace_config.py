@@ -243,6 +243,13 @@ class StoryProgressionConfig(StrictModel):
     signoff_wording: str = _DEFAULT_SIGNOFF
     #: the non-binding wording shown on the final Deal-Brief acknowledgment.
     final_signoff_wording: str = _DEFAULT_FINAL_SIGNOFF
+    #: snapshot keys treated as non-shareable (Loop-3). A protected value is redacted from a
+    #: published version until its owning party consents to disclose it for that audience.
+    #: Matched case-insensitively as substrings of the parameter key.
+    protected_attributes: list[str] = [
+        "price", "pricing", "reserve", "margin", "cost", "utilization",
+        "utilisation", "budget", "floor", "discount",
+    ]
 
     @field_validator("acknowledgment_window_days")
     @classmethod

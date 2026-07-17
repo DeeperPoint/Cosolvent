@@ -67,6 +67,12 @@ class FacilitatorSlotRequest(BaseModel):
     note: str | None = None
 
 
+class FacilitatorSearchRequest(BaseModel):
+    """Search facilitator participants of ``role_type`` matched to this deal (GAP-7)."""
+
+    role_type: str
+
+
 class ReopenRequest(BaseModel):
     matter: str | None = None
 
