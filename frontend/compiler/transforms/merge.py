@@ -168,6 +168,7 @@ _MODULE_TAG_MAP: dict[str, str] = {
     "profiles": "profiles",
     "discovery": "discovery",
     "communication": "communication",
+    "deals": "deals",
     "files": "files",
     "notifications": "notifications",
     "admin": "admin",
