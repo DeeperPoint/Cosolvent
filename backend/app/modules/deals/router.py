@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Path
 
-from app.core.dependencies import get_config, get_current_user
+from app.core.dependencies import get_config, get_current_user, require_admin
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.deals import service
 from app.modules.deals.schemas import (
@@ -37,6 +37,15 @@ async def create_deal(
 @router.get("")
 async def list_deals(user: dict = Depends(get_current_user)):
     return await service.list_deals(user)
+
+
+@router.post("/reminders/run")
+async def run_reminders(
+    _admin: dict = Depends(require_admin),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Manually trigger the acknowledgment-reminder sweep (also runs hourly via ARQ cron)."""
+    return await service.run_reminder_sweep(config)
 
 
 @router.get("/{deal_id}")
@@ -156,3 +165,13 @@ async def cancel(
     config: MarketplaceConfig = Depends(get_config),
 ):
     return await service.cancel(deal_id, user, config)
+
+
+@router.post("/{deal_id}/exit")
+async def exit_deal(
+    deal_id: str = Path(...),
+    user: dict = Depends(get_current_user),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Leave the deal (§7): drop from future acknowledgers; close the deal or reopen a slot."""
+    return await service.exit_deal(deal_id, user, config)

@@ -132,6 +132,19 @@ def _register_routers(application: FastAPI) -> None:
     application.include_router(admin_router, prefix="/api/admin", tags=["admin"])
     application.include_router(setup_router, tags=["setup"])
 
+    @application.get("/api/mode", tags=["mode"])
+    async def get_mode() -> dict:
+        """Current Demo Mode staging + capabilities (Phase 6a / story-progression §11)."""
+        from app.core.config import settings
+
+        mode = settings.demo_mode
+        return {
+            "demo_mode": mode,
+            "writable": mode in ("off", "live", "full"),
+            "stateful_deal_lifecycle": mode in ("off", "full"),
+            "live_ai": mode in ("off", "live", "full"),
+        }
+
     generated_alias_path = Path(__file__).parent / "generated" / "role_alias_router.py"
     if generated_alias_path.exists():
         from app.generated.role_alias_router import router as generated_role_router

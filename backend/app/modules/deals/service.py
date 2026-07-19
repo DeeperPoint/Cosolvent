@@ -662,6 +662,96 @@ async def cancel(deal_id: str, user: dict[str, Any], config: MarketplaceConfig) 
     return await _deal_view(deal_id, user, config)
 
 
+# ── party exit (§7) ──────────────────────────────────────────────────────────────
+async def exit_deal(deal_id: str, user: dict[str, Any], config: MarketplaceConfig) -> dict[str, Any]:
+    """A party leaves the deal (§7). They drop from future required-acknowledger sets;
+    existing acknowledgments remain (history is immutable). If all principals exit the deal
+    closes; a facilitator leaving merely reopens their slot. A party exit can also unblock a
+    stalled version, so version states are recomputed afterward.
+    """
+    deal = await _get_or_404(deal_id)
+    _assert_party(deal, user["_id"])
+    _assert_not_terminal(deal)
+
+    versions = await repo.list_versions(deal_id)
+    at_seq = max((v.get("seq", 0) for v in versions), default=0)
+
+    parties = list(deal.get("parties", []))
+    role = story.party_role(deal, user["_id"])
+    for p in parties:
+        if p["user_id"] == user["_id"] and p.get("status") != "exited":
+            p["status"] = "exited"
+            p["exited_seq"] = at_seq
+
+    # Facilitator exit reopens their slot.
+    slots = list(deal.get("facilitator_slots", []))
+    if role == "facilitator":
+        for s in slots:
+            if s.get("user_id") == user["_id"]:
+                s["status"] = "needed"
+                s["user_id"] = None
+                s.pop("candidates", None)
+
+    updates: dict[str, Any] = {"parties": parties, "facilitator_slots": slots}
+    # All principals gone → the deal closes (the only terminal state besides handoff).
+    remaining_principals = [p for p in parties if p.get("role") == "principal" and p.get("status") == "active"]
+    if not remaining_principals:
+        updates["status"] = "closed"
+    await repo.update_deal(deal_id, updates)
+
+    await _notify(story.active_party_ids(deal), exclude=user["_id"], ntype="deal_party_exited",
+                  data={"deal_id": deal_id, "party": user["_id"]})
+
+    # Removing a required acknowledger may complete a previously-stalled version.
+    deal = await _get_or_404(deal_id)
+    if deal.get("status") not in TERMINAL_DEAL_STATES:
+        vers, _ = await _recompute_versions(deal, config)
+        current = _current_version(vers)
+        refreshed = await repo.get_version(str(current["_id"])) if current else None
+        if refreshed and refreshed.get("state") == story.MILESTONE:
+            await _on_milestone_reached(deal, refreshed, config)
+    return await _deal_view(deal_id, user, config)
+
+
+# ── reminder cadence sweep (§8 / §11 config) ─────────────────────────────────────
+async def run_reminder_sweep(config: MarketplaceConfig) -> dict[str, int]:
+    """Send acknowledgment reminders for open versions per the configured cadence.
+
+    Idempotent per (version, threshold) via ``reminders_sent`` on the version. Intended to be
+    driven on a schedule (the ARQ cron ``deal_reminder_sweep``); also exposed as an admin op.
+    """
+    cadence = sorted({int(d) for d in config.story_progression.reminder_cadence_days})
+    now = _now()
+    deals = await repo.list_active_deals()
+    reminded = 0
+    for deal in deals:
+        did = str(deal["_id"])
+        versions = await repo.list_versions(did)
+        current = _current_version(versions)
+        if not current or current.get("state") not in (story.PUBLISHED, story.STALE):
+            continue
+        published_at = story._as_dt(current.get("published_at"))
+        if not published_at:
+            continue
+        responses = await repo.list_responses_for_deal(did)
+        pending = story.pending_acknowledgers(current, responses)
+        if not pending:
+            continue
+        days = (now - published_at).days
+        already = set(current.get("reminders_sent", []))
+        due = [t for t in cadence if days >= t and t not in already]
+        if not due:
+            continue
+        await _notify(pending, exclude=None, ntype="deal_ack_reminder",
+                      data={"deal_id": did, "version_id": str(current["_id"]), "days": days,
+                            "pending": len(pending)})
+        await repo.set_version_state(
+            str(current["_id"]), current["state"], {"reminders_sent": sorted(already | set(due))}
+        )
+        reminded += 1
+    return {"deals_scanned": len(deals), "reminders_sent": reminded}
+
+
 # ── final Deal Brief render (GAP-5) ──────────────────────────────────────────────
 async def _finalize_brief(deal: dict[str, Any], version: dict[str, Any], config: MarketplaceConfig) -> None:
     versions = await repo.list_versions(str(deal["_id"]))
