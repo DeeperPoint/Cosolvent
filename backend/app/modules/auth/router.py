@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Cookie, Depends, Response
 
+from app.core.config import settings
 from app.core.dependencies import get_config, get_current_user
 from app.core.exceptions import ForbiddenError
 from app.core.marketplace_config import MarketplaceConfig
@@ -47,7 +48,9 @@ async def login(body: LoginRequest, response: Response):
 async def logout(response: Response, session_token: str = Cookie(None)):
     if session_token:
         await service.logout(session_token)
-    response.delete_cookie("session_token", secure=True, httponly=True, samesite="lax")
+    response.delete_cookie(
+        "session_token", secure=settings.session_cookie_secure, httponly=True, samesite="lax"
+    )
     return {"detail": "Logged out"}
 
 

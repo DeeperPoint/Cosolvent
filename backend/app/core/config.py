@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Session
     session_secret: str = "change-me"
     session_ttl_hours: int = 72
+    # When False, the session cookie omits the Secure flag so it is stored over
+    # plain http from any host (127.0.0.1, LAN IPs). Keep True in production.
+    session_cookie_secure: bool = True
 
     # S3
     s3_bucket: str = "cosolvent-files"
