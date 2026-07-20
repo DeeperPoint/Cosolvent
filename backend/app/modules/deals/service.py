@@ -122,13 +122,38 @@ def _next_seq(versions: list[dict[str, Any]]) -> int:
     return (max((v.get("seq", 0) for v in versions), default=0)) + 1
 
 
+def _seed_system_fields(snapshot: dict[str, Any], deal: dict[str, Any]) -> dict[str, Any]:
+    """Fill template fields the parties never hand-annotate — they are facts of the deal
+    itself: the chosen instrument, the active principals, and any confirmed facilitators.
+    Non-protected, so they survive the Loop-3 gate. Never overrides a contributed value."""
+    seeded = dict(snapshot)
+    if deal.get("instrument") and not seeded.get("instrument"):
+        seeded["instrument"] = {"label": "instrument", "value": deal["instrument"]}
+    principals = [
+        p for p in deal.get("parties", [])
+        if p.get("status") == "active" and p.get("role") == "principal"
+    ]
+    if principals and not seeded.get("parties"):
+        seeded["parties"] = {"label": "parties",
+                             "value": [p.get("participant_type") or p.get("user_id") for p in principals]}
+    confirmed = [
+        s for s in deal.get("facilitator_slots", [])
+        if s.get("status") == "confirmed" and s.get("user_id")
+    ]
+    if confirmed and not seeded.get("facilitator_confirmations"):
+        seeded["facilitator_confirmations"] = {"label": "facilitator confirmations",
+                                                "value": [s.get("role_type") for s in confirmed]}
+    return seeded
+
+
 def _is_final_candidate(deal: dict[str, Any], version: dict[str, Any], config: MarketplaceConfig) -> bool:
     """A version can carry the final Deal-Brief acknowledgment iff it is at the final
     disclosure level, an instrument is chosen, and its snapshot is template-complete."""
     if version.get("disclosure_level") != _final_level(config):
         return False
     result = validate_snapshot(
-        version.get("snapshot", {}), deal.get("instrument"), _instrument_required_fields(config, deal.get("instrument"))
+        _seed_system_fields(version.get("snapshot", {}), deal),
+        deal.get("instrument"), _instrument_required_fields(config, deal.get("instrument")),
     )
     return result.complete
 
@@ -159,7 +184,7 @@ async def _compose_and_publish(
 
     responses = await repo.list_responses_for_deal(deal_id)
     consents = await repo.list_consents_for_deal(deal_id)
-    working = story.accumulate_snapshot(responses)
+    working = _seed_system_fields(story.accumulate_snapshot(responses), deal)
     owners = story.attribute_owners(responses)
     published, withheld = story.gate_snapshot(
         working, owners, consents, config.story_progression.protected_attributes, disclosure
@@ -313,6 +338,13 @@ def _version_view(
     v["pending_acknowledgers"] = story.pending_acknowledgers(version, responses)
     v["is_final_candidate"] = _is_final_candidate(deal, version, config)
     v["acknowledgment_wording"] = _ack_wording(deal, version, config)
+    # Completeness is derived metadata (not part of the content hash), so compute it live
+    # against the deal's current instrument (+ auto-seeded system fields) — this reflects a
+    # just-set instrument and confirmed facilitators immediately.
+    v["template_result"] = validate_snapshot(
+        _seed_system_fields(version.get("snapshot", {}), deal), deal.get("instrument"),
+        _instrument_required_fields(config, deal.get("instrument")),
+    ).to_dict()
     # Loop-3: attributes redacted from this published version pending owner consent.
     v["withheld"] = version.get("withheld", [])
     if not config.story_progression.pending_visibility:
@@ -364,21 +396,33 @@ async def respond(deal_id: str, user: dict[str, Any], req: Any, config: Marketpl
         "payload": payload,
     })
 
-    if req.type == "correct":
-        # A correction supersedes (never edits) via the shared update-and-recompose path.
-        # Its params are already persisted on the response, so the recomposed working
-        # snapshot (derived from responses) picks them up automatically.
+    # Does this response actually add content to the story? (any param carrying a value, or note text)
+    def _param_has_value(p: dict[str, Any]) -> bool:
+        val = p.get("value")
+        return val is not None and (not isinstance(val, str) or val.strip() != "")
+
+    has_content = bool(payload.get("text")) or any(_param_has_value(p) for p in param_updates)
+
+    if req.type in ("correct", "annotate") and has_content:
+        # Both append a NEW immutable version (never edit): the params were just persisted,
+        # so the recomposed working snapshot (derived from responses) picks them up. The new
+        # version resets acknowledgment for the changed content.
         await repo.set_version_state(str(current["_id"]), story.SUPERSEDED)
         versions = await repo.list_versions(str(deal["_id"]))
-        text_inputs = [f"Correction: {payload['text']}"] if payload["text"] else ["A correction was applied."]
+        if req.type == "correct":
+            text_inputs = [f"Correction: {payload['text']}"] if payload["text"] else ["A correction was applied."]
+            reason = "correction"
+        else:
+            text_inputs = [payload["text"]] if payload["text"] else []
+            reason = "annotation"
         await _compose_and_publish(
             deal, config, versions=versions, text_inputs=text_inputs,
-            composed_from={"supersedes": str(current["_id"]), "reason": "correction"},
+            composed_from={"supersedes": str(current["_id"]), "reason": reason},
         )
         await _notify(story.active_party_ids(deal), exclude=None, ntype="deal_version_superseded",
                       data={"deal_id": deal_id})
     else:
-        # Recompute; if this response completes a milestone, react.
+        # acknowledge (or an empty annotate): recompute; react if a milestone is reached.
         versions, responses = await _recompute_versions(deal, config)
         refreshed = await repo.get_version(str(current["_id"]))
         if refreshed and refreshed.get("state") == story.MILESTONE:
@@ -547,6 +591,39 @@ async def search_facilitators(
     return out
 
 
+async def search_facilitators_by_name(
+    role_type: str, name: str, *, limit: int = 10
+) -> list[dict[str, Any]]:
+    """Find facilitator profiles of ``role_type`` whose company name matches ``name``
+    (case-insensitive substring). A direct lookup — no semantic ranking. Non-fatal → []."""
+    needle = name.strip().lower()
+    if not needle:
+        return []
+    try:
+        from app.modules.profiles import repository as profiles_repo
+
+        profiles = await profiles_repo.list_profiles(role_type, status="active", limit=200)
+    except Exception:
+        logger.info("facilitator name search unavailable", exc_info=True)
+        return []
+    out: list[dict[str, Any]] = []
+    for prof in profiles:
+        fields = prof.get("fields") or {}
+        company = str(fields.get("company_name") or "")
+        if needle in company.lower():
+            out.append({
+                "profile_id": prof.get("_id") or prof.get("id"),
+                "user_id": prof.get("user_id"),
+                "score": 1.0 if company.lower() == needle else 0.9,
+                "fields": fields,
+            })
+        if len(out) >= limit:
+            break
+    # Best (exact) matches first.
+    out.sort(key=lambda c: c["score"], reverse=True)
+    return out
+
+
 async def _autofill_facilitator_candidates(deal: dict[str, Any], config: MarketplaceConfig) -> None:
     """Search candidates for each still-needed facilitator slot and attach them (trigger)."""
     slots = list(deal.get("facilitator_slots", []))
@@ -563,12 +640,18 @@ async def _autofill_facilitator_candidates(deal: dict[str, Any], config: Marketp
 
 
 async def facilitator_candidates(
-    deal_id: str, user: dict[str, Any], role_type: str, config: MarketplaceConfig
+    deal_id: str, user: dict[str, Any], role_type: str, config: MarketplaceConfig,
+    *, name: str | None = None,
 ) -> dict[str, Any]:
-    """On-demand facilitator search for a role slot (principal-only)."""
+    """On-demand facilitator search for a role slot (principal-only). With ``name``, match
+    by company name; otherwise rank semantically against the deal's story."""
     deal = await _get_or_404(deal_id)
     _assert_principal(deal, user["_id"])
-    return {"role_type": role_type, "candidates": await search_facilitators(deal, role_type, config)}
+    if name and name.strip():
+        candidates = await search_facilitators_by_name(role_type, name)
+    else:
+        candidates = await search_facilitators(deal, role_type, config)
+    return {"role_type": role_type, "candidates": candidates}
 
 
 async def set_facilitator(deal_id: str, user: dict[str, Any], req: Any, config: MarketplaceConfig) -> dict[str, Any]:

@@ -68,9 +68,14 @@ class FacilitatorSlotRequest(BaseModel):
 
 
 class FacilitatorSearchRequest(BaseModel):
-    """Search facilitator participants of ``role_type`` matched to this deal (GAP-7)."""
+    """Search facilitator participants of ``role_type`` matched to this deal (GAP-7).
+
+    With ``name`` set, match facilitator profiles by company name instead of ranking
+    them semantically against the deal's story.
+    """
 
     role_type: str
+    name: str | None = None
 
 
 class ReopenRequest(BaseModel):
