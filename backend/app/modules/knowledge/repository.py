@@ -210,6 +210,16 @@ async def insert_gap_signal(
     return str(gap_id)
 
 
+# Upper bound on how many gap rows a single query may request, so an arbitrary
+# caller-supplied `limit` on the admin endpoint can't trigger an oversized read.
+_MAX_GAP_LIMIT = 500
+
+
+def bounded_gap_limit(limit: int) -> int:
+    """Clamp a requested gap-list limit into [1, _MAX_GAP_LIMIT]."""
+    return max(1, min(limit, _MAX_GAP_LIMIT))
+
+
 async def list_gap_signals(*, vertical: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
     """Newest-first list of recorded knowledge gaps (curator view)."""
     stmt: Select[Any] = select(knowledge_gap_signals).order_by(
@@ -217,7 +227,7 @@ async def list_gap_signals(*, vertical: str | None = None, limit: int = 100) -> 
     )
     if vertical:
         stmt = stmt.where(knowledge_gap_signals.c.vertical == vertical)
-    stmt = stmt.limit(max(1, limit))
+    stmt = stmt.limit(bounded_gap_limit(limit))
 
     async with session_scope() as session:
         rows = (await session.execute(stmt)).all()

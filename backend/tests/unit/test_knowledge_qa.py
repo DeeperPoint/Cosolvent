@@ -123,3 +123,38 @@ async def test_list_gaps_maps_rows():
     assert len(out.gaps) == 1
     assert out.gaps[0].reason == "no_matching_chunks"
     assert out.gaps[0].query == "tariff on widgets?"
+
+
+def test_format_context_strips_leading_source_marker():
+    # contextual_content carries a leading "[<file>]" marker; it must not reach the
+    # model as a rival bracket to the [doc_key] citation tag.
+    ctx = service._format_context([_result()])
+    assert "[27_2025]" in ctx                      # the citable doc_key tag is present
+    assert "[27_2025.md]" not in ctx               # the rival file marker is stripped
+    assert "Payment is due against shipping documents." in ctx
+
+
+@pytest.mark.asyncio
+async def test_ask_without_citations_is_not_answered_and_records_gap():
+    # The model answers but cites nothing resolvable -> not a grounded answer.
+    with (
+        patch.object(service, "retrieve", new=AsyncMock(return_value=_retrieval([_result()]))),
+        patch.object(service, "generate", new=AsyncMock(return_value="Payment is due against documents.")),
+        patch.object(service.repo, "insert_gap_signal", new=AsyncMock()) as gap,
+    ):
+        resp = await service.ask(query="when is payment due?", vertical="grain")
+
+    assert resp.answered is False
+    assert resp.answer == service._NOT_COVERED_MSG
+    assert resp.citations == []
+    gap.assert_awaited_once()
+    assert gap.call_args.kwargs["reason"] == "answer_without_citation"
+
+
+def test_bounded_gap_limit_clamps_range():
+    from app.modules.knowledge.repository import bounded_gap_limit, _MAX_GAP_LIMIT
+
+    assert bounded_gap_limit(50) == 50                 # in range unchanged
+    assert bounded_gap_limit(10_000_000) == _MAX_GAP_LIMIT  # oversized clamped down
+    assert bounded_gap_limit(0) == 1                   # floor at 1
+    assert bounded_gap_limit(-5) == 1

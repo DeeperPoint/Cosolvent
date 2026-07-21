@@ -35,6 +35,13 @@ _GROUNDING_SYSTEM = (
 
 _CITATION_RE = re.compile(r"\[([^\]\n]+)\]")
 
+# Leading source marker that KnowledgeSlot prepends to contextual_content
+# (e.g. "[27_2025.md] 13. PAYMENT > ..."). It is stripped before the excerpt is
+# shown to the model so the only bracketed token in an excerpt is its [doc_key]
+# citation tag — otherwise the model may cite "[27_2025.md]", which does not map
+# back to a doc_key.
+_LEADING_MARKER_RE = re.compile(r"^\s*\[[^\]\n]+\]\s*")
+
 
 async def ingest_documents(documents: list[ReferenceDocumentInput]) -> IngestResponse:
     """Upsert reference documents and their chunks.
@@ -139,11 +146,19 @@ async def ask(
         await _record_gap(query, vertical, filters, "model_not_covered")
         return AskResponse(query=query, answered=False, answer=_NOT_COVERED_MSG, used_chunks=used_chunks)
 
+    citations = _extract_citations(raw, chunks)
+    if not citations:
+        # The model produced prose but cited no retrievable [doc_key]. Under the
+        # "grounded, with citations" contract that is not an answer we can stand
+        # behind, so treat it as not covered and record a gap for curators.
+        await _record_gap(query, vertical, filters, "answer_without_citation")
+        return AskResponse(query=query, answered=False, answer=_NOT_COVERED_MSG, used_chunks=used_chunks)
+
     return AskResponse(
         query=query,
         answered=True,
         answer=raw,
-        citations=_extract_citations(raw, chunks),
+        citations=citations,
         used_chunks=used_chunks,
     )
 
@@ -154,7 +169,8 @@ def _format_context(chunks: list[RetrievalResult]) -> str:
     for c in chunks:
         topic = (c.metadata or {}).get("topic")
         tag = f"[{c.doc_key}]" + (f" (topic: {topic})" if topic else "")
-        blocks.append(f"{tag}\n{c.contextual_content}")
+        excerpt = _LEADING_MARKER_RE.sub("", c.contextual_content, count=1)
+        blocks.append(f"{tag}\n{excerpt}")
     return "\n\n---\n\n".join(blocks)
 
 
