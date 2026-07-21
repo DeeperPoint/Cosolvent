@@ -7,10 +7,16 @@ import time
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 
 logger = logging.getLogger("cosolvent")
+
+# Methods that mutate state — blocked when the instance is in read-only Demo (showcase) mode.
+_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# Write paths that must stay allowed even in showcase mode (auth for persona assignment).
+_SHOWCASE_WRITE_ALLOWLIST = ("/api/auth/login", "/api/auth/logout", "/api/auth/signup")
 
 
 def register_middleware(app: FastAPI) -> None:
@@ -21,6 +27,21 @@ def register_middleware(app: FastAPI) -> None:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def demo_mode_readonly(request: Request, call_next):
+        # Mode 1 (showcase): the whole instance is read-only — block DB writes so a public
+        # demo cannot be mutated or run up costs (story-progression §11 / demo-mode-spec).
+        if (
+            settings.demo_mode == "showcase"
+            and request.method in _WRITE_METHODS
+            and not request.url.path.startswith(_SHOWCASE_WRITE_ALLOWLIST)
+        ):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Demo showcase mode is read-only — writes are disabled."},
+            )
+        return await call_next(request)
 
     @app.middleware("http")
     async def log_requests(request: Request, call_next):

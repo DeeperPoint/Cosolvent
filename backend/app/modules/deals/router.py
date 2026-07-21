@@ -9,12 +9,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Path
 
-from app.core.dependencies import get_config, get_current_user
+from app.core.dependencies import get_config, get_current_user, require_admin
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.deals import service
 from app.modules.deals.schemas import (
     ConsentRequest,
     CreateDealRequest,
+    FacilitatorSearchRequest,
     FacilitatorSlotRequest,
     ReopenRequest,
     RespondRequest,
@@ -36,6 +37,15 @@ async def create_deal(
 @router.get("")
 async def list_deals(user: dict = Depends(get_current_user)):
     return await service.list_deals(user)
+
+
+@router.post("/reminders/run")
+async def run_reminders(
+    _admin: dict = Depends(require_admin),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Manually trigger the acknowledgment-reminder sweep (also runs hourly via ARQ cron)."""
+    return await service.run_reminder_sweep(config)
 
 
 @router.get("/{deal_id}")
@@ -99,6 +109,17 @@ async def set_facilitator(
     return await service.set_facilitator(deal_id, user, body, config)
 
 
+@router.post("/{deal_id}/facilitators/search")
+async def search_facilitators(
+    body: FacilitatorSearchRequest,
+    deal_id: str = Path(...),
+    user: dict = Depends(get_current_user),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Ranked facilitator candidates of a role type, matched to this deal (GAP-7)."""
+    return await service.facilitator_candidates(deal_id, user, body.role_type, config)
+
+
 @router.post("/{deal_id}/reopen")
 async def reopen(
     body: ReopenRequest,
@@ -144,3 +165,13 @@ async def cancel(
     config: MarketplaceConfig = Depends(get_config),
 ):
     return await service.cancel(deal_id, user, config)
+
+
+@router.post("/{deal_id}/exit")
+async def exit_deal(
+    deal_id: str = Path(...),
+    user: dict = Depends(get_current_user),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Leave the deal (§7): drop from future acknowledgers; close the deal or reopen a slot."""
+    return await service.exit_deal(deal_id, user, config)

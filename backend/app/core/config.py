@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Session
     session_secret: str = "change-me"
     session_ttl_hours: int = 72
+    # When False, the session cookie omits the Secure flag so it is stored over
+    # plain http from any host (127.0.0.1, LAN IPs). Keep True in production.
+    session_cookie_secure: bool = True
 
     # S3
     s3_bucket: str = "cosolvent-files"
@@ -50,6 +53,13 @@ class Settings(BaseSettings):
     marketplace_config_path: str = "marketplace.yaml"
     cors_origins: list[str] = ["http://localhost:3000"]
     debug: bool = False
+
+    # Demo Mode staging (MarketForge Phase 6a / story-progression §11 mode note):
+    #   off      — normal marketplace (writes allowed, live AI).
+    #   showcase — Mode 1: read-only, no DB writes, no live AI (pre-computed/cached only).
+    #   live     — Mode 2: writes allowed but sessions are meant to be ephemeral (stateless).
+    #   full     — Mode 3: fully stateful — the async acknowledgment lifecycle is live.
+    demo_mode: str = "off"
 
     # If set, overrides marketplace.yaml `auth.allow_public_signup` (e.g. ALLOW_PUBLIC_SIGNUP=true for integration tests)
     allow_public_signup: bool | None = None

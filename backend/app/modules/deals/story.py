@@ -192,3 +192,96 @@ def all_principals_consented(
         if c.get("scope") == scope and c.get("target") == target and c.get("user_id")
     }
     return principals.issubset(consented)
+
+
+# ── snapshot accumulation (event-sourced from responses) ─────────────────────
+
+def accumulate_snapshot(responses: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """Fold every annotate/correct param contribution into the current working snapshot.
+
+    Responses are the source of truth (§11): the snapshot is derived from them in
+    chronological order, latest value winning per key. This is what lets a redacted value
+    survive — it lives in the responses and is re-gated on each composition, not lost.
+    """
+    ordered = sorted(responses, key=lambda r: _as_dt(r.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc))
+    snapshot: dict[str, Any] = {}
+    for r in ordered:
+        if r.get("type") not in ("annotate", "correct"):
+            continue
+        params = (r.get("payload") or {}).get("params") or []
+        snapshot = merge_snapshot(snapshot, params)
+    return snapshot
+
+
+def attribute_owners(responses: Iterable[dict[str, Any]]) -> dict[str, str]:
+    """Map each contributed param key → the user id of its most recent contributor.
+
+    The owner is who must consent before the attribute may be disclosed (Loop-3)."""
+    ordered = sorted(responses, key=lambda r: _as_dt(r.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc))
+    owners: dict[str, str] = {}
+    for r in ordered:
+        if r.get("type") not in ("annotate", "correct"):
+            continue
+        uid = r.get("user_id")
+        for p in (r.get("payload") or {}).get("params") or []:
+            if p.get("key") and uid:
+                owners[p["key"]] = uid
+    return owners
+
+
+# ── Loop-3 consent engine: protected-attribute redaction (integrity rule 5) ──
+
+def is_protected_key(key: str, protected: Iterable[str]) -> bool:
+    kl = key.lower()
+    return any(tok.lower() in kl for tok in protected)
+
+
+def attribute_consented(
+    key: str, owner: str | None, consents: Iterable[dict[str, Any]], level: str
+) -> bool:
+    """True if the attribute's owner has authorized disclosing ``key`` at ``level``.
+
+    Consent is scoped to the disclosure level at which it was granted, so a wider audience
+    (a higher level, or a joined facilitator) requires fresh consent — the §7/§4 re-consent
+    rule. A consent recorded with level ``all`` covers every level.
+    """
+    if not owner:
+        return False
+    for c in consents:
+        if (
+            c.get("scope") == "attribute"
+            and c.get("target") == key
+            and c.get("user_id") == owner
+            and c.get("level") in (None, "all", level)
+        ):
+            return True
+    return False
+
+
+def gate_snapshot(
+    snapshot: dict[str, Any],
+    owners: dict[str, str],
+    consents: Iterable[dict[str, Any]],
+    protected: Iterable[str],
+    level: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Redact protected, unconsented attributes before publication (one canonical content).
+
+    Returns ``(published_snapshot, withheld)``. A withheld entry keeps its key/label so the
+    structure is legible, but the value is nulled and flagged — so a required protected field
+    also keeps the version template-incomplete until its owner consents (you cannot finalize
+    while withholding a required term).
+    """
+    consents = list(consents)
+    published: dict[str, Any] = {}
+    withheld: list[dict[str, Any]] = []
+    for key, entry in (snapshot or {}).items():
+        if is_protected_key(key, protected):
+            owner = owners.get(key)
+            if not attribute_consented(key, owner, consents, level):
+                label = entry.get("label", key) if isinstance(entry, dict) else key
+                published[key] = {"label": label, "value": None, "withheld": True}
+                withheld.append({"key": key, "label": label, "owner": owner})
+                continue
+        published[key] = entry
+    return published, withheld

@@ -56,6 +56,15 @@ async def list_deals_for_user(user_id: str) -> list[dict]:
     return await cursor.to_list(length=200)
 
 
+_TERMINAL = {"handoff", "closed", "cancelled"}
+
+
+async def list_active_deals(limit: int = 2000) -> list[dict]:
+    """Non-terminal deals — the reminder sweep's working set."""
+    docs = await get_collection(_DEALS).find({}).to_list(length=limit)
+    return [d for d in docs if d.get("status") not in _TERMINAL]
+
+
 # ── story versions ─────────────────────────────────────────────────────────
 async def create_version(doc: dict) -> dict:
     now = _now()

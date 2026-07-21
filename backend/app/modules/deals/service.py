@@ -144,36 +144,55 @@ async def _compose_and_publish(
     config: MarketplaceConfig,
     *,
     versions: list[dict[str, Any]],
-    base_snapshot: dict[str, Any],
-    param_updates: list[dict[str, Any]],
     text_inputs: list[str],
     composed_from: dict[str, Any],
 ) -> dict[str, Any]:
-    """Compose the next immutable story version and publish it."""
-    disclosure = deal.get("disclosure_level", _disclosure_levels(config)[0])
-    snapshot = story.merge_snapshot(base_snapshot, param_updates)
+    """Compose the next immutable story version and publish it.
 
-    narrative = composer.compose_narrative(deal, snapshot, disclosure, text_inputs)
+    The working snapshot is derived from the deal's responses (source of truth), then run
+    through the Loop-3 consent gate: protected, unconsented attributes are redacted before
+    publication (integrity rule 5). The narrative is composed from the *published* (redacted)
+    snapshot only, with graded Tier-A/Tier-B evidence and the travel-test prompt.
+    """
+    deal_id = str(deal["_id"])
+    disclosure = deal.get("disclosure_level", _disclosure_levels(config)[0])
+
+    responses = await repo.list_responses_for_deal(deal_id)
+    consents = await repo.list_consents_for_deal(deal_id)
+    working = story.accumulate_snapshot(responses)
+    owners = story.attribute_owners(responses)
+    published, withheld = story.gate_snapshot(
+        working, owners, consents, config.story_progression.protected_attributes, disclosure
+    )
+
+    # Tier-B (confirmed market conditions) — only past the anonymous stage, and never fatal.
+    ref_block = ""
+    if disclosure != _disclosure_levels(config)[0]:
+        _, ref_block = await _retrieve_domain_context(" ".join(text_inputs) or disclosure, deal.get("vertical"))
+    evidence = composer.grade_evidence(published, ref_block)
+
+    narrative = composer.compose_narrative(deal, published, disclosure, text_inputs, evidence=evidence)
     narrative = await composer.enhance_narrative(narrative, disclosure)
 
     seq = _next_seq(versions)
     required = story.active_party_ids(deal)
     template_result = validate_snapshot(
-        snapshot, deal.get("instrument"), _instrument_required_fields(config, deal.get("instrument"))
+        published, deal.get("instrument"), _instrument_required_fields(config, deal.get("instrument"))
     ).to_dict()
 
     version = {
-        "deal_id": str(deal["_id"]),
+        "deal_id": deal_id,
         "seq": seq,
         "disclosure_level": disclosure,
         "narrative": narrative,
-        "snapshot": snapshot,
-        "content_hash": content_hash(disclosure, narrative, snapshot),
+        "snapshot": published,
+        "content_hash": content_hash(disclosure, narrative, published),
         "required_acknowledgers": required,
         "composed_from": composed_from,
         "state": story.PUBLISHED,
         "published_at": _now().isoformat(),
         "template_result": template_result,
+        "withheld": withheld,
         "is_final": False,
     }
     return await repo.create_version(version)
@@ -227,13 +246,10 @@ async def create_deal(user: dict[str, Any], body: Any, config: MarketplaceConfig
     deal = await repo.create_deal(deal_doc)
 
     # A match exists → the platform composes the first (anonymous) story version.
-    seed_snapshot: dict[str, Any] = {}
     await _compose_and_publish(
         deal,
         config,
         versions=[],
-        base_snapshot=seed_snapshot,
-        param_updates=[],
         text_inputs=[deal_doc["context"]] if deal_doc["context"] else [],
         composed_from={"origin": "match"},
     )
@@ -297,6 +313,8 @@ def _version_view(
     v["pending_acknowledgers"] = story.pending_acknowledgers(version, responses)
     v["is_final_candidate"] = _is_final_candidate(deal, version, config)
     v["acknowledgment_wording"] = _ack_wording(deal, version, config)
+    # Loop-3: attributes redacted from this published version pending owner consent.
+    v["withheld"] = version.get("withheld", [])
     if not config.story_progression.pending_visibility:
         # pending-visibility is a social-pressure lever, off by default (§8).
         v.pop("pending_acknowledgers", None)
@@ -348,12 +366,13 @@ async def respond(deal_id: str, user: dict[str, Any], req: Any, config: Marketpl
 
     if req.type == "correct":
         # A correction supersedes (never edits) via the shared update-and-recompose path.
+        # Its params are already persisted on the response, so the recomposed working
+        # snapshot (derived from responses) picks them up automatically.
         await repo.set_version_state(str(current["_id"]), story.SUPERSEDED)
         versions = await repo.list_versions(str(deal["_id"]))
         text_inputs = [f"Correction: {payload['text']}"] if payload["text"] else ["A correction was applied."]
         await _compose_and_publish(
-            deal, config, versions=versions, base_snapshot=current.get("snapshot", {}),
-            param_updates=param_updates, text_inputs=text_inputs,
+            deal, config, versions=versions, text_inputs=text_inputs,
             composed_from={"supersedes": str(current["_id"]), "reason": "correction"},
         )
         await _notify(story.active_party_ids(deal), exclude=None, ntype="deal_version_superseded",
@@ -371,6 +390,13 @@ async def respond(deal_id: str, user: dict[str, Any], req: Any, config: Marketpl
 async def _on_milestone_reached(deal: dict[str, Any], version: dict[str, Any], config: MarketplaceConfig) -> None:
     await _notify(story.active_party_ids(deal), exclude=None, ntype="deal_milestone",
                   data={"deal_id": str(deal["_id"]), "seq": version.get("seq")})
+    # GAP-7 injection trigger: once the deal is in assembly (deal_context), search facilitators
+    # for any still-needed role slot and attach candidates. Non-fatal.
+    if deal.get("disclosure_level") == _final_level(config):
+        try:
+            await _autofill_facilitator_candidates(deal, config)
+        except Exception:
+            logger.info("facilitator autofill skipped", exc_info=True)
     # Final Deal Brief: a template-complete, final-level milestone acknowledged by all.
     if _is_final_candidate(deal, version, config):
         await _finalize_brief(deal, version, config)
@@ -390,19 +416,17 @@ async def advance(deal_id: str, user: dict[str, Any], config: MarketplaceConfig)
     if current and current.get("state") != story.MILESTONE:
         raise ConflictError("The current version is still open; nothing to advance from")
 
-    # Queued annotations pinned to the milestone become inputs to the next version.
+    # Queued annotations pinned to the milestone become narrative inputs (their params are
+    # already in the responses, so the recomposed snapshot picks them up automatically).
     annos = [
         r for r in responses
         if r.get("version_id") == str(milestone["_id"]) and r.get("type") == "annotate"
     ]
     text_inputs = [a["payload"].get("text") for a in annos if a.get("payload", {}).get("text")]
-    param_updates: list[dict[str, Any]] = []
-    for a in annos:
-        param_updates.extend(a.get("payload", {}).get("params", []))
 
     await _compose_and_publish(
-        deal, config, versions=versions, base_snapshot=milestone.get("snapshot", {}),
-        param_updates=param_updates, text_inputs=text_inputs or ["Continuing from the last milestone."],
+        deal, config, versions=versions,
+        text_inputs=text_inputs or ["Continuing from the last milestone."],
         composed_from={"from_milestone": str(milestone["_id"]), "annotations": [str(a["_id"]) for a in annos]},
     )
     return await _deal_view(deal_id, user, config)
@@ -429,10 +453,9 @@ async def consent(deal_id: str, user: dict[str, Any], req: Any, config: Marketpl
         consents = await repo.list_consents_for_deal(deal_id)
         if story.all_principals_consented(deal, consents, scope=scope, target=target):
             deal = await repo.update_deal(deal_id, {"disclosure_level": target}) or deal
-            milestone = _latest_milestone(versions)
             await _compose_and_publish(
-                deal, config, versions=versions, base_snapshot=(milestone or {}).get("snapshot", {}),
-                param_updates=[], text_inputs=[f"Disclosure advanced to '{target}'."],
+                deal, config, versions=versions,
+                text_inputs=[f"Disclosure advanced to '{target}'."],
                 composed_from={"disclosure_advance": target},
             )
             await _notify(story.active_party_ids(deal), exclude=None, ntype="deal_disclosure_advanced",
@@ -453,10 +476,27 @@ async def consent(deal_id: str, user: dict[str, Any], req: Any, config: Marketpl
             await repo.update_deal(deal_id, {"parties": parties})
             await _notify([target], exclude=None, ntype="deal_audience_granted", data={"deal_id": deal_id})
 
-    else:  # attribute consent — recorded; enforcement is the composer/consent-engine's job (GAP-13)
-        await repo.create_consent(
-            {"deal_id": deal_id, "user_id": user["_id"], "scope": scope, "target": req.target}
-        )
+    else:  # attribute consent (Loop-3) — authorize disclosing one protected attribute
+        if not req.target:
+            raise AppError("attribute consent requires the attribute key as target", 400)
+        # Scope the consent to the current disclosure level, so a wider future audience must
+        # re-consent (the §4 per-audience rule). The owner authorizes only their own attribute.
+        await repo.create_consent({
+            "deal_id": deal_id, "user_id": user["_id"], "scope": scope,
+            "target": req.target, "level": deal.get("disclosure_level"),
+        })
+        # Recompose: supersede the current version so the now-consented value can appear
+        # (the gate re-runs; the value flows in from responses).
+        versions, _ = await _recompute_versions(deal, config)
+        current = _current_version(versions)
+        if current and current.get("state") != story.SUPERSEDED:
+            await repo.set_version_state(str(current["_id"]), story.SUPERSEDED)
+            versions = await repo.list_versions(deal_id)
+            await _compose_and_publish(
+                deal, config, versions=versions,
+                text_inputs=[f"Attribute '{req.target}' cleared for disclosure."],
+                composed_from={"supersedes": str(current["_id"]), "reason": "attribute_consent", "attribute": req.target},
+            )
 
     return await _deal_view(deal_id, user, config)
 
@@ -474,6 +514,63 @@ async def set_instrument(deal_id: str, user: dict[str, Any], instrument: str, co
 
 
 # ── facilitator slots + injection (GAP-7) ────────────────────────────────────────
+async def search_facilitators(
+    deal: dict[str, Any], role_type: str, config: MarketplaceConfig, *, limit: int = 5
+) -> list[dict[str, Any]]:
+    """Deal → ranked facilitator candidates of ``role_type`` (semantic search over that
+    facilitator type's profiles, keyed off the deal's current story). Non-fatal → []."""
+    try:
+        from app.modules.ai.embedding_client import get_embedding
+        from app.modules.discovery import vector_service
+    except Exception:
+        return []
+    versions = await repo.list_versions(str(deal["_id"]))
+    ref = _latest_milestone(versions) or _current_version(versions) or {}
+    text = ref.get("narrative") or deal.get("context") or role_type
+    try:
+        embedding = await get_embedding(str(text)[:4000])
+        hits = await vector_service.search_profile_vectors_strict(
+            embedding, participant_types=[role_type], limit=limit
+        )
+    except Exception:
+        logger.info("facilitator search unavailable", exc_info=True)
+        return []
+    out: list[dict[str, Any]] = []
+    for h in hits:
+        prof = h.get("profile") or {}
+        out.append({
+            "profile_id": h.get("id"),
+            "user_id": prof.get("user_id"),
+            "score": round(float(h.get("score", 0)), 3),
+            "fields": prof.get("fields") or {},
+        })
+    return out
+
+
+async def _autofill_facilitator_candidates(deal: dict[str, Any], config: MarketplaceConfig) -> None:
+    """Search candidates for each still-needed facilitator slot and attach them (trigger)."""
+    slots = list(deal.get("facilitator_slots", []))
+    changed = False
+    for slot in slots:
+        if slot.get("status") == "needed" and not slot.get("candidates"):
+            cands = await search_facilitators(deal, slot["role_type"], config, limit=5)
+            if cands:
+                slot["candidates"] = cands
+                slot["status"] = "searching"
+                changed = True
+    if changed:
+        await repo.update_deal(str(deal["_id"]), {"facilitator_slots": slots})
+
+
+async def facilitator_candidates(
+    deal_id: str, user: dict[str, Any], role_type: str, config: MarketplaceConfig
+) -> dict[str, Any]:
+    """On-demand facilitator search for a role slot (principal-only)."""
+    deal = await _get_or_404(deal_id)
+    _assert_principal(deal, user["_id"])
+    return {"role_type": role_type, "candidates": await search_facilitators(deal, role_type, config)}
+
+
 async def set_facilitator(deal_id: str, user: dict[str, Any], req: Any, config: MarketplaceConfig) -> dict[str, Any]:
     deal = await _get_or_404(deal_id)
     _assert_principal(deal, user["_id"])
@@ -523,8 +620,8 @@ async def reopen(deal_id: str, user: dict[str, Any], matter: str | None, config:
     if not milestone:
         raise ConflictError("Nothing to reopen: no milestone exists")
     await _compose_and_publish(
-        deal, config, versions=versions, base_snapshot=milestone.get("snapshot", {}),
-        param_updates=[], text_inputs=[f"Reopened: {matter}" if matter else "A settled matter was reopened."],
+        deal, config, versions=versions,
+        text_inputs=[f"Reopened: {matter}" if matter else "A settled matter was reopened."],
         composed_from={"reopen_of": str(milestone["_id"]), "matter": matter},
     )
     if deal.get("status") == "brief_ready":
@@ -563,6 +660,96 @@ async def cancel(deal_id: str, user: dict[str, Any], config: MarketplaceConfig) 
         raise ConflictError(f"Deal is already {deal['status']}")
     await repo.update_deal(deal_id, {"status": "cancelled"})
     return await _deal_view(deal_id, user, config)
+
+
+# ── party exit (§7) ──────────────────────────────────────────────────────────────
+async def exit_deal(deal_id: str, user: dict[str, Any], config: MarketplaceConfig) -> dict[str, Any]:
+    """A party leaves the deal (§7). They drop from future required-acknowledger sets;
+    existing acknowledgments remain (history is immutable). If all principals exit the deal
+    closes; a facilitator leaving merely reopens their slot. A party exit can also unblock a
+    stalled version, so version states are recomputed afterward.
+    """
+    deal = await _get_or_404(deal_id)
+    _assert_party(deal, user["_id"])
+    _assert_not_terminal(deal)
+
+    versions = await repo.list_versions(deal_id)
+    at_seq = max((v.get("seq", 0) for v in versions), default=0)
+
+    parties = list(deal.get("parties", []))
+    role = story.party_role(deal, user["_id"])
+    for p in parties:
+        if p["user_id"] == user["_id"] and p.get("status") != "exited":
+            p["status"] = "exited"
+            p["exited_seq"] = at_seq
+
+    # Facilitator exit reopens their slot.
+    slots = list(deal.get("facilitator_slots", []))
+    if role == "facilitator":
+        for s in slots:
+            if s.get("user_id") == user["_id"]:
+                s["status"] = "needed"
+                s["user_id"] = None
+                s.pop("candidates", None)
+
+    updates: dict[str, Any] = {"parties": parties, "facilitator_slots": slots}
+    # All principals gone → the deal closes (the only terminal state besides handoff).
+    remaining_principals = [p for p in parties if p.get("role") == "principal" and p.get("status") == "active"]
+    if not remaining_principals:
+        updates["status"] = "closed"
+    await repo.update_deal(deal_id, updates)
+
+    await _notify(story.active_party_ids(deal), exclude=user["_id"], ntype="deal_party_exited",
+                  data={"deal_id": deal_id, "party": user["_id"]})
+
+    # Removing a required acknowledger may complete a previously-stalled version.
+    deal = await _get_or_404(deal_id)
+    if deal.get("status") not in TERMINAL_DEAL_STATES:
+        vers, _ = await _recompute_versions(deal, config)
+        current = _current_version(vers)
+        refreshed = await repo.get_version(str(current["_id"])) if current else None
+        if refreshed and refreshed.get("state") == story.MILESTONE:
+            await _on_milestone_reached(deal, refreshed, config)
+    return await _deal_view(deal_id, user, config)
+
+
+# ── reminder cadence sweep (§8 / §11 config) ─────────────────────────────────────
+async def run_reminder_sweep(config: MarketplaceConfig) -> dict[str, int]:
+    """Send acknowledgment reminders for open versions per the configured cadence.
+
+    Idempotent per (version, threshold) via ``reminders_sent`` on the version. Intended to be
+    driven on a schedule (the ARQ cron ``deal_reminder_sweep``); also exposed as an admin op.
+    """
+    cadence = sorted({int(d) for d in config.story_progression.reminder_cadence_days})
+    now = _now()
+    deals = await repo.list_active_deals()
+    reminded = 0
+    for deal in deals:
+        did = str(deal["_id"])
+        versions = await repo.list_versions(did)
+        current = _current_version(versions)
+        if not current or current.get("state") not in (story.PUBLISHED, story.STALE):
+            continue
+        published_at = story._as_dt(current.get("published_at"))
+        if not published_at:
+            continue
+        responses = await repo.list_responses_for_deal(did)
+        pending = story.pending_acknowledgers(current, responses)
+        if not pending:
+            continue
+        days = (now - published_at).days
+        already = set(current.get("reminders_sent", []))
+        due = [t for t in cadence if days >= t and t not in already]
+        if not due:
+            continue
+        await _notify(pending, exclude=None, ntype="deal_ack_reminder",
+                      data={"deal_id": did, "version_id": str(current["_id"]), "days": days,
+                            "pending": len(pending)})
+        await repo.set_version_state(
+            str(current["_id"]), current["state"], {"reminders_sent": sorted(already | set(due))}
+        )
+        reminded += 1
+    return {"deals_scanned": len(deals), "reminders_sent": reminded}
 
 
 # ── final Deal Brief render (GAP-5) ──────────────────────────────────────────────

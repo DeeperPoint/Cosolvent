@@ -185,6 +185,7 @@ def _build_openapi_doc(
     from app.modules.ai.router import router as ai_router
     from app.modules.auth.router import router as auth_router
     from app.modules.communication.router import router as comms_router
+    from app.modules.deals.router import router as deals_router
     from app.modules.discovery.router import router as discovery_router
     from app.modules.files.router import router as files_router
     from app.modules.notifications.router import router as notif_router
@@ -196,6 +197,7 @@ def _build_openapi_doc(
     app.include_router(profiles_router, prefix="/api/profiles", tags=["profiles"])
     app.include_router(files_router, prefix="/api/files", tags=["files"])
     app.include_router(comms_router, prefix="/api", tags=["communication"])
+    app.include_router(deals_router, prefix="/api/deals", tags=["deals"])
     app.include_router(discovery_router, prefix="/api/search", tags=["discovery"])
     app.include_router(notif_router, prefix="/api/notifications", tags=["notifications"])
     app.include_router(ai_router, prefix="/api/ai", tags=["ai"])
