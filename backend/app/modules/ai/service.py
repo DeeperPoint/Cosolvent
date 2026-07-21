@@ -171,6 +171,18 @@ async def delete_document(doc_id: str) -> None:
             await session.commit()
     except Exception:
         pass
+    # Also purge the document's chunks from the reference library ("LLM wiki").
+    try:
+        from app.core.db_schema import reference_library
+        from app.modules.knowledge.service import coerce_doc_id
+
+        async with session_scope() as session:
+            await session.execute(
+                delete(reference_library).where(reference_library.c.source_doc_id == coerce_doc_id(doc_id))
+            )
+            await session.commit()
+    except Exception:
+        pass
     await repo.delete_document(doc_id)
 
 

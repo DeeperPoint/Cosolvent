@@ -104,9 +104,51 @@ async def process_document(doc_id: str) -> None:
                 await session.execute(insert(ai_document_chunks), batch_rows)
             await session.commit()
 
+        # Also feed the curated knowledge base ("LLM wiki") so admin uploads are answerable
+        # through Knowledge Q&A, which reads exclusively from the reference library. Reuse the
+        # embeddings already computed above. Idempotent per source_doc_id.
+        if batch_rows:
+            await _feed_reference_library(doc_id, doc, batch_rows)
+
         await repo.update_document_status(doc_id, "INDEXED", chunk_count=len(chunks))
         logger.info("Processed document %s: %d chunks", doc_id, len(chunks))
 
     except Exception:
         logger.error("Failed to process document %s", doc_id, exc_info=True)
         await repo.update_document_status(doc_id, "FAILED")
+
+
+async def _feed_reference_library(doc_id: str, doc: dict, batch_rows: list[dict]) -> None:
+    """Load an admin-uploaded document's chunks into the reference library (the wiki) so
+    Knowledge Q&A can answer from them. Tagged source_layer='wiki' for ranking preference."""
+    try:
+        from app.core.marketplace_config import get_marketplace_config
+        from app.modules.knowledge import load_reference_records
+
+        try:
+            vertical = getattr(getattr(get_marketplace_config(), "marketplace", None), "name", None)
+        except Exception:
+            vertical = None
+        vertical = vertical or "default"
+
+        records = [
+            {
+                "source_doc_id": doc_id,
+                "vertical": vertical,
+                "chunk_text": row["chunk_text"],
+                "embedding": row["embedding"],
+                "metadata": {
+                    "source_layer": "wiki",
+                    "source": "admin_upload",
+                    "filename": doc.get("filename"),
+                    "doc_id": doc_id,
+                    "chunk_index": row["chunk_index"],
+                },
+            }
+            for row in batch_rows
+        ]
+        result = await load_reference_records(records, default_vertical=vertical)
+        logger.info("Fed document %s into reference library: %s", doc_id, result)
+    except Exception:
+        # Non-fatal: the document is still indexed in ai_document_chunks even if wiki feed fails.
+        logger.error("Failed to feed document %s into reference library", doc_id, exc_info=True)

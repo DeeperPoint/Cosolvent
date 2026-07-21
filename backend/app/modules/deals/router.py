@@ -116,8 +116,9 @@ async def search_facilitators(
     user: dict = Depends(get_current_user),
     config: MarketplaceConfig = Depends(get_config),
 ):
-    """Ranked facilitator candidates of a role type, matched to this deal (GAP-7)."""
-    return await service.facilitator_candidates(deal_id, user, body.role_type, config)
+    """Ranked facilitator candidates of a role type, matched to this deal (GAP-7).
+    With ``name`` in the body, match facilitators by company name instead."""
+    return await service.facilitator_candidates(deal_id, user, body.role_type, config, name=body.name)
 
 
 @router.post("/{deal_id}/reopen")
