@@ -11,7 +11,10 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "mkt_fdc097f304d2"
-down_revision = "mkt_670a55764f43"
+# Reparented from the deleted snapshot "mkt_670a55764f43" onto the surviving
+# marketplace tip so the migration graph is whole again (the missing revision
+# was a regenerated snapshot that was removed, leaving this one dangling).
+down_revision = "mkt_5ed8adda2d87"
 branch_labels = None
 depends_on = None
 
