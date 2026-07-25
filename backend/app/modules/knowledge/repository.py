@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import Select, delete, false, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.sql import func
 
 from app.core.database import session_scope
-from app.core.db_schema import reference_chunks, reference_documents
+from app.core.db_schema import knowledge_gap_signals, reference_chunks, reference_documents
 
 logger = logging.getLogger("cosolvent.knowledge")
 
@@ -165,7 +165,9 @@ async def delete_document(doc_key: str) -> bool:
             delete(reference_documents).where(reference_documents.c.doc_key == doc_key)
         )
         await session.commit()
-    return (result.rowcount or 0) > 0
+    # rowcount lives on the underlying CursorResult; the Result[Any] type hint
+    # doesn't expose it, so read it dynamically.
+    return (cast(Any, result).rowcount or 0) > 0
 
 
 async def count_chunks(vertical: str | None = None) -> int:
@@ -183,6 +185,64 @@ async def count_chunks(vertical: str | None = None) -> int:
         )
     async with session_scope() as session:
         return int((await session.execute(stmt)).scalar_one())
+
+
+async def insert_gap_signal(
+    *,
+    query: str,
+    vertical: str | None,
+    filters: dict[str, Any] | None,
+    reason: str,
+) -> str:
+    """Record a knowledge gap (question the library could not answer). Returns its id."""
+    gap_id = uuid.uuid4()
+    async with session_scope() as session:
+        await session.execute(
+            knowledge_gap_signals.insert().values(
+                id=gap_id,
+                query=query,
+                vertical=vertical,
+                filters=filters or {},
+                reason=reason,
+            )
+        )
+        await session.commit()
+    return str(gap_id)
+
+
+# Upper bound on how many gap rows a single query may request, so an arbitrary
+# caller-supplied `limit` on the admin endpoint can't trigger an oversized read.
+_MAX_GAP_LIMIT = 500
+
+
+def bounded_gap_limit(limit: int) -> int:
+    """Clamp a requested gap-list limit into [1, _MAX_GAP_LIMIT]."""
+    return max(1, min(limit, _MAX_GAP_LIMIT))
+
+
+async def list_gap_signals(*, vertical: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    """Newest-first list of recorded knowledge gaps (curator view)."""
+    stmt: Select[Any] = select(knowledge_gap_signals).order_by(
+        knowledge_gap_signals.c.created_at.desc()
+    )
+    if vertical:
+        stmt = stmt.where(knowledge_gap_signals.c.vertical == vertical)
+    stmt = stmt.limit(bounded_gap_limit(limit))
+
+    async with session_scope() as session:
+        rows = (await session.execute(stmt)).all()
+
+    return [
+        {
+            "id": str(row.id),
+            "query": row.query,
+            "vertical": row.vertical,
+            "filters": row.filters or {},
+            "reason": row.reason,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
 
 
 def _apply_metadata_filters(stmt: Select[Any], metadata_column: Any, filters: dict[str, Any]) -> Select[Any]:
