@@ -107,6 +107,22 @@ reference_library = Table(
 )
 
 
+# Questions the reference library could not answer, recorded by the domain-Q&A
+# path so curators know which authoritative content is missing (the curatorial
+# pull loop).
+knowledge_gap_signals = Table(
+    "knowledge_gap_signals",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+    Column("query", Text, nullable=False),
+    Column("vertical", Text, nullable=True),
+    Column("filters", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    # Why the gap was recorded: "no_matching_chunks" | "model_not_covered" | "answer_without_citation".
+    Column("reason", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
+)
+
+
 def table_for_collection(name: str) -> Table:
     table = DOC_TABLES.get(name)
     if table is None:
