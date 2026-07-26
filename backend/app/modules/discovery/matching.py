@@ -87,47 +87,83 @@ async def suggested_matches(
     # as an authenticated peer (which honors discovery.result_visibility).
     candidate_tier = "owner" if is_admin else "authenticated"
 
+    # When the marketplace declares a matching profile for this target, use the
+    # config-driven weighted-slot + hard-gate model; otherwise fall back to the
+    # legacy semantic + field-overlap blend (keeps existing configs working).
+    match_profile = config.discovery.matching.profile_for(resolved_target)
+
     results: list[dict[str, Any]] = []
+    gated: list[dict[str, Any]] = []
     for cand in candidates:
         cand_profile = cand.get("profile", {}) or {}
         cand_fields = cand_profile.get("fields", {}) or {}
         vector_score = float(cand.get("score", 0.0))
-        overlap = _compute_field_overlap(
-            config.discovery.filter_fields,
-            self_fields,
-            cand_fields,
-        )
-        composite = VECTOR_WEIGHT * vector_score + FIELD_OVERLAP_WEIGHT * overlap
 
         filtered_fields = (
             filter_fields_for_discovery(config, target_schema, cand_fields, candidate_tier)
             if target_schema
             else {}
         )
+        entry: dict[str, Any] = {
+            "id": cand["id"],
+            "participant_type": resolved_target,
+            "fields": filtered_fields,
+        }
 
-        results.append(
-            {
-                "id": cand["id"],
-                "participant_type": resolved_target,
-                "score": round(composite, 6),
-                "score_breakdown": {
-                    "vector": round(vector_score, 6),
-                    "field_overlap": round(overlap, 6),
-                    "vector_weight": VECTOR_WEIGHT,
-                    "field_overlap_weight": FIELD_OVERLAP_WEIGHT,
-                },
-                "fields": filtered_fields,
+        if match_profile is None:
+            overlap = _compute_field_overlap(config.discovery.filter_fields, self_fields, cand_fields)
+            composite = VECTOR_WEIGHT * vector_score + FIELD_OVERLAP_WEIGHT * overlap
+            entry["score"] = round(composite, 6)
+            entry["score_breakdown"] = {
+                "vector": round(vector_score, 6),
+                "field_overlap": round(overlap, 6),
+                "vector_weight": VECTOR_WEIGHT,
+                "field_overlap_weight": FIELD_OVERLAP_WEIGHT,
             }
-        )
+            results.append(entry)
+            continue
 
-    # Re-sort by the composite score because field overlap can reorder candidates
+        # Config-driven scoring: composite = vector_weight·vector + Σ slot.weight·slot_score.
+        composite = match_profile.vector_weight * vector_score
+        slot_detail: dict[str, Any] = {}
+        for slot in match_profile.slots:
+            s = _slot_score(slot.comparator, self_fields, cand_fields, slot.fields)
+            composite += slot.weight * s
+            slot_detail[slot.name] = {"score": round(s, 6), "weight": slot.weight}
+
+        gate_results = _evaluate_gates(cand_fields, match_profile.hard_gates)
+        entry["score"] = round(composite, 6)
+        entry["score_breakdown"] = {
+            "vector": round(vector_score, 6),
+            "vector_weight": match_profile.vector_weight,
+            "slots": slot_detail,
+            "gates": gate_results,
+        }
+
+        failures = [g for g in gate_results if not g["passed"]]
+        if failures:
+            # A hard-gate failure excludes the candidate from the ranked list, but it
+            # is returned (flagged, with reasons) so the "why gated out" is visible and
+            # a future alternative-compliance layer can act on it.
+            entry["gated"] = True
+            entry["gate_failures"] = [g["name"] for g in failures]
+            gated.append(entry)
+        else:
+            results.append(entry)
+
+    # Re-sort by the composite score because slots/overlap can reorder candidates
     # that the SQL layer ranked purely by cosine distance.
     results.sort(key=lambda r: (-r["score"], r["id"]))
-    return {
+    gated.sort(key=lambda r: (-r["score"], r["id"]))
+
+    out: dict[str, Any] = {
         "results": results,
         "total": len(results),
         "target_type": resolved_target,
     }
+    if match_profile is not None:
+        out["gated"] = gated
+    return out
 
 
 def _resolve_target_type(
@@ -216,3 +252,74 @@ def _compute_field_overlap(
     if not scores:
         return 0.0
     return sum(scores) / len(scores)
+
+
+# ── Config-driven slot scoring & hard gates (GAP-3) ───────────────────────
+
+def _num(v: Any) -> float | None:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _pair_score(comparator: str, a: Any, b: Any) -> float | None:
+    """Compare one field on both sides into [0,1]; None when not comparable."""
+    if a is None or b is None:
+        return None
+    if comparator == "jaccard":
+        a_set = set(a) if isinstance(a, list) else {a}
+        b_set = set(b) if isinstance(b, list) else {b}
+        union = a_set | b_set
+        return (len(a_set & b_set) / len(union)) if union else None
+    if comparator == "numeric_proximity":
+        na, nb = _num(a), _num(b)
+        if na is None or nb is None:
+            return None
+        denom = max(abs(na), abs(nb), 1.0)
+        return max(0.0, 1.0 - abs(na - nb) / denom)
+    # scalar_eq (default)
+    return 1.0 if a == b else 0.0
+
+
+def _slot_score(comparator: str, source_fields: dict[str, Any], cand_fields: dict[str, Any],
+                fields: list[str]) -> float:
+    """Mean of the per-field comparator scores for the slot's fields present on
+    both sides. Returns 0.0 when no field is comparable."""
+    scores = [
+        s for f in fields
+        if (s := _pair_score(comparator, source_fields.get(f), cand_fields.get(f))) is not None
+    ]
+    return sum(scores) / len(scores) if scores else 0.0
+
+
+def _check_gate(val: Any, gate: Any) -> tuple[bool, str]:
+    op = gate.op
+    if op == "present":
+        return (val not in (None, "", [])), f"{gate.field} is required"
+    if val is None:
+        return False, f"{gate.field} is missing"
+    if op == "equals":
+        return (val == gate.value), f"{gate.field} must equal {gate.value!r} (got {val!r})"
+    if op == "in":
+        allowed = gate.value if isinstance(gate.value, list) else [gate.value]
+        vals = val if isinstance(val, list) else [val]
+        return (any(v in allowed for v in vals)), f"{gate.field} must be one of {allowed} (got {val!r})"
+    if op in ("gte", "lte"):
+        nv, gv = _num(val), _num(gate.value)
+        if nv is None or gv is None:
+            return False, f"{gate.field} must be numeric to compare {op} {gate.value!r} (got {val!r})"
+        ok = nv >= gv if op == "gte" else nv <= gv
+        return ok, f"{gate.field} must be {op} {gate.value} (got {val!r})"
+    return True, ""
+
+
+def _evaluate_gates(cand_fields: dict[str, Any], gates: list[Any]) -> list[dict[str, Any]]:
+    """Evaluate every hard gate against a candidate's fields; a failed gate carries
+    a human-readable reason ('why gated out')."""
+    out: list[dict[str, Any]] = []
+    for gate in gates:
+        passed, reason = _check_gate(cand_fields.get(gate.field), gate)
+        out.append({"name": gate.name, "field": gate.field, "passed": passed,
+                    "reason": None if passed else reason})
+    return out

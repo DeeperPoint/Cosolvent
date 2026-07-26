@@ -11,7 +11,7 @@ import re
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _ROLE_SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
 
@@ -181,12 +181,67 @@ class DiscoveryAccessConfig(StrictModel):
     anonymous_filter_mode: Literal["public_only", "none", "all"] = "public_only"
 
 
+# ── Match scoring & gating (GAP-3) ────────────────────────────────────────
+# A weighted, config-driven scoring model layered over semantic similarity:
+# composite = vector_weight * vector + Σ slot.weight * slot_score, and hard gates
+# that exclude structurally incompatible candidates before they are ranked.
+
+class MatchSlot(StrictModel):
+    """One weighted soft dimension of the match score."""
+    name: str
+    fields: list[str]
+    # How the slot's fields are compared into a [0,1] score:
+    #   scalar_eq         — 1.0 if equal, else 0.0 (per field, averaged)
+    #   jaccard           — set overlap (lists, or scalars as singletons)
+    #   numeric_proximity — 1 - normalized absolute difference
+    comparator: Literal["scalar_eq", "jaccard", "numeric_proximity"] = "scalar_eq"
+    weight: float = Field(ge=0.0, le=1.0)
+
+
+class HardGate(StrictModel):
+    """A mandatory condition on a candidate field; failing it excludes the match."""
+    name: str
+    field: str
+    op: Literal["equals", "in", "gte", "lte", "present"] = "equals"
+    value: Any = None  # unused for op == "present"
+
+
+class MatchProfile(StrictModel):
+    """The scoring weight table + gates used against one target type."""
+    vector_weight: float = Field(default=0.5, ge=0.0, le=1.0)
+    slots: list[MatchSlot] = []
+    hard_gates: list[HardGate] = []
+
+    @model_validator(mode="after")
+    def _weights_sum_to_one(self) -> "MatchProfile":
+        total = self.vector_weight + sum(s.weight for s in self.slots)
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(
+                f"matching weights must sum to 1.0 (vector_weight + slot weights = {total:.4f})"
+            )
+        names = [s.name for s in self.slots]
+        if len(names) != len(set(names)):
+            raise ValueError("matching slot names must be unique")
+        return self
+
+
+class MatchingConfig(StrictModel):
+    """Optional per-target scoring/gating. Absent → the engine uses its legacy
+    semantic + field-overlap blend, so existing configs keep working unchanged."""
+    default: MatchProfile | None = None
+    per_target: dict[str, MatchProfile] = {}
+
+    def profile_for(self, target_type: str) -> MatchProfile | None:
+        return self.per_target.get(target_type) or self.default
+
+
 class DiscoveryConfig(StrictModel):
     searchable_types: list[str]
     filter_fields: list[str] = []
     result_visibility: ResultVisibility = ResultVisibility()
     ai: AIDiscoveryConfig = AIDiscoveryConfig()
     access: DiscoveryAccessConfig = DiscoveryAccessConfig()
+    matching: MatchingConfig = MatchingConfig()
 
 
 # ── Marketplace identity ─────────────────────────────────────────────────
@@ -439,6 +494,26 @@ class MarketplaceConfig(StrictModel):
         for ff in self.discovery.filter_fields:
             if ff not in all_field_names:
                 raise ValueError(f"Discovery filter_field '{ff}' not found in any profile schema")
+
+        # Matching config: per_target keys must be valid slugs; slot/gate fields must exist.
+        matching = self.discovery.matching
+        for tgt in matching.per_target:
+            if tgt not in slugs:
+                raise ValueError(f"Discovery matching per_target references unknown type '{tgt}'")
+        for mp in [matching.default, *matching.per_target.values()]:
+            if mp is None:
+                continue
+            for slot in mp.slots:
+                for fld in slot.fields:
+                    if fld not in all_field_names:
+                        raise ValueError(
+                            f"Matching slot '{slot.name}' references unknown field '{fld}'"
+                        )
+            for gate in mp.hard_gates:
+                if gate.field not in all_field_names:
+                    raise ValueError(
+                        f"Matching hard_gate '{gate.name}' references unknown field '{gate.field}'"
+                    )
 
         return self
 
