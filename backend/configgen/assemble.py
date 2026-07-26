@@ -6,6 +6,7 @@ runs it through Cosolvent's real ``MarketplaceConfig`` model (the acceptance ora
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .ir import FieldDef, MarketDefinition
@@ -15,6 +16,12 @@ from .permissions import (
     onboarding_for,
     permissions_for,
 )
+
+
+def _slug_option(value: Any) -> str:
+    """Stable slug for a select/multi_select option value, so the generated config uses the
+    same slug form the runtime stores and matches against (e.g. 'Parts Only' -> 'parts_only')."""
+    return re.sub(r"[^a-z0-9]+", "_", str(value).lower()).strip("_")
 
 
 def _field_dict(f: FieldDef) -> dict[str, Any]:
@@ -27,7 +34,7 @@ def _field_dict(f: FieldDef) -> dict[str, Any]:
         "searchable": f.searchable,
     }
     if f.type in ("select", "multi_select"):
-        d["options"] = list(f.options or [])
+        d["options"] = [_slug_option(o) for o in (f.options or [])]
     if f.type == "files" and f.accepted_types:
         d["accepted_types"] = list(f.accepted_types)
     return d

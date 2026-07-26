@@ -64,3 +64,7 @@ class MarketDefinition:
     industry: str
     vertical: str
     participants: list[ParticipantDef] = field(default_factory=list)
+    #: Optional matching policy carried from the domain schema (GAP-3). Currently holds
+    #: ``{"hard_gates": {<target slug|role>: [ {name, field, op, value}, ... ]}}``; weighted
+    #: slots are still derived deterministically from the shared searchable fields.
+    matching: dict = field(default_factory=dict)

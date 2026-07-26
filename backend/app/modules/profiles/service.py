@@ -387,6 +387,79 @@ async def answer_clarification(user: dict, field: str, value: Any, config: Marke
     }
 
 
+async def extract_from_prose(user: dict, text: str, config: MarketplaceConfig) -> dict:
+    """GAP-11 whole-profile own-voice intake: read a paragraph of prose, extract canonical
+    fields for the caller's schema, and apply the ones that validate — while preserving the
+    raw prose in ``description`` (the dual representation: gate on canonical, keep raw for nuance)."""
+    from app.modules.profiles.ai_extraction import extract_fields_from_document
+
+    pt = str(user.get("participant_type", ""))
+    profile = await get_my_profile(user, config)
+    if not profile or not profile.get("id"):
+        raise NotFoundError("No profile to enrich")
+    schema = config.profile_schemas.get(pt)
+    field_defs = [
+        {"name": f.name, "type": f.type, "options": f.options}
+        for f in (schema.all_fields if schema else [])
+        if f.type not in ("file", "files")
+    ]
+    before = _profile_strength(config, pt, profile.get("fields", {}) or {})
+    by_name = {f.name: f for f in (schema.all_fields if schema else [])}
+
+    try:
+        extracted = await extract_fields_from_document(text, pt, field_defs)
+    except Exception as exc:
+        raise AppError(f"Could not extract from your description: {exc}", status_code=502) from exc
+
+    # Apply each extracted field that is individually valid for its type/options (no
+    # whole-profile required-completeness gate, so a sparse profile still gets enriched).
+    base = dict(profile.get("fields", {}) or {})
+    base["description"] = text
+    applied: list[str] = []
+    for key, value in (extracted or {}).items():
+        fd = by_name.get(key)
+        if fd is None or key == "description" or _empty(value):
+            continue
+        coerced = _coerce_field_value(fd, value)
+        if coerced is not None:
+            base[key] = coerced
+            applied.append(key)
+
+    completeness = compute_completeness(config, pt, base)
+    await repo.update_profile(str(profile["id"]), {"fields": base, "completeness": completeness})
+    await _queue_profile_index(str(profile["id"]))
+    after = _profile_strength(config, pt, base)
+    return {
+        "applied": applied,
+        "extracted": extracted,
+        "strength_before": before,
+        "strength_after": after,
+        "jumped": after - before,
+        "completeness": completeness,
+    }
+
+
+def _coerce_field_value(field_def: Any, value: Any) -> Any:
+    """Return a schema-valid value for one field, or None if it can't be made valid."""
+    t = field_def.type
+    opts = field_def.options or []
+    if t == "select":
+        return value if (not opts or value in opts) else None
+    if t == "multi_select":
+        vals = value if isinstance(value, list) else [value]
+        kept = [v for v in vals if (not opts or v in opts)]
+        return kept or None
+    if t == "number":
+        try:
+            return float(value) if isinstance(value, str) and "." in value else int(value)
+        except (TypeError, ValueError):
+            return None
+    if t in ("text", "rich_text", "date", "location"):
+        s = str(value).strip()
+        return s or None
+    return None
+
+
 async def approve_application(app_id: str, feedback: str = "") -> dict:
     application = await repo.get_application(app_id)
     if not application:

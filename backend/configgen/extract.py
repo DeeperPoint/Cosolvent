@@ -63,8 +63,11 @@ def _project_section(schema: DomainSchema, section: str, *, visibility: str) -> 
         examples = spec.get("examples")
         values = allowed if isinstance(allowed, list) and allowed else examples
         if isinstance(values, list) and values:
+            # A vocab field is multi_select by default; declare ``cardinality: single``
+            # (or ``multi: false``) in the schema for a single-choice select.
+            single = spec.get("cardinality") == "single" or spec.get("multi") is False
             out.append(FieldDef(
-                name=name, label=_humanize(name), type="multi_select",
+                name=name, label=_humanize(name), type="select" if single else "multi_select",
                 required=bool(spec.get("required", False)),
                 options=[str(v) for v in values], visibility=visibility, searchable=True,
                 source=f"{section}.{name}",
@@ -149,10 +152,12 @@ def extract_market(schema: DomainSchema, *, name: str | None = None,
         )
 
     vertical = schema.vertical
+    matching = schema.raw.get("matching") if isinstance(schema.raw.get("matching"), dict) else {}
     return MarketDefinition(
         name=name or _humanize(vertical),
         description=f"A thin-market marketplace for {_humanize(vertical)}.",
         industry=industry or _humanize(vertical),
         vertical=vertical,
         participants=participants,
+        matching=matching or {},
     )
