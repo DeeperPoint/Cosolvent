@@ -226,6 +226,41 @@ Each rule:
 | `ai.profile_similarity_threshold` | float (0..1) | Minimum vector similarity score in strict mode |
 | `ai.max_vector_candidates` | int (`>= 1`) | Max vector candidates used during ranking |
 
+#### `discovery.matching` — suggested-match scoring & gates (optional)
+
+Controls how `/api/roles/{type}/{id}/matches` scores and filters counterpart
+profiles. **Omit it and the engine uses its legacy blend** (semantic similarity +
+mean field overlap), so existing configs are unaffected. When present, the
+composite is `vector_weight · vector + Σ slot.weight · slot_score`, and any
+candidate that fails a **hard gate** is excluded from `results` and returned
+(flagged, with reasons) in a separate `gated` list.
+
+```yaml
+discovery:
+  matching:
+    default:                     # weight table used for any target type…
+      vector_weight: 0.6         # semantic-similarity contribution
+      slots:                     # weighted soft dimensions
+        - name: geography
+          fields: [country]
+          comparator: scalar_eq  # scalar_eq | jaccard | numeric_proximity
+          weight: 0.4
+      hard_gates:                # mandatory conditions; failing one excludes the match
+        - name: accreditation
+          field: iso_17025_accredited
+          op: equals             # equals | in | gte | lte | present
+          value: true
+    per_target:                  # …optionally overridden per counterpart type
+      facilitator:
+        vector_weight: 1.0
+```
+
+`vector_weight` plus all `slot.weight`s **must sum to 1.0**. Slot/gate `fields`
+must exist in a profile schema. Each match result carries a `score_breakdown`
+(the vector score, each slot's score/weight, and per-gate pass/fail with a reason)
+so the "why matched / why gated out" is fully explained by the engine — no
+scoring logic lives in the frontend.
+
 ## Cross-Validation Rules
 
 The config is validated at load time. The following constraints are enforced:
@@ -242,6 +277,8 @@ The config is validated at load time. The following constraints are enforced:
 10. `select`/`multi_select` fields must have **`options`** defined
 11. `ai.profile_similarity_threshold` must be within **0..1**
 12. `ai.max_vector_candidates` must be **>= 1**
+13. `discovery.matching` weights (`vector_weight` + slot weights) must **sum to 1.0**; slot names unique
+14. `discovery.matching` slot/gate **fields must exist** in a profile schema; `per_target` keys must be valid type slugs
 
 ## CLI Validation
 
