@@ -17,7 +17,7 @@ from sqlalchemy import case, delete, desc, false, insert, or_, select, update
 from sqlalchemy.sql import Select
 
 from app.core.database import session_scope
-from app.core.db_schema import knowledge_gap_signals, reference_library
+from app.core.db_schema import escape_hatches, knowledge_gap_signals, reference_library
 from app.modules.ai.embedding_client import get_embedding
 from app.modules.ai.llm_client import generate
 from app.modules.knowledge.schemas import (
@@ -260,6 +260,128 @@ async def set_gap_status(gap_id: str, status: str) -> bool:
         result = await session.execute(
             update(knowledge_gap_signals)
             .where(knowledge_gap_signals.c.id == uuid.UUID(gap_id))
+            .values(status=status)
+        )
+        await session.commit()
+    return bool(result.rowcount)
+
+
+async def maybe_record_gate_gap(
+    *, gate_name: str, gate_reason: str, target_type: str, vertical: str | None = None
+) -> None:
+    """The match-side half of Loop-2: a candidate is blocked by a hard gate → emit a
+    pull signal naming the blocking constraint, so a curator can ingest an escape hatch.
+
+    Deduped: only one *open* signal per gate is kept (matching runs on every read, so an
+    un-deduped insert would flood the curation dashboard). Never raises."""
+    try:
+        async with session_scope() as session:
+            existing = await session.execute(
+                select(knowledge_gap_signals.c.id).where(
+                    knowledge_gap_signals.c.status == "open",
+                    knowledge_gap_signals.c.metadata["gate"].astext == gate_name,
+                ).limit(1)
+            )
+            if existing.first() is not None:
+                return
+            await session.execute(
+                insert(knowledge_gap_signals).values(
+                    id=uuid.uuid4(),
+                    query=f"Match blocked by gate '{gate_name}'",
+                    gap_description=(
+                        f"Candidates for '{target_type}' are being excluded by the hard gate "
+                        f"'{gate_name}' ({gate_reason}). If an alternative-compliance path exists, "
+                        f"add an escape hatch so qualifying candidates unlock."
+                    ),
+                    topic_needed=gate_name,
+                    metadata={"source": "match_gate", "gate": gate_name, "target_type": target_type},
+                    status="open",
+                    vertical=vertical,
+                    reason="match_gate_blocked",
+                )
+            )
+            await session.commit()
+    except Exception:  # pragma: no cover - telemetry must never break matching
+        logger.warning("Failed to record match-gate gap signal", exc_info=True)
+
+
+# ── Escape hatches: conditional-gate rules (GAP-14 payoff half) ────────────────
+async def create_escape_hatch(
+    *,
+    gate_name: str,
+    condition: dict[str, Any],
+    rationale: str = "",
+    vertical: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    async with session_scope() as session:
+        result = await session.execute(
+            insert(escape_hatches)
+            .values(
+                id=uuid.uuid4(),
+                gate_name=gate_name,
+                condition=condition,
+                rationale=rationale[:2000],
+                vertical=vertical,
+                status="active",
+                hatch_metadata=metadata or {},
+            )
+            .returning(escape_hatches.c.id)
+        )
+        new_id = result.scalar_one()
+        await session.commit()
+    return str(new_id)
+
+
+def _hatch_row(r: Any) -> dict[str, Any]:
+    return {
+        "id": str(r.id),
+        "gate_name": r.gate_name,
+        "condition": r.condition or {},
+        "rationale": r.rationale,
+        "vertical": r.vertical,
+        "status": r.status,
+        "metadata": r.hatch_metadata or {},
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+
+
+async def list_escape_hatches(
+    *, status: str | None = "active", vertical: str | None = None, limit: int = 200
+) -> list[dict[str, Any]]:
+    stmt = select(escape_hatches).order_by(desc(escape_hatches.c.created_at)).limit(limit)
+    if status:
+        stmt = stmt.where(escape_hatches.c.status == status)
+    if vertical:
+        stmt = stmt.where(escape_hatches.c.vertical == vertical)
+    async with session_scope() as session:
+        rows = (await session.execute(stmt)).all()
+    return [_hatch_row(r) for r in rows]
+
+
+async def active_escape_hatches(vertical: str | None = None) -> dict[str, list[dict[str, Any]]]:
+    """Active hatches grouped by the gate they condition — the shape the matching
+    engine consults. ``vertical=None`` (default) matches every active hatch, which is
+    correct for a single-marketplace deployment; a set vertical also lets vertical-less
+    (global) hatches through."""
+    stmt = select(escape_hatches).where(escape_hatches.c.status == "active")
+    if vertical:
+        stmt = stmt.where(
+            or_(escape_hatches.c.vertical == vertical, escape_hatches.c.vertical.is_(None))
+        )
+    async with session_scope() as session:
+        rows = (await session.execute(stmt)).all()
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        grouped.setdefault(r.gate_name, []).append(_hatch_row(r))
+    return grouped
+
+
+async def set_escape_hatch_status(hatch_id: str, status: str) -> bool:
+    async with session_scope() as session:
+        result = await session.execute(
+            update(escape_hatches)
+            .where(escape_hatches.c.id == uuid.UUID(hatch_id))
             .values(status=status)
         )
         await session.commit()

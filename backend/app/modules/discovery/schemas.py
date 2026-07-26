@@ -28,6 +28,16 @@ class SuggestedMatchGate(BaseModel):
     field: str
     passed: bool
     reason: str | None = None
+    # GAP-14: set when a failing gate was made to pass by an escape hatch.
+    unlocked: bool | None = None
+    unlocked_by: dict | None = None
+    # The reason the gate would have failed, before the hatch unlocked it.
+    blocked_reason: str | None = None
+
+
+class SuggestedMatchUnlockedGate(BaseModel):
+    name: str
+    rationale: str
 
 
 class SuggestedMatchScoreBreakdown(BaseModel):
@@ -52,6 +62,9 @@ class SuggestedMatchResult(BaseModel):
     # list so the "why gated out" reasons are visible).
     gated: bool | None = None
     gate_failures: list[str] | None = None
+    # GAP-14: gates that would have excluded this candidate but were unlocked by an
+    # escape hatch. Present on ranked results, not gated ones.
+    unlocked_gates: list[SuggestedMatchUnlockedGate] | None = None
 
 
 class SuggestedMatchesResponse(BaseModel):

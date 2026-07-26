@@ -212,7 +212,9 @@ async def test_hard_gate_excludes_and_explains():
     ]
     with patch.object(matching.profiles_repo, "get_profile_by_id", new=AsyncMock(return_value=_producer_profile())), \
          patch.object(matching.vector_service, "get_profile_embedding", new=AsyncMock(return_value=[0.1] * 1536)), \
-         patch.object(matching.vector_service, "find_similar_profiles", new=AsyncMock(return_value=candidates)):
+         patch.object(matching.vector_service, "find_similar_profiles", new=AsyncMock(return_value=candidates)), \
+         patch.object(matching, "active_escape_hatches", new=AsyncMock(return_value={})), \
+         patch.object(matching, "maybe_record_gate_gap", new=AsyncMock()):
         out = await matching.suggested_matches(
             cfg, profile_id="p-1", type_slug="producer", viewer={"_id": "u-1", "role": "user"})
 
@@ -246,7 +248,9 @@ async def test_config_driven_output_validates_against_response_model():
     ]
     with patch.object(matching.profiles_repo, "get_profile_by_id", new=AsyncMock(return_value=_producer_profile())), \
          patch.object(matching.vector_service, "get_profile_embedding", new=AsyncMock(return_value=[0.1] * 1536)), \
-         patch.object(matching.vector_service, "find_similar_profiles", new=AsyncMock(return_value=candidates)):
+         patch.object(matching.vector_service, "find_similar_profiles", new=AsyncMock(return_value=candidates)), \
+         patch.object(matching, "active_escape_hatches", new=AsyncMock(return_value={})), \
+         patch.object(matching, "maybe_record_gate_gap", new=AsyncMock()):
         out = await matching.suggested_matches(
             cfg, profile_id="p-1", type_slug="producer", viewer={"_id": "u-1", "role": "user"})
 

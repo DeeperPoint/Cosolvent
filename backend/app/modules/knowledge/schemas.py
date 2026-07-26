@@ -43,3 +43,33 @@ class GapSignal(BaseModel):
 
 class GapSignalList(BaseModel):
     gaps: list[GapSignal]
+
+
+# ── Escape hatches (GAP-14 conditional gates) ─────────────────────────────────
+
+class EscapeHatchCondition(BaseModel):
+    """Alternative-compliance predicate — same shape/semantics as a HardGate."""
+    field: str
+    op: str = Field(default="equals", pattern="^(equals|in|gte|lte|present)$")
+    value: object | None = None
+
+
+class EscapeHatchCreate(BaseModel):
+    # The hard gate this hatch conditions (HardGate.name from the matching config).
+    gate_name: str
+    condition: EscapeHatchCondition
+    rationale: str = ""
+    vertical: str | None = None
+    # Optional link back to the pull signal that motivated this hatch.
+    source_gap_id: str | None = None
+
+
+class EscapeHatch(BaseModel):
+    id: str
+    gate_name: str
+    condition: dict
+    rationale: str
+    vertical: str | None = None
+    status: str
+    metadata: dict = Field(default_factory=dict)
+    created_at: str | None = None

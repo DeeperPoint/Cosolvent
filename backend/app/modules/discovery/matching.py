@@ -20,6 +20,7 @@ from app.core.exceptions import AppError, ForbiddenError, NotFoundError, Service
 from app.core.marketplace_config import MarketplaceConfig
 from app.engine.visibility_engine import filter_fields_for_discovery
 from app.modules.discovery import vector_service
+from app.modules.knowledge import active_escape_hatches, maybe_record_gate_gap
 from app.modules.profiles import repository as profiles_repo
 
 # Composite score weights. Sum to 1.0; tunable per marketplace later (see Cosolvent-ROADMAP.md §4.2).
@@ -92,8 +93,15 @@ async def suggested_matches(
     # legacy semantic + field-overlap blend (keeps existing configs working).
     match_profile = config.discovery.matching.profile_for(resolved_target)
 
+    # GAP-14 (payoff half): active escape hatches make the profile's hard gates
+    # conditional. Fetched once per request; grouped by the gate they condition.
+    hatches_by_gate: dict[str, list[dict[str, Any]]] = {}
+    if match_profile is not None and match_profile.hard_gates:
+        hatches_by_gate = await active_escape_hatches()
+
     results: list[dict[str, Any]] = []
     gated: list[dict[str, Any]] = []
+    blocked_gates: dict[str, str] = {}  # gate_name -> reason, for the Loop-2 pull signal
     for cand in candidates:
         cand_profile = cand.get("profile", {}) or {}
         cand_fields = cand_profile.get("fields", {}) or {}
@@ -131,7 +139,7 @@ async def suggested_matches(
             composite += slot.weight * s
             slot_detail[slot.name] = {"score": round(s, 6), "weight": slot.weight}
 
-        gate_results = _evaluate_gates(cand_fields, match_profile.hard_gates)
+        gate_results = _evaluate_gates(cand_fields, match_profile.hard_gates, hatches_by_gate)
         entry["score"] = round(composite, 6)
         entry["score_breakdown"] = {
             "vector": round(vector_score, 6),
@@ -140,16 +148,35 @@ async def suggested_matches(
             "gates": gate_results,
         }
 
+        unlocked = [g for g in gate_results if g.get("unlocked")]
+        if unlocked:
+            # The "Match is unlocked!" moment: a gate that would have excluded this
+            # candidate was satisfied by an escape hatch's alternative-compliance path.
+            entry["unlocked_gates"] = [
+                {"name": g["name"], "rationale": g["unlocked_by"].get("rationale", "")}
+                for g in unlocked
+            ]
+
         failures = [g for g in gate_results if not g["passed"]]
         if failures:
-            # A hard-gate failure excludes the candidate from the ranked list, but it
-            # is returned (flagged, with reasons) so the "why gated out" is visible and
-            # a future alternative-compliance layer can act on it.
+            # A hard-gate failure (with no unlocking hatch) excludes the candidate from
+            # the ranked list, but it is returned (flagged, with reasons) so the "why
+            # gated out" is visible — and it feeds the Loop-2 pull signal below.
             entry["gated"] = True
             entry["gate_failures"] = [g["name"] for g in failures]
+            for g in failures:
+                blocked_gates.setdefault(g["name"], g["reason"] or "")
             gated.append(entry)
         else:
             results.append(entry)
+
+    # Loop-2 pull: a gate is blocking real candidates and no active hatch unlocks them
+    # → emit a (deduped) pull signal naming the constraint, so a curator can ingest an
+    # escape hatch. Best-effort telemetry; never blocks the match response.
+    for gate_name, reason in blocked_gates.items():
+        await maybe_record_gate_gap(
+            gate_name=gate_name, gate_reason=reason, target_type=resolved_target
+        )
 
     # Re-sort by the composite score because slots/overlap can reorder candidates
     # that the SQL layer ranked purely by cosine distance.
@@ -293,33 +320,75 @@ def _slot_score(comparator: str, source_fields: dict[str, Any], cand_fields: dic
     return sum(scores) / len(scores) if scores else 0.0
 
 
-def _check_gate(val: Any, gate: Any) -> tuple[bool, str]:
-    op = gate.op
+def _apply_op(val: Any, field: str, op: str, value: Any) -> tuple[bool, str]:
+    """Evaluate one field predicate into (passed, reason). Shared by hard gates and
+    escape-hatch conditions so both use identical semantics."""
     if op == "present":
-        return (val not in (None, "", [])), f"{gate.field} is required"
+        return (val not in (None, "", [])), f"{field} is required"
     if val is None:
-        return False, f"{gate.field} is missing"
+        return False, f"{field} is missing"
     if op == "equals":
-        return (val == gate.value), f"{gate.field} must equal {gate.value!r} (got {val!r})"
+        return (val == value), f"{field} must equal {value!r} (got {val!r})"
     if op == "in":
-        allowed = gate.value if isinstance(gate.value, list) else [gate.value]
+        allowed = value if isinstance(value, list) else [value]
         vals = val if isinstance(val, list) else [val]
-        return (any(v in allowed for v in vals)), f"{gate.field} must be one of {allowed} (got {val!r})"
+        return (any(v in allowed for v in vals)), f"{field} must be one of {allowed} (got {val!r})"
     if op in ("gte", "lte"):
-        nv, gv = _num(val), _num(gate.value)
+        nv, gv = _num(val), _num(value)
         if nv is None or gv is None:
-            return False, f"{gate.field} must be numeric to compare {op} {gate.value!r} (got {val!r})"
+            return False, f"{field} must be numeric to compare {op} {value!r} (got {val!r})"
         ok = nv >= gv if op == "gte" else nv <= gv
-        return ok, f"{gate.field} must be {op} {gate.value} (got {val!r})"
+        return ok, f"{field} must be {op} {value} (got {val!r})"
     return True, ""
 
 
-def _evaluate_gates(cand_fields: dict[str, Any], gates: list[Any]) -> list[dict[str, Any]]:
-    """Evaluate every hard gate against a candidate's fields; a failed gate carries
-    a human-readable reason ('why gated out')."""
+def _check_gate(val: Any, gate: Any) -> tuple[bool, str]:
+    return _apply_op(val, gate.field, gate.op, gate.value)
+
+
+def _condition_passes(cand_fields: dict[str, Any], condition: dict[str, Any]) -> bool:
+    """Does a candidate satisfy an escape-hatch's alternative-compliance predicate?"""
+    field = condition.get("field")
+    if not field:
+        return False
+    passed, _ = _apply_op(cand_fields.get(field), field, condition.get("op", "equals"),
+                          condition.get("value"))
+    return passed
+
+
+def _evaluate_gates(
+    cand_fields: dict[str, Any],
+    gates: list[Any],
+    hatches_by_gate: dict[str, list[dict[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
+    """Evaluate every hard gate against a candidate's fields. A failed gate is
+    re-checked against any active escape hatches for that gate (GAP-14): if the
+    candidate satisfies a hatch's alternative-compliance condition, the gate is
+    *unlocked* (passed, with the hatch's rationale) instead of excluding the match.
+    A gate that is neither satisfied nor unlocked carries a human-readable reason."""
+    hatches_by_gate = hatches_by_gate or {}
     out: list[dict[str, Any]] = []
     for gate in gates:
         passed, reason = _check_gate(cand_fields.get(gate.field), gate)
-        out.append({"name": gate.name, "field": gate.field, "passed": passed,
-                    "reason": None if passed else reason})
+        entry: dict[str, Any] = {"name": gate.name, "field": gate.field, "passed": passed,
+                                 "reason": None}
+        if not passed:
+            unlocked_by = _first_unlocking_hatch(cand_fields, hatches_by_gate.get(gate.name, []))
+            if unlocked_by is not None:
+                entry.update(passed=True, unlocked=True, unlocked_by=unlocked_by,
+                             reason=None, blocked_reason=reason)
+            else:
+                entry["reason"] = reason
+        out.append(entry)
     return out
+
+
+def _first_unlocking_hatch(
+    cand_fields: dict[str, Any], hatches: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    """The first escape hatch (if any) whose condition the candidate satisfies."""
+    for hatch in hatches:
+        if _condition_passes(cand_fields, hatch.get("condition", {})):
+            return {"hatch_id": hatch.get("id"), "rationale": hatch.get("rationale", ""),
+                    "condition": hatch.get("condition", {})}
+    return None
