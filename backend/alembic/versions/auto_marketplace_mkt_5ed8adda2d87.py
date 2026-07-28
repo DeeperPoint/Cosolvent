@@ -95,6 +95,13 @@ def upgrade() -> None:
         UNIQUE (role_id, section_name, field_name)
     )
     """)
+    # The earlier snapshot (mkt_cd0965b20114) created this table before the
+    # accepted_types_json column existed, so the CREATE TABLE IF NOT EXISTS above
+    # is a no-op on an already-migrated DB and the seed INSERT below would hit a
+    # missing column. ADD COLUMN IF NOT EXISTS is idempotent and safe on a
+    # populated table (and also fixes the column for the later fdc097 snapshot).
+    op.execute("ALTER TABLE marketplace_profile_field_defs ADD COLUMN IF NOT EXISTS options_json JSONB NULL")
+    op.execute("ALTER TABLE marketplace_profile_field_defs ADD COLUMN IF NOT EXISTS accepted_types_json JSONB NULL")
     op.execute("""
     CREATE TABLE IF NOT EXISTS marketplace_builds (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

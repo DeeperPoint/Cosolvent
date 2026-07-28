@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     # Session
     session_secret: str = "change-me"
+    # Shared HMAC key for the synthetic-population watermark (GAP-9). ClientSynth
+    # signs synthetic records with this same secret; the ingest boundary verifies it.
+    synthetic_watermark_secret: str = "change-me-synthetic"
     session_ttl_hours: int = 72
     # When False, the session cookie omits the Secure flag so it is stored over
     # plain http from any host (127.0.0.1, LAN IPs). Keep True in production.

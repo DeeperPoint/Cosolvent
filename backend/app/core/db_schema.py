@@ -120,6 +120,10 @@ knowledge_gap_signals = Table(
     Column("gap_description", Text, nullable=False, server_default=text("''")),
     Column("metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
     Column("status", Text, nullable=False, server_default=text("'open'")),
+    Column("vertical", Text, nullable=True),
+    Column("filters", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    # Why the gap was recorded: "no_matching_chunks" | "model_not_covered" | "answer_without_citation".
+    Column("reason", Text, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
 )
 

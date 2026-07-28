@@ -7,7 +7,10 @@ metadata filters (vertical, document_type, jurisdiction, ...).
 
 from __future__ import annotations
 
+import logging
+import re
 import uuid
+from pathlib import PurePosixPath
 from typing import Any
 
 from sqlalchemy import case, delete, desc, false, insert, or_, select, update
@@ -15,6 +18,16 @@ from sqlalchemy.sql import Select
 
 from app.core.database import session_scope
 from app.core.db_schema import knowledge_gap_signals, reference_library
+from app.modules.ai.embedding_client import get_embedding
+from app.modules.ai.llm_client import generate
+from app.modules.knowledge.schemas import (
+    AskResponse,
+    Citation,
+    GapSignal,
+    GapSignalList,
+)
+
+logger = logging.getLogger("cosolvent.knowledge")
 
 # Stable namespace so non-UUID source ids (e.g. "27_2025") map to a consistent UUID.
 _DOC_NS = uuid.UUID("a3f1c2d4-0000-4000-8000-000000000001")
@@ -54,6 +67,11 @@ def normalize_record(rec: dict[str, Any], *, default_vertical: str | None = None
     metadata = rec.get("metadata")
     if not isinstance(metadata, dict):
         metadata = {}
+    # Preserve the human-readable source id (e.g. "27_2025") in the metadata: the
+    # row's source_doc_id column is coerced to an opaque UUID, so without this the
+    # domain-Q&A path would have no readable handle to cite.
+    metadata = {**metadata}
+    metadata.setdefault("source_doc_id", str(source))
 
     return {
         "id": uuid.uuid4(),
@@ -246,3 +264,165 @@ async def set_gap_status(gap_id: str, status: str) -> bool:
         )
         await session.commit()
     return bool(result.rowcount)
+# ── Grounded domain Q&A over the reference library ────────────────────────────
+
+# Sentinel the model must emit when the excerpts cannot answer the question.
+_NOT_COVERED = "NOT_COVERED"
+_NOT_COVERED_MSG = "This question isn't covered by the current reference library."
+
+_GROUNDING_SYSTEM = (
+    "You are a domain reference assistant for a curated knowledge library. "
+    "Answer the question using ONLY the reference excerpts provided by the user. "
+    "Cite every excerpt you rely on inline using its bracketed key, e.g. [27_2025]. "
+    "Do not use any outside or prior knowledge. If the excerpts do not contain "
+    f"enough information to answer, reply with exactly: {_NOT_COVERED}"
+)
+
+_CITATION_RE = re.compile(r"\[([^\]\n]+)\]")
+
+# A chunk's text may itself begin with a bracketed source marker (e.g.
+# "[27_2025.md] 13. PAYMENT > ..."). It is stripped before the excerpt is shown
+# so the only bracketed token in an excerpt is its [key] citation tag — otherwise
+# the model may cite "[27_2025.md]", which would not map back to a citation key.
+_LEADING_MARKER_RE = re.compile(r"^\s*\[[^\]\n]+\]\s*")
+
+
+def _cite_key(metadata: dict[str, Any], index: int) -> str:
+    """A short, human-citable key for a retrieved chunk.
+
+    Prefers the readable source id preserved on ingest, then common source
+    fields, and finally a positional fallback so every excerpt always has a key.
+    """
+    for field in ("source_doc_id", "doc_key", "source"):
+        val = metadata.get(field)
+        if val:
+            return str(val)
+    src = metadata.get("source_document")
+    if src:
+        return PurePosixPath(str(src)).stem
+    return f"ref{index + 1}"
+
+
+def _format_context(hits: list[dict[str, Any]], keys: list[str]) -> str:
+    """Render retrieved chunks as keyed excerpts the model can cite by [key]."""
+    blocks = []
+    for hit, key in zip(hits, keys):
+        excerpt = _LEADING_MARKER_RE.sub("", hit["chunk_text"], count=1)
+        blocks.append(f"[{key}]\n{excerpt}")
+    return "\n\n---\n\n".join(blocks)
+
+
+def _extract_citations(answer: str, hits: list[dict[str, Any]], keys: list[str]) -> list[Citation]:
+    """Map the [key] tokens the model used back to the retrieved chunks."""
+    cited = set(_CITATION_RE.findall(answer))
+    by_key: dict[str, Citation] = {}
+    for hit, key in zip(hits, keys):
+        if key not in cited:
+            continue
+        entry = by_key.get(key)
+        if entry is None:
+            meta = hit.get("metadata") or {}
+            by_key[key] = Citation(
+                key=key,
+                source_doc_id=meta.get("source_doc_id"),
+                chunk_ids=[hit["id"]],
+                metadata=meta,
+            )
+        else:
+            entry.chunk_ids.append(hit["id"])
+    return list(by_key.values())
+
+
+async def ask(
+    *,
+    query: str,
+    filters: dict | None = None,
+    vertical: str | None = None,
+    top_k: int = 8,
+) -> AskResponse:
+    """Answer a question strictly from the reference library, with citations.
+
+    Retrieves the best-matching chunks (wiki-preferred), asks the LLM to answer
+    using only those excerpts, and — when nothing matches, the model reports the
+    answer is not covered, or the answer carries no resolvable citation — records
+    a knowledge gap signal for curators and reports ``answered=False``.
+    """
+    embedding = await get_embedding(query)
+    hits = await search_reference_library(embedding, top_k=top_k, vertical=vertical, filters=filters)
+    used_chunks = [h["id"] for h in hits]
+
+    if not hits:
+        await _record_gap(query, vertical, filters, "no_matching_chunks")
+        return AskResponse(query=query, answered=False, answer=_NOT_COVERED_MSG)
+
+    keys = [_cite_key(h.get("metadata") or {}, i) for i, h in enumerate(hits)]
+    messages = [
+        {"role": "system", "content": _GROUNDING_SYSTEM},
+        {"role": "user", "content": f"Reference excerpts:\n\n{_format_context(hits, keys)}\n\nQuestion: {query}"},
+    ]
+    raw = (await generate(messages, use_case="rag_query")).strip()
+
+    if raw.upper().startswith(_NOT_COVERED):
+        await _record_gap(query, vertical, filters, "model_not_covered")
+        return AskResponse(query=query, answered=False, answer=_NOT_COVERED_MSG, used_chunks=used_chunks)
+
+    citations = _extract_citations(raw, hits, keys)
+    if not citations:
+        # Prose with no resolvable citation is not a grounded answer under the
+        # "grounded, with citations" contract; treat as not covered + log a gap.
+        await _record_gap(query, vertical, filters, "answer_without_citation")
+        return AskResponse(query=query, answered=False, answer=_NOT_COVERED_MSG, used_chunks=used_chunks)
+
+    return AskResponse(query=query, answered=True, answer=raw, citations=citations, used_chunks=used_chunks)
+
+
+# ── Knowledge gap signals (curatorial pull loop) ──────────────────────────────
+
+# Upper bound on rows a single gap query may request, so an arbitrary caller-
+# supplied limit on the admin endpoint can't trigger an oversized read.
+_MAX_GAP_LIMIT = 500
+
+
+def bounded_gap_limit(limit: int) -> int:
+    """Clamp a requested gap-list limit into [1, _MAX_GAP_LIMIT]."""
+    return max(1, min(limit, _MAX_GAP_LIMIT))
+
+
+async def _record_gap(query: str, vertical: str | None, filters: dict | None, reason: str) -> None:
+    try:
+        async with session_scope() as session:
+            await session.execute(
+                knowledge_gap_signals.insert().values(
+                    id=uuid.uuid4(), query=query, vertical=vertical, filters=filters or {}, reason=reason
+                )
+            )
+            await session.commit()
+    except Exception:  # noqa: BLE001 - a gap-logging failure must not break the answer path.
+        logger.warning("Failed to record knowledge gap signal", exc_info=True)
+
+
+async def list_gaps(vertical: str | None = None, limit: int = 100) -> GapSignalList:
+    """Curator view: recorded knowledge gaps, newest first."""
+    stmt: Select[Any] = select(knowledge_gap_signals).order_by(
+        knowledge_gap_signals.c.created_at.desc()
+    )
+    if vertical:
+        stmt = stmt.where(knowledge_gap_signals.c.vertical == vertical)
+    stmt = stmt.limit(bounded_gap_limit(limit))
+
+    async with session_scope() as session:
+        rows = (await session.execute(stmt)).all()
+
+    return GapSignalList(
+        gaps=[
+            GapSignal(
+                id=str(row.id),
+                query=row.query,
+                vertical=row.vertical,
+                filters=row.filters or {},
+                reason=row.reason,
+                created_at=row.created_at.isoformat() if row.created_at else None,
+            )
+            for row in rows
+        ]
+    )

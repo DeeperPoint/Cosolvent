@@ -1,0 +1,66 @@
+# Synthetic Population Ingest (C0) + Watermarking
+
+Bulk-load a synthetic participant population from a file into Cosolvent, with the
+synthetic watermark **enforced at the ingest boundary** — the mechanism that lets
+a Mode-2 market run against a loaded synthetic population and guarantees the clean
+cutover to real users (GAP-10 / GAP-9).
+
+## The population file
+
+A JSON list (or an object with a `records` / `population` / `profiles` list). Each
+record is one participant:
+
+```json
+[
+  {
+    "participant_type": "producer",
+    "external_id": "cs-prod-001",
+    "fields": { "farm_name": "North Ridge Farms", "country": "Canada", "primary_crops": ["Wheat", "Barley"] },
+    "_watermark": { "synthetic": true, "algo": "hmac-sha256-v1", "signature": "…" }
+  }
+]
+```
+
+- `participant_type` — a marketplace participant type slug.
+- `external_id` — a stable id; re-importing the same id **upserts in place** (idempotent).
+- `fields` — validated against that type's `profile_schema` (same validator as participant registration).
+- `_watermark` — the synthetic marker (see below); attached by ClientSynth, or by `stamp-population`.
+
+## The watermark (GAP-9)
+
+The watermark is an **HMAC-SHA256** over the record's stable content
+(`participant_type` + `external_id` + `fields`), keyed by a shared secret
+(`SYNTHETIC_WATERMARK_SECRET`). It is tamper-evident: changing any signed field
+invalidates the signature. ClientSynth signs its export with the same secret and
+algorithm; `stamp-population` is the reference signer.
+
+**Boundary enforcement is mode-aware:**
+
+| Mode | Rule |
+|------|------|
+| `demo` (synthetic) | Every record **must** carry a valid watermark; unwatermarked or tampered records are rejected. |
+| `production` | Any **watermarked** (synthetic) record is rejected — the clean cutover, enforced in the data layer, not by convention. |
+
+## CLI
+
+```bash
+# 1. Sign a raw population file (reference signer; simulates ClientSynth's output)
+python -m cli stamp-population raw.json -o population.json         # uses SYNTHETIC_WATERMARK_SECRET
+
+# 2. Load it into the synthetic population
+python -m cli load-population population.json --mode demo          # validate + upsert + index
+python -m cli load-population population.json --mode demo --no-index   # load without embedding/indexing
+```
+
+`load-population` requires a running Postgres (`POSTGRES_DSN` / `.env`) and a
+`marketplace.yaml` (via `--config`, default from settings). For each record it:
+enforces the watermark → validates fields against the schema → upserts a synthetic
+profile (owned by a synthetic user, flagged `is_synthetic`, keyed by `external_id`)
+→ generates an embedding and indexes it into `profile_vectors` (reusing the normal
+indexer). Output reports `loaded / updated / indexed / rejected_watermark /
+skipped_invalid` counts.
+
+## Config
+
+- `SYNTHETIC_WATERMARK_SECRET` — the shared HMAC key (must match ClientSynth's).
+- Mode is an explicit per-run flag (`--mode`), never a silent global default.

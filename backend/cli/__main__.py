@@ -104,12 +104,44 @@ def main() -> None:
     refs_parser.add_argument("file", help="Path to the ingestion JSONL export")
     refs_parser.add_argument("--vertical", help="Default vertical if records omit it")
 
+    pop_parser = subparsers.add_parser(
+        "load-population",
+        help="Load a C0 synthetic population file (watermark-enforced) into profiles",
+    )
+    pop_parser.add_argument("file", help="Path to the population JSON file")
+    pop_parser.add_argument("--config", default=None, help="marketplace.yaml path (default: settings)")
+    pop_parser.add_argument(
+        "--mode", choices=["demo", "production"], default="demo",
+        help="demo requires valid watermarks; production rejects watermarked records",
+    )
+    pop_parser.add_argument("--no-index", action="store_true", help="Skip embedding/indexing")
+
+    stamp_parser = subparsers.add_parser(
+        "stamp-population",
+        help="Sign a raw population file with synthetic watermarks (reference signer)",
+    )
+    stamp_parser.add_argument("file", help="Path to the raw population JSON file")
+    stamp_parser.add_argument("-o", "--output", required=True, help="Output (watermarked) file path")
+    stamp_parser.add_argument("--secret", default=None, help="Override the watermark secret")
+
     args = parser.parse_args()
 
     if args.command == "load-references":
         from cli.load_references import load_references_file
 
         ok = load_references_file(args.file, args.vertical)
+        sys.exit(0 if ok else 1)
+    if args.command == "load-population":
+        from app.core.config import settings
+        from cli.load_population import load_population
+
+        config_path = args.config or settings.marketplace_config_path
+        ok = load_population(args.file, config_path, mode=args.mode, do_index=not args.no_index)
+        sys.exit(0 if ok else 1)
+    if args.command == "stamp-population":
+        from cli.stamp_population import stamp_population
+
+        ok = stamp_population(args.file, args.output, secret=args.secret)
         sys.exit(0 if ok else 1)
     if args.command == "generate-config":
         from configgen.cli import main as gen_main
