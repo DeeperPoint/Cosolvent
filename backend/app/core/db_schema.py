@@ -107,14 +107,19 @@ reference_library = Table(
 )
 
 
-# Questions the reference library could not answer, recorded by the domain-Q&A
-# path so curators know which authoritative content is missing (the curatorial
-# pull loop).
+# Loop-2 "Pull Signal" (GAP-14): knowledge gaps detected either by wiki-lint (CommonContext
+# emits here via gap_signal.py) or at query time when the reference library can't answer well.
+# The curation side reads these to decide what knowledge to acquire next.
 knowledge_gap_signals = Table(
     "knowledge_gap_signals",
     metadata,
     Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
     Column("query", Text, nullable=False),
+    Column("topic_needed", Text, nullable=False, server_default=text("''")),
+    Column("jurisdiction_needed", Text, nullable=False, server_default=text("''")),
+    Column("gap_description", Text, nullable=False, server_default=text("''")),
+    Column("metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    Column("status", Text, nullable=False, server_default=text("'open'")),
     Column("vertical", Text, nullable=True),
     Column("filters", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
     # Why the gap was recorded: "no_matching_chunks" | "model_not_covered" | "answer_without_citation".

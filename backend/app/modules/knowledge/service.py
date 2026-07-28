@@ -13,7 +13,7 @@ import uuid
 from pathlib import PurePosixPath
 from typing import Any
 
-from sqlalchemy import case, delete, false, insert, or_, select
+from sqlalchemy import case, delete, desc, false, insert, or_, select, update
 from sqlalchemy.sql import Select
 
 from app.core.database import session_scope
@@ -186,6 +186,84 @@ async def search_reference_library(
     ]
 
 
+# ── Loop-2: knowledge gap signals (GAP-14) ───────────────────────────────────
+async def record_gap_signal(
+    *,
+    query: str,
+    gap_description: str,
+    topic_needed: str = "",
+    jurisdiction_needed: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    """Insert a pull-signal row. Non-fatal helper — callers wrap in try/except."""
+    async with session_scope() as session:
+        result = await session.execute(
+            insert(knowledge_gap_signals)
+            .values(
+                query=query[:1000],
+                gap_description=gap_description[:2000],
+                topic_needed=topic_needed[:200],
+                jurisdiction_needed=jurisdiction_needed[:200],
+                metadata=metadata or {},
+                status="open",
+            )
+            .returning(knowledge_gap_signals.c.id)
+        )
+        new_id = result.scalar_one()
+        await session.commit()
+    return str(new_id)
+
+
+async def maybe_record_query_gap(query: str, hits: list[dict[str, Any]], *, threshold: float = 0.35) -> None:
+    """Emit a pull-signal when a Q&A can't be answered well: no hits, or the best
+    match is below ``threshold``. This is the runtime, query-side half of Loop-2 —
+    the market surfacing what knowledge it's missing. Never raises."""
+    try:
+        top = max((float(h.get("score", 0)) for h in hits), default=0.0)
+        if hits and top >= threshold:
+            return
+        await record_gap_signal(
+            query=query,
+            gap_description=(
+                "A participant asked something the knowledge base could not answer well "
+                f"(best match {top:.2f} < {threshold:.2f}). Consider adding a source that covers this."
+            ),
+            metadata={"source": "query", "top_score": round(top, 3), "hit_count": len(hits)},
+        )
+    except Exception:  # pragma: no cover - telemetry must never break a query
+        pass
+
+
+async def list_gap_signals(*, status: str | None = "open", limit: int = 100) -> list[dict[str, Any]]:
+    stmt = select(knowledge_gap_signals).order_by(desc(knowledge_gap_signals.c.created_at)).limit(limit)
+    if status:
+        stmt = stmt.where(knowledge_gap_signals.c.status == status)
+    async with session_scope() as session:
+        rows = (await session.execute(stmt)).all()
+    return [
+        {
+            "id": str(r.id),
+            "query": r.query,
+            "topic_needed": r.topic_needed,
+            "jurisdiction_needed": r.jurisdiction_needed,
+            "gap_description": r.gap_description,
+            "metadata": r.metadata or {},
+            "status": r.status,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
+
+
+async def set_gap_status(gap_id: str, status: str) -> bool:
+    async with session_scope() as session:
+        result = await session.execute(
+            update(knowledge_gap_signals)
+            .where(knowledge_gap_signals.c.id == uuid.UUID(gap_id))
+            .values(status=status)
+        )
+        await session.commit()
+    return bool(result.rowcount)
 # ── Grounded domain Q&A over the reference library ────────────────────────────
 
 # Sentinel the model must emit when the excerpts cannot answer the question.

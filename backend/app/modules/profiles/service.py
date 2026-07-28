@@ -5,6 +5,7 @@ import secrets
 from copy import deepcopy
 from datetime import datetime, timezone
 from io import BytesIO
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -319,6 +320,71 @@ async def update_profile(
     })
     await _queue_profile_index(profile_id)
     return _profile_response(updated, config, "owner")
+
+
+# ── Loop-1 clarify loop (GAP-12): ask one question, answer, watch the score jump ──
+def _empty(value: Any) -> bool:
+    return value in (None, "", []) or (isinstance(value, str) and not value.strip())
+
+
+def _profile_strength(config: MarketplaceConfig, pt: str, fields: dict) -> int:
+    """A 0-100 'profile strength' over ALL schema fields (required + optional). Distinct from
+    onboarding `completeness` (required-only): strength keeps improving as optional detail is
+    added, which is what the clarify loop drives — so answering a question always moves it."""
+    schema = config.profile_schemas.get(pt)
+    all_fields = list(schema.all_fields) if schema else []
+    if not all_fields:
+        return 100
+    filled = sum(1 for f in all_fields if not _empty(fields.get(f.name)))
+    return int((filled / len(all_fields)) * 100)
+
+
+async def next_clarification(user: dict, config: MarketplaceConfig) -> dict:
+    """Return the single most valuable clarifying question for the caller's profile: the first
+    empty *required* field, else the first empty optional field. Same 'update-and-recompose'
+    spine as a story `correct` — answering it fills the field and the profile-strength score jumps."""
+    pt = str(user.get("participant_type", ""))
+    profile = await get_my_profile(user, config)
+    fields = (profile or {}).get("fields", {}) or {}
+    schema = config.profile_schemas.get(pt)
+    all_fields = list(schema.all_fields) if schema else []
+    strength = _profile_strength(config, pt, fields)
+
+    candidate = next((f for f in all_fields if f.required and _empty(fields.get(f.name))), None) \
+        or next((f for f in all_fields if _empty(fields.get(f.name))), None)
+    if candidate is None:
+        return {"question": None, "complete": True, "strength": strength}
+    return {
+        "field": candidate.name,
+        "label": candidate.label,
+        "type": candidate.type,
+        "options": candidate.options,
+        "required": candidate.required,
+        "question": f"To strengthen your profile, what is your {candidate.label.lower()}?",
+        "strength": strength,
+        "complete": False,
+    }
+
+
+async def answer_clarification(user: dict, field: str, value: Any, config: MarketplaceConfig) -> dict:
+    """Apply one clarifying answer and report the before/after profile strength (the visible jump)."""
+    pt = str(user.get("participant_type", ""))
+    profile = await get_my_profile(user, config)
+    if not profile or not profile.get("id"):
+        raise NotFoundError("No profile to clarify")
+    fields = dict(profile.get("fields", {}) or {})
+    before = _profile_strength(config, pt, fields)
+    fields[field] = value
+    updated = await update_profile(str(profile["id"]), user, fields, config)
+    after = _profile_strength(config, pt, updated.get("fields", fields))
+    return {
+        "field": field,
+        "value": value,
+        "strength_before": before,
+        "strength_after": after,
+        "completeness": int(updated.get("completeness", 0)),
+        "jumped": after - before,
+    }
 
 
 async def approve_application(app_id: str, feedback: str = "") -> dict:

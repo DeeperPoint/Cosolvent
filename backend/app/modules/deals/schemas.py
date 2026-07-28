@@ -14,6 +14,9 @@ class CreateDealRequest(BaseModel):
 
     conversation_id: str | None = None
     counterparty_user_id: str | None = None
+    #: n-party (GAP-16 foundation): additional principals beyond the single counterparty.
+    #: The party set and per-version required-acknowledgers are n-ary, so 3+ principals work.
+    counterparty_user_ids: list[str] | None = None
     context: str | None = None
     #: which of the five deal-framework scenarios this deal starts from (provenance).
     framework_scenario: (

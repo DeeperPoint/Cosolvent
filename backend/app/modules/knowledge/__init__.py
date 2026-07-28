@@ -7,6 +7,20 @@ This is the Cosolvent side of the MarketForge ks-to-cosolvent (reference library
 
 from __future__ import annotations
 
-from .service import load_reference_records, search_reference_library
+from .service import (
+    list_gap_signals,
+    load_reference_records,
+    maybe_record_query_gap,
+    record_gap_signal,
+    search_reference_library,
+    set_gap_status,
+)
 
-__all__ = ["load_reference_records", "search_reference_library"]
+__all__ = [
+    "list_gap_signals",
+    "load_reference_records",
+    "maybe_record_query_gap",
+    "record_gap_signal",
+    "search_reference_library",
+    "set_gap_status",
+]

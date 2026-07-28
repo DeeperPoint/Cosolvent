@@ -237,19 +237,27 @@ async def create_deal(user: dict[str, Any], body: Any, config: MarketplaceConfig
             raise ForbiddenError("Not a participant in this conversation")
         conversation_id = str(conv["_id"])
         parties = [_principal_party(p["user_id"], p.get("participant_type", "")) for p in conv["participants"]]
-    elif body.counterparty_user_id:
+    elif body.counterparty_user_id or getattr(body, "counterparty_user_ids", None):
         from app.modules.auth.repository import find_user_by_id
 
-        other = await find_user_by_id(body.counterparty_user_id)
-        if not other:
-            raise NotFoundError("Counterparty not found")
+        # n-party (GAP-16): the caller plus one or more counterparties. De-duplicated,
+        # caller excluded from the counterparty list.
+        raw_ids = list(getattr(body, "counterparty_user_ids", None) or [])
+        if body.counterparty_user_id:
+            raw_ids.append(body.counterparty_user_id)
+        seen: set[str] = {user["_id"]}
+        parties = [_principal_party(user["_id"], user.get("participant_type", ""))]
+        for cid in raw_ids:
+            if not cid or cid in seen:
+                continue
+            other = await find_user_by_id(cid)
+            if not other:
+                raise NotFoundError(f"Counterparty not found: {cid}")
+            seen.add(other["_id"])
+            parties.append(_principal_party(other["_id"], other.get("participant_type", "")))
         conversation_id = None
-        parties = [
-            _principal_party(user["_id"], user.get("participant_type", "")),
-            _principal_party(other["_id"], other.get("participant_type", "")),
-        ]
     else:
-        raise AppError("Provide either conversation_id or counterparty_user_id", 400)
+        raise AppError("Provide conversation_id, counterparty_user_id, or counterparty_user_ids", 400)
 
     if len({p["user_id"] for p in parties}) < 2:
         raise AppError("A deal needs at least two distinct principals", 400)
@@ -652,6 +660,65 @@ async def facilitator_candidates(
     else:
         candidates = await search_facilitators(deal, role_type, config)
     return {"role_type": role_type, "candidates": candidates}
+
+
+async def demo_agree(deal_id: str, caller: dict[str, Any], config: MarketplaceConfig) -> dict[str, Any]:
+    """Mode-2 dramatization: make the *other* parties agree with the current state so one
+    person can drive a whole deal solo. Best-effort and idempotent — each synthetic action is
+    wrapped so a no-op (already consented, already at level) never fails the whole call.
+
+    It (1) mirrors any disclosure-advance consent to every principal, (2) admits any pending
+    facilitator on behalf of every principal, and (3) acknowledges the current version for every
+    required acknowledger who hasn't. It never *initiates* a reveal the human didn't start.
+    """
+    from types import SimpleNamespace
+
+    deal = await _get_or_404(deal_id)
+    caller_id = caller["_id"]
+
+    def _principals(d: dict[str, Any]) -> list[dict[str, Any]]:
+        return [{"_id": p["user_id"], "participant_type": p.get("participant_type")}
+                for p in story.active_parties(d, role="principal")]
+
+    async def _try(coro) -> None:
+        try:
+            await coro
+        except Exception:  # dramatization is best-effort
+            logger.info("demo_agree sub-action skipped", exc_info=True)
+
+    # 1) Mirror disclosure-advance consents the human already started.
+    consents = await repo.list_consents_for_deal(deal_id)
+    adv_targets = {c.get("target") for c in consents if c.get("scope") == "disclosure_advance" and c.get("target")}
+    for target in sorted(adv_targets):
+        for p in _principals(deal):
+            already = any(c.get("scope") == "disclosure_advance" and c.get("target") == target
+                          and c.get("user_id") == p["_id"] for c in consents)
+            if not already:
+                await _try(consent(deal_id, p, SimpleNamespace(scope="disclosure_advance", target=target), config))
+
+    # 2) Admit any pending facilitator on behalf of every principal.
+    deal = await _get_or_404(deal_id)
+    pending = [p["user_id"] for p in deal.get("parties", []) if p.get("status") == "pending_audience_consent"]
+    consents = await repo.list_consents_for_deal(deal_id)
+    for fac in pending:
+        for p in _principals(deal):
+            already = any(c.get("scope") == "audience_expansion" and c.get("target") == fac
+                          and c.get("user_id") == p["_id"] for c in consents)
+            if not already:
+                await _try(consent(deal_id, p, SimpleNamespace(scope="audience_expansion", target=fac), config))
+
+    # 3) Acknowledge the (possibly new) current version for every required acknowledger.
+    view = await _deal_view(deal_id, caller, config)
+    cur = view.get("current_version") or {}
+    chash = cur.get("content_hash")
+    acked = set(cur.get("acknowledged_by") or [])
+    for uid in cur.get("required_acknowledgers") or []:
+        if uid == caller_id or uid in acked or not chash:
+            continue
+        await _try(respond(deal_id, {"_id": uid}, SimpleNamespace(
+            type="acknowledge", content_hash=chash, text=None, params=[]), config))
+
+    return await _deal_view(deal_id, caller, config)
 
 
 async def set_facilitator(deal_id: str, user: dict[str, Any], req: Any, config: MarketplaceConfig) -> dict[str, Any]:

@@ -104,6 +104,10 @@ async def knowledge_query(
     """
     embedding = await get_embedding(query_text)
     hits = await search_reference_library(embedding, top_k=top_k, vertical=vertical, filters=filters)
+    # Loop-2 (GAP-14): if the wiki can't answer this well, record a pull-signal for curation.
+    from app.modules.knowledge import maybe_record_query_gap
+
+    await maybe_record_query_gap(query_text, hits)
     context = "\n\n".join(h["chunk_text"] for h in hits)
 
     template = await get_prompt_template("rag_query", config)
