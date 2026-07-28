@@ -20,6 +20,25 @@ from app.modules.ai.schemas import LLMSettingsUpdate, PromptUpdate, ProviderVali
 router = APIRouter()
 
 
+# ── Knowledge gaps — Loop-2 pull signals (GAP-14) ────────────────────────
+@router.get("/knowledge-gaps")
+async def list_knowledge_gaps(
+    status: str = Query("open"),
+    user: dict = Depends(require_admin),
+):
+    from app.modules.knowledge import list_gap_signals
+
+    return {"gaps": await list_gap_signals(status=status or None)}
+
+
+@router.post("/knowledge-gaps/{gap_id}/resolve")
+async def resolve_knowledge_gap(gap_id: str, user: dict = Depends(require_admin)):
+    from app.modules.knowledge import set_gap_status
+
+    ok = await set_gap_status(gap_id, "resolved")
+    return {"resolved": ok}
+
+
 # ── Dashboard & Config ───────────────────────────────────────────────────
 
 @router.get("/dashboard")
