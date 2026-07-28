@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Path
 
+from app.core.config import settings
 from app.core.dependencies import get_config, get_current_user, require_admin
+from app.core.exceptions import ForbiddenError
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.deals import service
 from app.modules.deals.schemas import (
@@ -176,3 +178,16 @@ async def exit_deal(
 ):
     """Leave the deal (§7): drop from future acknowledgers; close the deal or reopen a slot."""
     return await service.exit_deal(deal_id, user, config)
+
+
+@router.post("/{deal_id}/demo/agree")
+async def demo_agree(
+    deal_id: str = Path(...),
+    user: dict = Depends(get_current_user),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Demo-only: the other parties agree with the current state (acknowledge / admit /
+    match disclosure) so one person can drive a deal solo. Disabled when DEMO_MODE=off."""
+    if settings.demo_mode == "off":
+        raise ForbiddenError("Demo actions are disabled (DEMO_MODE=off)")
+    return await service.demo_agree(deal_id, user, config)

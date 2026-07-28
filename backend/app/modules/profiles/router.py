@@ -93,6 +93,32 @@ async def get_my_profile(
     return await service.get_my_profile(user, config)
 
 
+@router.get("/{type_slug}/me/clarify")
+async def get_clarification(
+    type_slug: str = Path(...),
+    user: dict = Depends(get_current_user),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Loop-1: the next clarifying question for the caller's own profile."""
+    _validate_type(type_slug, config)
+    return await service.next_clarification(user, config)
+
+
+@router.post("/{type_slug}/me/clarify")
+async def answer_clarification(
+    body: dict,
+    type_slug: str = Path(...),
+    user: dict = Depends(get_current_user),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Loop-1: answer a clarifying question -> field fills -> completeness jumps."""
+    _validate_type(type_slug, config)
+    field = body.get("field")
+    if not field:
+        raise AppError("field is required", status_code=422)
+    return await service.answer_clarification(user, field, body.get("value"), config)
+
+
 @router.get("/{type_slug}/{profile_id}")
 async def get_profile(
     type_slug: str = Path(...),
