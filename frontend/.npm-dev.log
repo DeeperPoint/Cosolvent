@@ -1,0 +1,94 @@
+
+> cosolvent-frontend@0.1.0 dev
+> next dev
+
+   ▲ Next.js 15.5.19
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.2.65:3000
+
+ ✓ Starting...
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+ ✓ Ready in 2.9s
+ ○ Compiling / ...
+ ✓ Compiled / in 5.4s (660 modules)
+ GET / 307 in 5797ms
+ ○ Compiling /login ...
+ ✓ Compiled /login in 1565ms (687 modules)
+ GET /login 200 in 1844ms
+ ✓ Compiled /_not-found in 246ms (678 modules)
+ GET /signup 404 in 457ms
+ ○ Compiling /search ...
+ ✓ Compiled /search in 668ms (776 modules)
+ GET /search 200 in 989ms
+ GET /login 200 in 73ms
+ GET /login 200 in 76ms
+ GET / 307 in 110ms
+ GET /login 200 in 74ms
+ GET /search 200 in 82ms
+ GET / 307 in 94ms
+ GET /login 200 in 107ms
+ ○ Compiling /profile ...
+ ✓ Compiled /profile in 574ms (762 modules)
+ GET /profile 200 in 855ms
+ ✓ Compiled / in 280ms (463 modules)
+ GET / 200 in 484ms
+ GET /login 200 in 69ms
+ GET /login 200 in 49ms
+ ✓ Compiled /search in 219ms (469 modules)
+ GET /search 200 in 359ms
+ GET /profile 200 in 53ms
+ GET /search 200 in 48ms
+ ○ Compiling /conversations ...
+ ✓ Compiled /conversations in 722ms (775 modules)
+ GET /conversations 200 in 987ms
+ ✓ Compiled /notifications in 405ms (782 modules)
+ GET /notifications 200 in 514ms
+ GET /search 200 in 54ms
+ ✓ Compiled in 1206ms (786 modules)
+ GET /search 200 in 192ms
+ GET /login 200 in 192ms
+ GET /search 200 in 229ms
+ ✓ Compiled in 1139ms (786 modules)
+ GET /login 200 in 204ms
+ GET /search 200 in 203ms
+ GET /search 200 in 192ms
+ ✓ Compiled in 159ms (324 modules)
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 1019ms (768 modules)
+ GET /search 404 in 1246ms
+ GET /search 404 in 127ms
+ GET /login 200 in 1291ms
+ GET /search 404 in 47ms
+ GET /login 200 in 185ms
+ GET /search 404 in 144ms
+ GET /login 200 in 108ms
+ ✓ Compiled in 153ms (328 modules)
+ GET /login 200 in 87ms
+ ✓ Compiled in 1345ms (782 modules)
+ GET /login 200 in 156ms
+ ✓ Compiled /search in 424ms (797 modules)
+ GET /search 200 in 626ms
+ GET /login 200 in 202ms
+ GET /search 200 in 59ms
+ GET /search 200 in 181ms
+ ✓ Compiled / in 373ms (472 modules)
+ GET / 307 in 735ms
+ GET /login 200 in 94ms
+ GET / 307 in 109ms
+ GET /login 200 in 114ms
+ GET /profile 200 in 88ms
+ GET /search 200 in 53ms
+ GET / 200 in 37ms
+ GET /login 200 in 72ms
+ GET /login 200 in 48ms
+ ○ Compiling /profiles/[id] ...
+ ✓ Compiled /profiles/[id] in 727ms (799 modules)
+ GET /login 200 in 376ms
+ GET /search 200 in 379ms
+ GET /login 200 in 98ms
+ GET /profiles/1c29780d-0766-4814-986c-4674567e39ae 200 in 2051ms
+ GET /profiles/1c29780d-0766-4814-986c-4674567e39ae 200 in 74ms
