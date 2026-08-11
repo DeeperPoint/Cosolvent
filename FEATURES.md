@@ -217,5 +217,5 @@ This boundary keeps Cosolvent lightweight, generalizable, and scalable. The mark
 | Project | Role |
 |---|---|
 | **MarketForge** | Market configuration and deployment orchestration |
-| **KnowledgeSlot** | AI-curated reference library for domain knowledge |
+| **CommonContext** | AI-curated reference library for domain knowledge |
 | **ClientSynth** | Synthetic participant generation for testing and demos |

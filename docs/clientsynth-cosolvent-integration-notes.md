@@ -3,7 +3,7 @@
 # ClientSynth ↔ Cosolvent-Beta Integration Notes
 
 > **Date:** 2026-02-20
-> **Context:** Analysis of how ClientSynth-generated synthetic participant profiles integrate into the cosolvent-beta user profile system to populate a Digital Twin. Parallels the Knowledge Slot integration analysis in `AICommonContextCuration/docs/knowledge-slot-cosolvent-integration-notes.md`.
+> **Context:** Analysis of how ClientSynth-generated synthetic participant profiles integrate into the cosolvent-beta user profile system to populate a Digital Twin. Parallels the Knowledge Slot integration analysis in `CommonContext/docs/knowledge-slot-cosolvent-integration-notes.md`.
 > **Status:** Analysis complete; blocked on same roadmap review as Knowledge Slot notes
 > **Participants:** Mustafa Uzumeri, Antigravity Agent
 

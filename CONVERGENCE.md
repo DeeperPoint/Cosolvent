@@ -5,7 +5,7 @@
 > **Date:** February 21, 2026
 > **Status:** Design specification
 > **Working name:** "Market Forge" is a placeholder. The name may change to avoid potential conflicts with existing uses (Market Forge Industries / Middleby Corporation in commercial kitchen equipment; MarketForge.tech in marketplace apps).
-> **Prerequisites:** `ROADMAP.md` (this repo), `ClientSynthAI/ROADMAP.md`, `AICommonContextCuration/ROADMAP.md`, `CosolventAI/ROADMAP.md`
+> **Prerequisites:** `ROADMAP.md` (this repo), `ClientSynthAI/ROADMAP.md`, `CommonContext/ROADMAP.md`, `CosolventAI/ROADMAP.md`
 > **Related:** `CosolventAI/docs/session-notes/2026-02-18-strategic-packaging.md`, Whitepaper Chapters 33–35
 
 ---
@@ -14,7 +14,7 @@
 
 The **Market Forge** is the convergence of three existing tools into a single workflow that produces a functioning digital twin of a proposed thin market. Given a market description and domain reference materials, the Forge:
 
-1. **Curates domain knowledge** — ingests trade regulations, quality standards, contract templates, and procedural guides (AICommonContextCuration)
+1. **Curates domain knowledge** — ingests trade regulations, quality standards, contract templates, and procedural guides (CommonContext)
 2. **Generates marketplace configuration** — extracts participant types, profile schemas, matching prompts, and deal parameters from the domain knowledge
 3. **Synthesizes a realistic population** — generates demographically plausible, economically coherent, culturally appropriate synthetic participants (ClientSynth)
 4. **Stands up a configured marketplace** — compiles and populates a Cosolvent instance with the reference library, configuration, and synthetic population
@@ -30,7 +30,7 @@ The output progresses from a **clickable, demonstrable prototype** (Phases 1–6
 
 | Tool                        | What it produces                                                                                                                                | Digital Twin role                                                                        | Current state                                                                                                                                                                                        |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **AICommonContextCuration** | Markdown reference documents, domain metadata schemas (YAML), provenance records, extraction prompts                                            | **The rules of the game** — regulations, standards, and contracts that govern the market | Working: document conversion, provenance tracking, metadata extraction. Missing: ingestion-ready output format for Cosolvent's `reference_library`                                                   |
+| **CommonContext** | Markdown reference documents, domain metadata schemas (YAML), provenance records, extraction prompts                                            | **The rules of the game** — regulations, standards, and contracts that govern the market | Working: document conversion, provenance tracking, metadata extraction. Missing: ingestion-ready output format for Cosolvent's `reference_library`                                                   |
 | **ClientSynth**             | Synthetic participant populations — AI-generated profiles with configurable schemas, demographic distributions, and behavioral parameters       | **The players** — who would participate, with what capabilities and needs                | Working: multi-tenant schema designer, AI generation, export system. Missing: Cosolvent export format, MarketDefinition import, domain-aware vocabulary                                              |
 | **Cosolvent (beta)**        | Marketplace infrastructure — YAML-driven configuration, semantic matching, communication, facilitator types, admin oversight, prompt management | **The arena** — the operational mechanics that connect participants and facilitate deals | Working: YAML configuration, dynamic profiles, pgvector search, admin tools, prompt management, document processing. Missing: Deal entity, Handoff Artifact, Knowledge Slot, ClientSynth integration |
 
@@ -39,7 +39,7 @@ The output progresses from a **clickable, demonstrable prototype** (Phases 1–6
 The three tools were developed independently with different proximate goals. The insight is that their outputs form a **closed triangle** — each tool's output is another tool's input:
 
 ```
-     AICommonContextCuration
+     CommonContext
             ╱           ╲
     domain schema    reference library
      + vocabulary      + metadata
@@ -59,7 +59,7 @@ The missing connector — **domain schema informing ClientSynth's generation voc
 
 | From → To                           | Interface                                              | Status                             | Roadmap reference                         |
 | ----------------------------------- | ------------------------------------------------------ | ---------------------------------- | ----------------------------------------- |
-| AICommonContextCuration → Cosolvent | Reference documents → `reference_library` table        | Designed in both roadmaps          | Cosolvent ROADMAP §16.2; AIKSC ROADMAP §5 |
+| CommonContext → Cosolvent | Reference documents → `reference_library` table        | Designed in both roadmaps          | Cosolvent ROADMAP §16.2; AIKSC ROADMAP §5 |
 | ClientSynth → Cosolvent             | Synthetic participants → Cosolvent participant records | Partially designed (file-based C0) | ClientSynth ROADMAP Track C               |
 | ClientSynth → Cosolvent             | MarketDefinition YAML → ClientSynth schema templates   | Conceptual (C1.1)                  | ClientSynth ROADMAP Track C               |
 
@@ -67,8 +67,8 @@ The missing connector — **domain schema informing ClientSynth's generation voc
 
 | From → To                                      | Interface                                               | What it enables                                                                                                     | Priority                                                  |
 | ---------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| **AICommonContextCuration → ClientSynth**      | Domain schema YAML → generation vocabulary constraints  | Synthetic participants use real-world terminology (GAFTA grades, not random strings). Schema-conformant profiles.   | **Critical** — without this, synthetic data is generic    |
-| **AICommonContextCuration → Cosolvent config** | Domain schema → `marketplace.yaml` generation           | Automatic configuration of participant types, profile fields, matching prompts, Deal Brief templates                | **Critical** — without this, marketplace config is manual |
+| **CommonContext → ClientSynth**      | Domain schema YAML → generation vocabulary constraints  | Synthetic participants use real-world terminology (GAFTA grades, not random strings). Schema-conformant profiles.   | **Critical** — without this, synthetic data is generic    |
+| **CommonContext → Cosolvent config** | Domain schema → `marketplace.yaml` generation           | Automatic configuration of participant types, profile fields, matching prompts, Deal Brief templates                | **Critical** — without this, marketplace config is manual |
 | **Cosolvent config → ClientSynth**             | `marketplace.yaml` → population specification           | ClientSynth knows how many of each participant type to generate, what fields to populate, what distributions to use | **High** — enables automated population scaling           |
 | **Cosolvent simulation → Analytics**           | Deal outcomes, match quality, market dynamics → reports | Quantitative evidence for sponsors/investors                                                                        | **Medium** — needed for Use Cases 2 and 3 (Ch. 35)        |
 
@@ -95,7 +95,7 @@ When all integration points are built, the end-to-end workflow for creating a ma
 
 ### Phase 2: Knowledge Curation (AI + Human review)
 
-**Tool:** AICommonContextCuration
+**Tool:** CommonContext
 
 **Activities:**
 1. Reference documents are converted to Markdown (PDF, HTML, DOCX, CSV, XLSX → MD)
@@ -353,7 +353,7 @@ This is the point at which the digital twin has served its purpose and the spons
 | **Framework updates**          | Cosolvent framework improvements, bug fixes, new features — available to all verticals under MIT license         |
 | **Architectural guidance**     | Advisory on scaling, new module integration, matching algorithm tuning                                           |
 | **New vertical digital twins** | If the sponsor wants to expand to adjacent corridors or new markets, the Forge produces additional digital twins |
-| **Knowledge curation support** | AICommonContextCuration tooling for updating the reference library                                               |
+| **Knowledge curation support** | CommonContext tooling for updating the reference library                                               |
 
 **Output:**
 - Production marketplace instance (zero synthetic users, full configuration)
@@ -484,7 +484,7 @@ The Forge's involvement tapers as the lifecycle progresses. By Phase 8, the Forg
 1. **Forge toolchain is operational.** The integration points in §3 are built and working. Without the Forge, each phase requires substantially more manual work (multiply by 3–5×).
 2. **Domain expert is available.** Phases 1, 2, 3, and 6 require someone who knows the market. Without domain expertise, these phases cannot be completed — AI cannot substitute for judgment about which regulations matter, which participant types exist, or what a plausible trade corridor looks like.
 3. **Reference documents exist.** The estimate assumes the sponsor has or can procure the reference materials. If reference documents must be researched and sourced from scratch, add 20–60 hours for Tier 2 and 40–120 hours for Tier 3.
-4. **No custom code.** These estimates assume the Cosolvent framework, ClientSynth, and AICommonContextCuration handle the vertical without code changes — only configuration, prompts, and content. Custom code for vertical-specific features (e.g., cold chain modeling, specialized compliance checks) would be additional.
+4. **No custom code.** These estimates assume the Cosolvent framework, ClientSynth, and CommonContext handle the vertical without code changes — only configuration, prompts, and content. Custom code for vertical-specific features (e.g., cold chain modeling, specialized compliance checks) would be additional.
 5. **The effort curve flattens.** The first vertical built on the Forge will be slower as the workflow is refined. Subsequent verticals benefit from templates, reusable prompts, and operational muscle memory. Expect the second vertical to take 60–70% of the first, and the third to take 40–50%.
 
 ### 6.8 What the Estimates Do NOT Include
@@ -503,7 +503,7 @@ Before the per-vertical workflow in §6 can operate, the integration infrastruct
 
 | Integration component                                       | Effort estimate | Dependencies                 | Roadmap reference           |
 | ----------------------------------------------------------- | --------------- | ---------------------------- | --------------------------- |
-| AICommonContextCuration → `reference_library` output format | 1–2 weeks       | AIKSC Phase 3                | AIKSC ROADMAP §5            |
+| CommonContext → `reference_library` output format | 1–2 weeks       | AIKSC Phase 3                | AIKSC ROADMAP §5            |
 | `reference_library` table + metadata-filtered vector search | 2–3 weeks       | Cosolvent Phase 1            | Cosolvent ROADMAP §16.2     |
 | Domain schema → `marketplace.yaml` generator                | 2–3 weeks       | Domain schema format spec    | **New work**                |
 | ClientSynth C0 — file-based Cosolvent export                | 1 week          | Export format spec           | ClientSynth ROADMAP §C0     |
@@ -663,7 +663,7 @@ This timeline assumes one developer working full-time on Cosolvent and part-time
 ### The first vertical as proof
 
 The first digital twin should be **Tier 2, agricultural grain trade (Canada → Southeast Asia)**:
-- Reference materials are already partially curated in AICommonContextCuration (GAFTA contracts, CGC grading standards)
+- Reference materials are already partially curated in CommonContext (GAFTA contracts, CGC grading standards)
 - The market is well-understood from the whitepaper's case studies
 - The domain expert (you) knows this market intimately
 - It maps directly to the GPSim reference demo identified in the strategic packaging document
