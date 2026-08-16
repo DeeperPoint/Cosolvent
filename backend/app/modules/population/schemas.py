@@ -2,7 +2,23 @@
 
 from __future__ import annotations
 
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
+
+
+class PopulationImportRequest(BaseModel):
+    """Inline population import. Mode is explicit, never a silent default."""
+
+    records: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Population records: participant_type, external_id, fields, _watermark",
+    )
+    mode: Literal["demo", "production"] = Field(
+        "demo",
+        description="demo requires a valid watermark; production rejects watermarked records",
+    )
+    index: bool = Field(True, description="Generate embeddings and index into pgvector")
 
 
 class PopulationImportResult(BaseModel):
