@@ -15,6 +15,8 @@ All settings are loaded from `.env` via `app/core/config.py`.
 | `REDIS_URL` | `redis://localhost:6379` | Yes | Redis connection string |
 | `SESSION_SECRET` | `change-me` | Yes | Secret for session token generation (change in production) |
 | `SESSION_TTL_HOURS` | `72` | No | Session expiry in hours |
+| `SESSION_COOKIE_SECURE` | `true` | No | Adds the `Secure` cookie flag. Only disable for plain-http local dev (127.0.0.1, LAN IPs) |
+| `SESSION_COOKIE_SAMESITE` | `lax` | No | `lax`, `strict`, or `none`. Use `none` for a cross-origin sponsor frontend (GAP-1) — requires `SESSION_COOKIE_SECURE=true` |
 | `S3_BUCKET` | `cosolvent-files` | For files | S3 bucket |
 | `S3_REGION` | `us-east-1` | For files | S3 region |
 | `AWS_ACCESS_KEY_ID` | _(empty)_ | For files | AWS access key |

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from pydantic import field_validator
+from typing import Literal
+
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
+
+SameSitePolicy = Literal["lax", "strict", "none"]
 
 
 class Settings(BaseSettings):
@@ -25,6 +29,15 @@ class Settings(BaseSettings):
     # When False, the session cookie omits the Secure flag so it is stored over
     # plain http from any host (127.0.0.1, LAN IPs). Keep True in production.
     session_cookie_secure: bool = True
+    # SameSite policy for the session cookie. "lax" (default) is correct for a
+    # same-origin deployment (frontend and API behind one reverse-proxy origin).
+    # A sponsor frontend on a genuinely different origin (GAP-1 — the headless model
+    # is the product) needs "none", which browsers only honor alongside Secure=true;
+    # the validator below enforces that pairing. Cross-origin callers that can't rely
+    # on third-party cookies at all (native apps, server-to-server) should use the
+    # `access_token` bearer credential returned alongside the cookie instead — see
+    # auth/router.py.
+    session_cookie_samesite: SameSitePolicy = "lax"
 
     # S3
     s3_bucket: str = "cosolvent-files"
@@ -75,6 +88,24 @@ class Settings(BaseSettings):
         if v == "":
             return None
         return v
+
+    @field_validator("session_cookie_samesite", mode="before")
+    @classmethod
+    def _normalize_samesite(cls, v: object) -> object:
+        # Lowercase before the Literal check below runs, so `SESSION_COOKIE_SAMESITE=None`
+        # (a natural env-var spelling) validates the same as `none`.
+        return v.lower() if isinstance(v, str) else v
+
+    @model_validator(mode="after")
+    def _samesite_none_requires_secure(self) -> "Settings":
+        # Browsers silently reject `SameSite=None` cookies that aren't also `Secure` —
+        # this would reproduce GAP-1's "fails silently" symptom one config knob later.
+        if self.session_cookie_samesite == "none" and not self.session_cookie_secure:
+            raise ValueError(
+                "session_cookie_samesite='none' requires session_cookie_secure=true "
+                "(browsers drop SameSite=None cookies that aren't Secure)"
+            )
+        return self
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

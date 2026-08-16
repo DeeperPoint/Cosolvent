@@ -163,8 +163,18 @@ def render_brief_markdown(
     parties = [p for p in deal.get("parties", []) if p.get("status") == "active"]
     who = "\n".join(f"- {_party_descriptor(p, disclosure)} — role: {p.get('role')}" for p in parties)
 
+    deal_id = str(deal.get("_id") or deal.get("id") or "")
+    created = deal.get("created_at")
+    created_str = created.isoformat() if hasattr(created, "isoformat") else str(created or "n/a")
+
     lines = [
         "# Deal Brief",
+        "",
+        f"**Deal ID:** `{deal_id}`  ",
+        # This renders during finalization, one step before `deal.status` flips to
+        # brief_ready — state that outcome directly rather than the pre-transition value.
+        "**Status:** Milestone reached — brief finalized  ",
+        f"**Generated:** {created_str}",
         "",
         "> This is a non-binding summary for the parties' own use, not a contract.",
         "",
@@ -195,4 +205,12 @@ def render_brief_markdown(
                 f"acknowledged by {', '.join(m.get('acknowledged_by', [])) or 'n/a'}"
             )
     lines.append(f"- Framework scenario: {deal.get('framework_scenario') or 'unspecified'}")
+
+    lines += [
+        "",
+        "## Next Steps",
+        "- Confirm any remaining logistics, financing, or contracting details directly between the parties.",
+        "- Retain this brief as the record of what was disclosed and agreed through the platform.",
+        "- Reopen a specific matter from the deal page if new terms need to be captured after handoff.",
+    ]
     return "\n".join(lines).strip()

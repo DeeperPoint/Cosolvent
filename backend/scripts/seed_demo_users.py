@@ -18,6 +18,7 @@ from app.core.database import connect_db, close_db, get_collection
 from app.core.marketplace_config import load_marketplace_config, set_marketplace_config
 from app.core.security import hash_password
 from app.modules.profiles import repository as prof_repo
+from _demo_data import align_demo_pair, make_fields
 
 CFG_PATH = os.environ.get("MARKETPLACE_CONFIG_PATH", "../marketplace.yaml")
 PASSWORD = os.environ.get("SEED_PASSWORD", "Passw0rd!23")
@@ -29,40 +30,6 @@ COUNTS = {"seller": 40, "buyer": 30, "service_provider": 15}
 
 CFG = load_marketplace_config(CFG_PATH)
 rng = random.Random(42)
-
-COMPANIES = ["Atlas", "Summit", "Ironclad", "Vanguard", "Meridian", "Titan", "Cascade", "Bedrock",
-             "Northwind", "Keystone", "Redwood", "Granite", "Pioneer", "Sterling", "Apex", "Forge",
-             "Beacon", "Harbor", "Ridgeline", "Copperfield"]
-SUFFIX = ["Machinery", "Equipment Co", "Industrial", "Trading", "Heavy Group", "Works", "Logistics"]
-
-
-def _pick(field):
-    opts = list(field.options or [])
-    if not opts:
-        return None
-    if field.type == "multi_select":
-        k = rng.randint(1, min(3, len(opts)))
-        return rng.sample(opts, k)
-    return rng.choice(opts)
-
-
-def _make_fields(slug, i):
-    schema = CFG.profile_schemas[slug]
-    fields = {}
-    for f in schema.all_fields:
-        if f.type in ("files", "file"):
-            continue
-        if f.type == "text":
-            fields[f.name] = f"{rng.choice(COMPANIES)} {rng.choice(SUFFIX)} #{i:02d}"
-        elif f.type == "rich_text":
-            fields[f.name] = f"A {slug.replace('_', ' ')} in industrial machinery trade, established operator."
-        elif f.type == "number":
-            fields[f.name] = rng.choice([1200, 3500, 8000, 15000, 40000])
-        elif f.type in ("select", "multi_select"):
-            v = _pick(f)
-            if v is not None:
-                fields[f.name] = v
-    return fields
 
 
 async def _cleanup_prior():
@@ -91,6 +58,13 @@ async def main():
 
     created = {"seller": [], "buyer": [], "service_provider": []}
     indexed = 0
+
+    # Pre-compute an aligned pair for the flagship demo accounts (seller01/buyer01) so
+    # discovery matching surfaces them as an obvious top match for each other.
+    demo_seller_fields = make_fields(CFG, "seller", rng)
+    demo_buyer_fields = make_fields(CFG, "buyer", rng)
+    align_demo_pair(demo_buyer_fields, demo_seller_fields)
+
     for slug, n in COUNTS.items():
         for i in range(1, n + 1):
             email = f"{slug}{i:02d}@{DOMAIN}"
@@ -104,7 +78,12 @@ async def main():
             }
             res = await get_collection("users").insert_one(user)
             uid = res.inserted_id
-            fields = _make_fields(slug, i)
+            if slug == "seller" and i == 1:
+                fields = demo_seller_fields
+            elif slug == "buyer" and i == 1:
+                fields = demo_buyer_fields
+            else:
+                fields = make_fields(CFG, slug, rng)
             profile = await prof_repo.create_profile(
                 user_id=uid, participant_type=slug, fields=fields, status="active", completeness=100
             )
