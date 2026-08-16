@@ -1,0 +1,126 @@
+{
+  "generator": "clientsynth/population-export@1",
+  "generated_at": "2026-08-10T08:40:08.984Z",
+  "mode": "demo",
+  "participant_type": "producer",
+  "count": 6,
+  "records": [
+    {
+      "participant_type": "producer",
+      "external_id": "cs-f453bf12-000000",
+      "fields": {
+        "farm_name": "Prairie Gold Farms",
+        "country": "Canada",
+        "primary_crops": [
+          "Wheat",
+          "Barley"
+        ],
+        "description": "Prairie Gold Farms is a family-owned operation located in the heart of Saskatchewan, Canada. We are dedicated to sustainable farming practices and producing high-quality wheat and barley for both domestic and international markets. Our land has been in the family for three generations, and we pride ourselves on our commitment to environmental stewardship and agricultural innovation. We utilize modern farming techniques combined with traditional wisdom to ensure optimal yield and soil health. Our focus is on creating a resilient and productive farm for future generations.",
+        "annual_production": 7500,
+        "financial_notes": "Currently exploring options for expanding storage capacity to capitalize on better market prices post-harvest. Strong credit history with local agricultural lenders. Looking into forward contracts for a portion of the upcoming harvest."
+      },
+      "_watermark": {
+        "synthetic": true,
+        "algo": "hmac-sha256-v1",
+        "signature": "bc11a38a602c03da95cd2b8a797a071b8bce6b348b5606fa465d30b27c571b3c"
+      }
+    },
+    {
+      "participant_type": "producer",
+      "external_id": "cs-f453bf12-000001",
+      "fields": {
+        "farm_name": "Sunset Valley Farms",
+        "country": "USA",
+        "primary_crops": [
+          "Wheat"
+        ],
+        "description": "Sunset Valley Farms is a multi-generational farm located in the fertile plains of Kansas, USA. We specialize in producing high-quality winter wheat, known for its excellent milling characteristics. Our commitment to sustainable agriculture is paramount, employing advanced soil conservation techniques and efficient water management systems. We pride ourselves on our meticulous crop rotation and integrated pest management practices, ensuring both environmental health and robust yields. We are dedicated to delivering premium grain to our customers while preserving the land for future generations.",
+        "annual_production": 12000,
+        "financial_notes": "Actively seeking opportunities to invest in new, more efficient harvesting equipment to reduce operational costs. Maintains a strong relationship with regional agricultural banks and has a robust cash flow from consistent harvests. Evaluating hedging strategies for future crop sales to mitigate market volatility."
+      },
+      "_watermark": {
+        "synthetic": true,
+        "algo": "hmac-sha256-v1",
+        "signature": "82afee12796b5f4df6f799ce8399606596a279b69dcd646e5f6645ab59d3422d"
+      }
+    },
+    {
+      "participant_type": "producer",
+      "external_id": "cs-f453bf12-000002",
+      "fields": {
+        "farm_name": "Northern Grain Producers",
+        "country": "Canada",
+        "primary_crops": [
+          "Barley"
+        ],
+        "description": "Northern Grain Producers is a cooperative of independent farmers in Alberta, Canada, specializing in premium malting barley. Our members are committed to sustainable farming practices and leverage shared resources to maximize efficiency and quality. We work closely with breweries and food manufacturers to provide top-tier barley, ensuring traceability and consistency from field to product. Our focus on innovation and environmental stewardship drives our operations.",
+        "annual_production": 9800,
+        "financial_notes": "The cooperative maintains a robust financial standing, with annual audits confirming strong fiscal management. We are exploring new market opportunities in craft brewing and distilling, and have secured favorable terms for bulk sales. Currently assessing investments in advanced sorting and storage technologies to enhance product value and market access."
+      },
+      "_watermark": {
+        "synthetic": true,
+        "algo": "hmac-sha256-v1",
+        "signature": "b53ef1b2fa8a0985856c7c0c30955b9663f2f5c3639ff7bae780ed496ac1582f"
+      }
+    },
+    {
+      "participant_type": "producer",
+      "external_id": "cs-f453bf12-000003",
+      "fields": {
+        "farm_name": "Golden Harvest Acres",
+        "country": "USA",
+        "primary_crops": [
+          "Wheat",
+          "Barley"
+        ],
+        "description": "Golden Harvest Acres is a family-run farm in North Dakota, USA, dedicated to producing high-quality spring wheat and malting barley. We implement precision agriculture techniques, including GPS-guided machinery and soil mapping, to optimize yields and minimize environmental impact. Our commitment to sustainable practices ensures the long-term health of our land, while our meticulous attention to detail guarantees premium grain for our customers. We are proud of our heritage and constantly strive for innovation in farming.",
+        "annual_production": 9200,
+        "financial_notes": "Currently evaluating capital expenditures for upgrading irrigation systems to improve drought resilience. Has a strong credit rating and established lines of credit with agricultural lenders. Exploring participation in government crop insurance programs to mitigate financial risks associated with adverse weather conditions. Maintains detailed financial records for all operations."
+      },
+      "_watermark": {
+        "synthetic": true,
+        "algo": "hmac-sha256-v1",
+        "signature": "8c6bafb4c533da93863f5444c10b7027dcf601b85c3e143a50bc0aed44ad6004"
+      }
+    },
+    {
+      "participant_type": "producer",
+      "external_id": "cs-f453bf12-000004",
+      "fields": {
+        "farm_name": "Maple Ridge Farms",
+        "country": "Canada",
+        "primary_crops": [
+          "Wheat",
+          "Barley"
+        ],
+        "description": "Maple Ridge Farms is a progressive agricultural operation nestled in the fertile lands of Manitoba, Canada. We specialize in cultivating high-quality spring wheat and malting barley, committed to sustainable farming methods and environmental stewardship. Our farm integrates modern technology with time-honored practices to ensure optimal crop health and yield. We are dedicated to producing premium grains that meet the stringent demands of our diverse clientele, from local breweries to international food processors. We constantly invest in research and development to enhance our agricultural practices and contribute to a healthier planet.",
+        "annual_production": 8100,
+        "financial_notes": "The farm has a solid financial footing with consistent profitability. Currently exploring investment in advanced drone technology for crop monitoring and precision fertilization. Maintains excellent credit with major Canadian financial institutions and has a history of successful long-term contracts with buyers. Evaluating opportunities for value-added processing of a portion of our harvest to increase revenue streams."
+      },
+      "_watermark": {
+        "synthetic": true,
+        "algo": "hmac-sha256-v1",
+        "signature": "9457af0466c292597cba182fef234e454fb620d15ddaca58e8202fbe7c3b5f3d"
+      }
+    },
+    {
+      "participant_type": "producer",
+      "external_id": "cs-f453bf12-000005",
+      "fields": {
+        "farm_name": "Desert Bloom Grain",
+        "country": "USA",
+        "primary_crops": [
+          "Barley"
+        ],
+        "description": "Desert Bloom Grain is a pioneering farm in Eastern Washington, USA, focused on cultivating high-quality barley using innovative dryland farming techniques. We are committed to water conservation and soil health in an arid environment, employing sustainable practices to produce resilient and robust crops. Our barley is sought after for its exceptional quality, serving both the brewing industry and livestock feed markets. We continuously research and implement adaptive strategies to thrive in challenging agricultural landscapes.",
+        "annual_production": 5500,
+        "financial_notes": "Exploring grants and subsidies for sustainable agriculture practices and water-efficient irrigation systems. Maintains a healthy balance sheet and operates with conservative financial planning. Has secured several forward contracts with regional breweries, ensuring stable income streams. Reviewing options for capital investment in upgraded harvesting machinery to improve efficiency and reduce labor costs."
+      },
+      "_watermark": {
+        "synthetic": true,
+        "algo": "hmac-sha256-v1",
+        "signature": "69502458c9508807e0e28133bceec357e0d64d7a7187c20a54cd34d3bfedd1f4"
+      }
+    }
+  ]
+}

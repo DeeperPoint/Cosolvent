@@ -124,6 +124,14 @@ def main() -> None:
     stamp_parser.add_argument("-o", "--output", required=True, help="Output (watermarked) file path")
     stamp_parser.add_argument("--secret", default=None, help="Override the watermark secret")
 
+    schema_parser = subparsers.add_parser(
+        "export-profile-schema",
+        help="Publish a participant type's profile schema as JSON (contract for generators)",
+    )
+    schema_parser.add_argument("participant_type", help="Participant type slug (e.g. producer)")
+    schema_parser.add_argument("--config", default=None, help="marketplace.yaml path (default: settings)")
+    schema_parser.add_argument("-o", "--output", default=None, help="Output path (default: stdout)")
+
     args = parser.parse_args()
 
     if args.command == "load-references":
@@ -142,6 +150,13 @@ def main() -> None:
         from cli.stamp_population import stamp_population
 
         ok = stamp_population(args.file, args.output, secret=args.secret)
+        sys.exit(0 if ok else 1)
+    if args.command == "export-profile-schema":
+        from app.core.config import settings
+        from cli.export_profile_schema import export_profile_schema
+
+        config_path = args.config or settings.marketplace_config_path
+        ok = export_profile_schema(args.participant_type, config_path, args.output)
         sys.exit(0 if ok else 1)
     if args.command == "generate-config":
         from configgen.cli import main as gen_main
