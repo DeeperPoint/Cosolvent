@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Cookie, Depends, Header, Response
 
+from app.core.config import settings
 from app.core.dependencies import extract_bearer_token, get_config, get_current_user
 from app.core.exceptions import ForbiddenError
 from app.core.marketplace_config import MarketplaceConfig
@@ -11,6 +12,8 @@ from app.modules.auth.signup_policy import public_signup_allowed
 from app.modules.auth.schemas import (
     AuthResponse,
     BootstrapRequest,
+    DemoPersonaRequest,
+    DemoPersonaResponse,
     LoginRequest,
     SignupRequest,
     UserResponse,
@@ -76,5 +79,20 @@ async def verify(user: dict = Depends(get_current_user)):
 @router.post("/bootstrap", response_model=AuthResponse)
 async def bootstrap(body: BootstrapRequest, response: Response):
     result = await service.bootstrap_admin(body.email, body.password)
+    set_session_cookie(response, result["session_token"])
+    return _public_auth_response(result)
+
+
+@router.post("/demo-persona", response_model=DemoPersonaResponse)
+async def demo_persona(
+    body: DemoPersonaRequest,
+    response: Response,
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Log in as a random synthetic participant of the requested type — never
+    available outside demo mode (see assign_demo_persona's docstring for why)."""
+    if settings.demo_mode == "off":
+        raise ForbiddenError("Persona assignment is only available in demo mode")
+    result = await service.assign_demo_persona(body.participant_type, config)
     set_session_cookie(response, result["session_token"])
     return _public_auth_response(result)

@@ -134,6 +134,23 @@ def _register_routers(application: FastAPI) -> None:
     application.include_router(admin_router, prefix="/api/admin", tags=["admin"])
     application.include_router(setup_router, tags=["setup"])
 
+    @application.get("/api/marketplace", tags=["marketplace"])
+    async def get_marketplace_info() -> dict:
+        """Public marketplace metadata — the participant-type taxonomy a demo-ui role
+        picker (or a registration form) needs before the visitor is authenticated. Not
+        a new information disclosure: the same taxonomy is already visible in /docs and
+        the generated frontend's /register/{type} routes."""
+        from app.core.marketplace_config import get_marketplace_config
+
+        config = get_marketplace_config()
+        return {
+            "name": config.marketplace.name,
+            "description": config.marketplace.description,
+            "participant_types": [
+                {"slug": pt.slug, "name": pt.name, "role": pt.role} for pt in config.participant_types
+            ],
+        }
+
     @application.get("/api/mode", tags=["mode"])
     async def get_mode() -> dict:
         """Current Demo Mode staging + capabilities (Phase 6a / story-progression §11)."""

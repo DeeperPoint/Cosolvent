@@ -139,3 +139,30 @@ def test_session_cookie_samesite_is_configurable(client: TestClient):
 
     cookie = response.headers["set-cookie"]
     assert "samesite=none" in cookie.lower()
+
+
+# ── demo persona assignment ──────────────────────────────────────────────────
+
+def _persona_result() -> dict:
+    return {**_auth_result(), "persona": {"profile_id": "p1", "participant_type": "producer", "fields": {}}}
+
+
+def test_demo_persona_403s_when_demo_mode_off(client: TestClient):
+    with patch.object(settings, "demo_mode", "off"):
+        response = client.post("/api/auth/demo-persona", json={"participant_type": "producer"})
+    assert response.status_code == 403
+    assert "demo mode" in response.json()["detail"].lower()
+
+
+def test_demo_persona_logs_in_and_returns_persona(client: TestClient):
+    with patch.object(settings, "demo_mode", "showcase"), patch(
+        "app.modules.auth.router.service.assign_demo_persona",
+        new=AsyncMock(return_value=_persona_result()),
+    ):
+        response = client.post("/api/auth/demo-persona", json={"participant_type": "producer"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["access_token"] == "token-123"
+    assert body["persona"] == {"profile_id": "p1", "participant_type": "producer", "fields": {}}
+    assert "session_token=token-123" in response.headers["set-cookie"]

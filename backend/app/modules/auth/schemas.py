@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, EmailStr
 
 
@@ -37,3 +39,19 @@ class UserResponse(BaseModel):
     participant_type: str | None = None
     role: str
     has_onboarded: bool
+
+
+class DemoPersonaRequest(BaseModel):
+    participant_type: str
+
+
+class PersonaSummary(BaseModel):
+    profile_id: str
+    participant_type: str
+    fields: dict[str, Any]
+
+
+class DemoPersonaResponse(AuthResponse):
+    # The synthetic profile the caller is now logged in as — the demo-ui role picker
+    # (MarketForge Phase 6a) shows this instead of asking the visitor to fill anything in.
+    persona: PersonaSummary
