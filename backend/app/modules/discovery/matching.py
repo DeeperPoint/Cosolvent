@@ -14,6 +14,7 @@ This is not the same surface as ``/api/search``:
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any
 
 from app.core.exceptions import AppError, ForbiddenError, NotFoundError, ServiceUnavailableError
@@ -290,6 +291,36 @@ def _num(v: Any) -> float | None:
         return None
 
 
+def _to_date(v: Any) -> date | None:
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    if isinstance(v, str):
+        try:
+            # Accept a plain date ("2026-09-01") or the date portion of a datetime.
+            return date.fromisoformat(v[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def _to_date_range(v: Any) -> tuple[date, date] | None:
+    """``[start, end]`` (ISO date/datetime strings) or ``{"start": ..., "end": ...}``.
+    No new schema field type needed — this reads whatever JSON a `text`-typed field
+    (or any other) happens to hold; the comparator is what gives it meaning."""
+    if isinstance(v, dict):
+        start, end = v.get("start"), v.get("end")
+    elif isinstance(v, (list, tuple)) and len(v) == 2:
+        start, end = v
+    else:
+        return None
+    start_d, end_d = _to_date(start), _to_date(end)
+    if start_d is None or end_d is None or start_d > end_d:
+        return None
+    return start_d, end_d
+
+
 def _pair_score(comparator: str, a: Any, b: Any) -> float | None:
     """Compare one field on both sides into [0,1]; None when not comparable."""
     if a is None or b is None:
@@ -305,6 +336,19 @@ def _pair_score(comparator: str, a: Any, b: Any) -> float | None:
             return None
         denom = max(abs(na), abs(nb), 1.0)
         return max(0.0, 1.0 - abs(na - nb) / denom)
+    if comparator == "window_overlap":
+        # Availability/need windows (GAP-18: temporal perishability as a load-bearing
+        # matching dimension). Score = overlap length / union length of the two date
+        # ranges — 1.0 for identical windows, 0.0 for adjacent-or-disjoint ones.
+        ra, rb = _to_date_range(a), _to_date_range(b)
+        if ra is None or rb is None:
+            return None
+        (a_start, a_end), (b_start, b_end) = ra, rb
+        overlap_start, overlap_end = max(a_start, b_start), min(a_end, b_end)
+        overlap_days = max(0, (overlap_end - overlap_start).days + 1)
+        union_start, union_end = min(a_start, b_start), max(a_end, b_end)
+        union_days = (union_end - union_start).days + 1
+        return overlap_days / union_days if union_days > 0 else 0.0
     # scalar_eq (default)
     return 1.0 if a == b else 0.0
 

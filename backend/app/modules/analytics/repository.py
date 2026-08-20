@@ -31,3 +31,10 @@ async def all_deals(limit: int = 50_000) -> list[dict[str, Any]]:
 async def all_story_version_states(limit: int = 200_000) -> list[str]:
     docs = await get_collection("story_versions").find({}).to_list(length=limit)
     return [d.get("state") or "unknown" for d in docs]
+
+
+async def active_profile_ids_by_type(participant_type: str, limit: int = 200) -> list[str]:
+    docs = await get_collection("profiles").find(
+        {"participant_type": participant_type, "status": "active"}
+    ).to_list(length=limit)
+    return [str(d["_id"]) for d in docs]

@@ -566,6 +566,27 @@ async def set_instrument(deal_id: str, user: dict[str, Any], instrument: str, co
 
 
 # ── facilitator slots + injection (GAP-7) ────────────────────────────────────────
+def _facilitator_availability(fields: dict[str, Any]) -> dict[str, Any] | None:
+    """Surface a facilitator's queue/availability signal, if their profile carries
+    one (GAP-19: 'the 4-month queue that is really an 8-week booking for
+    pre-reviewed packages'). Two conventional field names, generic across
+    verticals — no schema change needed, this just knows to look for them:
+      * ``queue_depth``    — a number (whatever unit the vertical documents, e.g.
+                              business days of backlog).
+      * ``available_from`` — an ISO date the facilitator can next take new work.
+    Returns None when neither is present, so callers can omit the key entirely
+    rather than showing an empty availability block.
+    """
+    queue_depth = fields.get("queue_depth")
+    available_from = fields.get("available_from")
+    out: dict[str, Any] = {}
+    if isinstance(queue_depth, (int, float)):
+        out["queue_depth"] = queue_depth
+    if available_from:
+        out["available_from"] = available_from
+    return out or None
+
+
 async def search_facilitators(
     deal: dict[str, Any], role_type: str, config: MarketplaceConfig, *, limit: int = 5
 ) -> list[dict[str, Any]]:
@@ -590,12 +611,17 @@ async def search_facilitators(
     out: list[dict[str, Any]] = []
     for h in hits:
         prof = h.get("profile") or {}
-        out.append({
+        fields = prof.get("fields") or {}
+        entry: dict[str, Any] = {
             "profile_id": h.get("id"),
             "user_id": prof.get("user_id"),
             "score": round(float(h.get("score", 0)), 3),
-            "fields": prof.get("fields") or {},
-        })
+            "fields": fields,
+        }
+        availability = _facilitator_availability(fields)
+        if availability:
+            entry["availability"] = availability
+        out.append(entry)
     return out
 
 
@@ -619,16 +645,21 @@ async def search_facilitators_by_name(
         fields = prof.get("fields") or {}
         company = str(fields.get("company_name") or "")
         if needle in company.lower():
-            out.append({
+            entry: dict[str, Any] = {
                 "profile_id": prof.get("_id") or prof.get("id"),
                 "user_id": prof.get("user_id"),
                 "score": 1.0 if company.lower() == needle else 0.9,
                 "fields": fields,
-            })
+            }
+            availability = _facilitator_availability(fields)
+            if availability:
+                entry["availability"] = availability
+            out.append(entry)
         if len(out) >= limit:
             break
-    # Best (exact) matches first.
-    out.sort(key=lambda c: c["score"], reverse=True)
+    # Best (exact) matches first; among ties, the shorter queue breaks the tie
+    # (GAP-19) — a facilitator who can start sooner is the more useful candidate.
+    out.sort(key=lambda c: (-c["score"], c.get("availability", {}).get("queue_depth", float("inf"))))
     return out
 
 

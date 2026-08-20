@@ -16,7 +16,7 @@ from app.modules.admin.schemas import (
     UserRoleUpdate,
 )
 from app.modules.ai.schemas import LLMSettingsUpdate, PromptUpdate, ProviderValidateRequest
-from app.modules.analytics.schemas import MarketOverview
+from app.modules.analytics.schemas import MarketOverview, MatchDensity
 from app.modules.knowledge.schemas import EscapeHatchCreate
 
 router = APIRouter()
@@ -107,6 +107,21 @@ async def market_overview(
     from app.modules.analytics import get_market_overview
 
     return await get_market_overview(config)
+
+
+@router.get("/analytics/match-density", response_model=MatchDensity)
+async def match_density(
+    threshold: float = Query(0.75, ge=0.0, le=1.0, description="Minimum cosine similarity to count as a plausible pair"),
+    sample_limit: int = Query(200, ge=1, le=500, description="Max active source-type profiles sampled per corridor"),
+    user: dict = Depends(require_admin),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Approximate market thickness per supply->demand corridor. Heavier than
+    market-overview (runs live pgvector queries) — see get_match_density's
+    docstring for the approximation this makes."""
+    from app.modules.analytics import get_match_density
+
+    return await get_match_density(config, threshold=threshold, sample_limit=sample_limit)
 
 
 # ── User Management ─────────────────────────────────────────────────────

@@ -29,6 +29,9 @@ DOCUMENT_COLLECTIONS = [
     "version_responses",
     "consent_records",
     "notifications",
+    # Post-handoff bidirectional ratings (roadmap §9.2 reputation system / trust
+    # stage 6 "post-transaction evaluation"). One row per (deal, rater, ratee).
+    "deal_ratings",
     "faqs",
     "ai_documents",
     "ai_prompts",

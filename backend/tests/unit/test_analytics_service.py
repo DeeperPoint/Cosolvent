@@ -149,3 +149,73 @@ async def test_get_market_overview_wires_everything_together(mock_repo):
     assert overview.facilitators[0].supply_profiles == 3  # real + synthetic
     assert overview.story_versions.by_state == {"milestone": 1}
     assert overview.generated_at  # non-empty ISO timestamp
+
+
+# ── match density ────────────────────────────────────────────────────────────
+
+def test_opposite_type_pairs_is_supply_to_demand_only():
+    # candidate=supply, employer=demand, recruiter=facilitator (talent.yaml)
+    assert service._opposite_type_pairs(_cfg()) == [("candidate", "employer")]
+
+
+@pytest.mark.asyncio
+async def test_corridor_density_counts_pairs_and_isolated_profiles():
+    with patch.object(service.repo, "active_profile_ids_by_type", new=AsyncMock(return_value=["p1", "p2", "p3"])), \
+         patch("app.modules.discovery.vector_service.get_profile_embedding", new=AsyncMock(side_effect=[[0.1], [0.2], None])), \
+         patch("app.modules.discovery.vector_service.find_similar_profiles", new=AsyncMock(side_effect=[
+             [{"id": "c1", "score": 0.9}, {"id": "c2", "score": 0.8}],  # p1: 2 matches
+             [],  # p2: isolated
+         ])):
+        result = await service._corridor_density("candidate", "employer", threshold=0.75, sample_limit=200)
+
+    assert result.source_type == "candidate"
+    assert result.target_type == "employer"
+    # p3 has no embedding -> excluded from the sample entirely, not counted as isolated.
+    assert result.source_sampled == 2
+    assert result.pairs_above_threshold == 2
+    assert result.isolated_source_profiles == 1
+    assert result.average_top_score == pytest.approx(0.9)  # only p1 contributed a top score
+
+
+@pytest.mark.asyncio
+async def test_corridor_density_all_unindexed_yields_no_crash():
+    with patch.object(service.repo, "active_profile_ids_by_type", new=AsyncMock(return_value=["p1"])), \
+         patch("app.modules.discovery.vector_service.get_profile_embedding", new=AsyncMock(return_value=None)):
+        result = await service._corridor_density("candidate", "employer", threshold=0.75, sample_limit=200)
+
+    assert result.source_sampled == 0
+    assert result.pairs_above_threshold == 0
+    assert result.isolated_source_profiles == 0
+    assert result.average_top_score is None
+
+
+@pytest.mark.asyncio
+async def test_get_match_density_wires_corridors_and_metadata():
+    with patch.object(service, "_corridor_density", new=AsyncMock(return_value=service.CorridorDensity(
+        source_type="candidate", target_type="employer", source_sampled=5,
+        pairs_above_threshold=3, isolated_source_profiles=1, average_top_score=0.81,
+    ))):
+        density = await service.get_match_density(_cfg(), threshold=0.8, sample_limit=50)
+
+    assert density.threshold == 0.8
+    assert len(density.corridors) == 1
+    assert density.corridors[0].pairs_above_threshold == 3
+    assert density.generated_at
+    assert "approximat" in density.note.lower() or "upper-bound" in density.note.lower()
+
+
+@pytest.mark.asyncio
+async def test_get_match_density_clamps_sample_limit_to_max():
+    calls = []
+
+    async def _fake_corridor(source_type, target_type, *, threshold, sample_limit):
+        calls.append(sample_limit)
+        return service.CorridorDensity(
+            source_type=source_type, target_type=target_type, source_sampled=0,
+            pairs_above_threshold=0, isolated_source_profiles=0,
+        )
+
+    with patch.object(service, "_corridor_density", new=_fake_corridor):
+        await service.get_match_density(_cfg(), sample_limit=99999)
+
+    assert calls == [service._MAX_SAMPLE_LIMIT]

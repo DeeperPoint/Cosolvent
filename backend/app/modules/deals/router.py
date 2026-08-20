@@ -23,6 +23,7 @@ from app.modules.deals.schemas import (
     RespondRequest,
     SetInstrumentRequest,
 )
+from app.modules.reputation.schemas import RateDealRequest
 
 router = APIRouter()
 
@@ -178,6 +179,19 @@ async def exit_deal(
 ):
     """Leave the deal (§7): drop from future acknowledgers; close the deal or reopen a slot."""
     return await service.exit_deal(deal_id, user, config)
+
+
+@router.post("/{deal_id}/rate")
+async def rate_deal(
+    body: RateDealRequest,
+    deal_id: str = Path(...),
+    user: dict = Depends(get_current_user),
+):
+    """Rate a counterparty on a deal that reached handoff (roadmap §9.2). Idempotent
+    per (deal, rater, ratee) — resubmitting updates your existing rating."""
+    from app.modules.reputation import service as reputation_service
+
+    return await reputation_service.rate_deal(deal_id, user, body)
 
 
 @router.post("/{deal_id}/demo/agree")

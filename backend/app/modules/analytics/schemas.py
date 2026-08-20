@@ -46,3 +46,30 @@ class MarketOverview(BaseModel):
     deals: DealFunnel
     facilitators: list[FacilitatorRoleUtilization] = Field(default_factory=list)
     story_versions: StoryHealth
+
+
+class CorridorDensity(BaseModel):
+    source_type: str
+    target_type: str
+    # How many active source-side profiles were actually sampled (capped — see
+    # get_match_density's docstring).
+    source_sampled: int
+    # Sum, across sampled source profiles, of target candidates scoring >= threshold.
+    # Not deduplicated pairs — "how many plausible counterparts does each side have,
+    # summed" — matching CONVERGENCE.md's own framing ("12 plausible buyer-seller
+    # pairs out of a population of 80").
+    pairs_above_threshold: int
+    # Sampled source profiles with zero candidates above threshold — a cold-start signal.
+    isolated_source_profiles: int
+    average_top_score: float | None = None
+
+
+class MatchDensity(BaseModel):
+    generated_at: str
+    threshold: float
+    corridors: list[CorridorDensity] = Field(default_factory=list)
+    note: str = (
+        "Approximate: raw semantic similarity only (pgvector cosine on stored "
+        "embeddings), not the full GAP-3 weighted-slot/hard-gate score suggested_matches "
+        "uses — an upper-bound estimate of plausible pairs, not a ranked match list."
+    )

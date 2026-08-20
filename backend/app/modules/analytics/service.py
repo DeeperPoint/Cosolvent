@@ -3,14 +3,12 @@ CONVERGENCE.md Phase 6 activity 7 — 'aggregate match quality, deal completion
 rates, facilitator utilization, and other metrics').
 
 Everything below is computed from data the engine already persists — no new tables,
-no background jobs, no simulation run required.
-
-**Deliberately not included: match density / corridor traffic.** No match is
-persisted anywhere in the engine today — discovery is query-time-only vector search,
-so a true match-density figure would mean running search over the full population on
-every call. That's a real gap (still open), not silently solved here; it needs either
-a persisted match log or a background compute job, which is a separate, larger piece
-of work than this reporting layer.
+no background jobs, no simulation run required. ``get_match_density`` is the one
+exception worth flagging: no match is persisted anywhere in the engine, so it
+computes fresh on every call by running pgvector search over a capped sample of the
+population (see its docstring for the cost/approximation tradeoffs) — it's
+deliberately its own endpoint, not folded into ``get_market_overview``, so a cheap
+dashboard load never accidentally pays for it.
 """
 
 from __future__ import annotations
@@ -21,9 +19,11 @@ from typing import Any
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.analytics import repository as repo
 from app.modules.analytics.schemas import (
+    CorridorDensity,
     DealFunnel,
     FacilitatorRoleUtilization,
     MarketOverview,
+    MatchDensity,
     ParticipantCounts,
     StoryHealth,
 )
@@ -126,4 +126,93 @@ async def get_market_overview(config: MarketplaceConfig) -> MarketOverview:
         deals=_deal_funnel(deals),
         facilitators=_facilitator_utilization(deals, config, supply_by_type),
         story_versions=_story_health(states),
+    )
+
+
+# ── match density / corridor traffic ────────────────────────────────────────────
+
+# Per-corridor sample cap on the source side — bounds this to O(sample) pgvector
+# queries per corridor rather than O(population) unbounded, since (unlike the rest
+# of this module) it isn't a cheap aggregate read.
+_DEFAULT_SAMPLE_LIMIT = 200
+_MAX_SAMPLE_LIMIT = 500
+_CANDIDATES_PER_PROFILE = 50
+
+
+def _opposite_type_pairs(config: MarketplaceConfig) -> list[tuple[str, str]]:
+    """supply -> demand corridors. Facilitators are excluded: they don't have a
+    natural 'opposite side' the way principals do, so a facilitator corridor would
+    need a different question ("is there enough facilitator supply for the demand
+    that exists") — that's GAP-19's facilitator-utilization angle, already covered
+    by ``get_market_overview``'s ``facilitators`` field, not this one."""
+    supply = [pt.slug for pt in config.participant_types if pt.role == "supply"]
+    demand = [pt.slug for pt in config.participant_types if pt.role == "demand"]
+    return [(s, d) for s in supply for d in demand]
+
+
+async def _corridor_density(
+    source_type: str, target_type: str, *, threshold: float, sample_limit: int
+) -> CorridorDensity:
+    from app.modules.discovery import vector_service
+
+    source_ids = await repo.active_profile_ids_by_type(source_type, limit=sample_limit)
+    pairs = 0
+    isolated = 0
+    top_scores: list[float] = []
+    sampled = 0
+    for pid in source_ids:
+        embedding = await vector_service.get_profile_embedding(pid)
+        if embedding is None:
+            continue  # not indexed yet — excluded from the sample, not counted as isolated
+        sampled += 1
+        candidates = await vector_service.find_similar_profiles(
+            embedding=embedding,
+            participant_types=[target_type],
+            exclude_profile_ids=[pid],
+            min_score=threshold,
+            limit=_CANDIDATES_PER_PROFILE,
+        )
+        pairs += len(candidates)
+        if candidates:
+            top_scores.append(float(candidates[0].get("score", 0.0)))
+        else:
+            isolated += 1
+
+    return CorridorDensity(
+        source_type=source_type,
+        target_type=target_type,
+        source_sampled=sampled,
+        pairs_above_threshold=pairs,
+        isolated_source_profiles=isolated,
+        average_top_score=round(sum(top_scores) / len(top_scores), 4) if top_scores else None,
+    )
+
+
+async def get_match_density(
+    config: MarketplaceConfig, *, threshold: float = 0.75, sample_limit: int = _DEFAULT_SAMPLE_LIMIT
+) -> MatchDensity:
+    """Approximate market thickness per supply->demand corridor: for a capped sample
+    of active, indexed source-type profiles, count target-type candidates whose raw
+    semantic similarity clears ``threshold`` (CONVERGENCE.md's own example: "12
+    plausible buyer-seller pairs out of a population of 80").
+
+    This is explicitly an *approximation*, for two reasons:
+      1. It uses raw pgvector cosine similarity only — not the GAP-3 weighted-slot /
+         hard-gate composite ``suggested_matches`` ranks with. A pair counted here
+         could still fail a hard gate in the real matching flow.
+      2. Each side is capped at ``sample_limit`` profiles (default 200, max 500) so
+         this stays a bounded number of pgvector queries instead of scaling
+         unboundedly with population size.
+    Treat the result as an upper-bound signal ("is this corridor thin or thick"),
+    not a precise match count.
+    """
+    sample_limit = max(1, min(int(sample_limit), _MAX_SAMPLE_LIMIT))
+    corridors = [
+        await _corridor_density(source_type, target_type, threshold=threshold, sample_limit=sample_limit)
+        for source_type, target_type in _opposite_type_pairs(config)
+    ]
+    return MatchDensity(
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        threshold=threshold,
+        corridors=corridors,
     )

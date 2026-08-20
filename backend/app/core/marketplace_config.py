@@ -194,7 +194,10 @@ class MatchSlot(StrictModel):
     #   scalar_eq         — 1.0 if equal, else 0.0 (per field, averaged)
     #   jaccard           — set overlap (lists, or scalars as singletons)
     #   numeric_proximity — 1 - normalized absolute difference
-    comparator: Literal["scalar_eq", "jaccard", "numeric_proximity"] = "scalar_eq"
+    #   window_overlap    — date-range overlap / union (GAP-18: temporal
+    #                       perishability, e.g. availability window vs. needed-by
+    #                       window). Field value: [start, end] or {"start","end"}.
+    comparator: Literal["scalar_eq", "jaccard", "numeric_proximity", "window_overlap"] = "scalar_eq"
     weight: float = Field(ge=0.0, le=1.0)
 
 
