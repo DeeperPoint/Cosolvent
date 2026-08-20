@@ -36,6 +36,18 @@ def upgrade() -> None:
         "CREATE INDEX IF NOT EXISTS ix_knowledge_gap_signals_status "
         "ON knowledge_gap_signals (status, created_at DESC);"
     )
+    # Columns added after the table's first cut (query-side + match-gate gap signals).
+    # ADD COLUMN IF NOT EXISTS keeps this reconcilable on DBs created by the earlier
+    # create_all/migration, which lacked them.
+    op.execute("ALTER TABLE knowledge_gap_signals ADD COLUMN IF NOT EXISTS vertical TEXT;")
+    op.execute(
+        "ALTER TABLE knowledge_gap_signals "
+        "ADD COLUMN IF NOT EXISTS filters JSONB NOT NULL DEFAULT '{}'::jsonb;"
+    )
+    op.execute(
+        "ALTER TABLE knowledge_gap_signals "
+        "ADD COLUMN IF NOT EXISTS reason TEXT NOT NULL DEFAULT '';"
+    )
 
 
 def downgrade() -> None:

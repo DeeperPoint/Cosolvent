@@ -1,8 +1,11 @@
-"""Seed the running marketplace with active participants + profiles, and print logins.
+"""Seed the running marketplace with active, login-capable synthetic participants.
 
-Bypasses the disabled public-signup + manual-approval flow by writing directly (real bcrypt
-hashing, real profile docs with status=active) to the running Postgres. Best-effort embedding
-indexing so vector search / suggested-matches also work.
+Goes through the same watermarked C0 population-import path (GAP-9/10) as any other
+synthetic data — these are demo accounts, not real users, and the ingest boundary
+shouldn't be able to tell them apart from a ClientSynth export. The only thing that
+makes them special is that ``import_population`` is asked to give each synthetic user
+a real, loggable email + a shared password instead of the default unaddressable
+no-login C0 user, so a human can sign in and click around.
 
 Run against the docker stack:
     POSTGRES_DSN=postgresql+asyncpg://postgres:postgres@localhost:15432/cosolvent \
@@ -12,66 +15,34 @@ Run against the docker stack:
 import asyncio
 import os
 import random
-from datetime import datetime, timezone
 
-from app.core.database import connect_db, close_db, get_collection
+from app.core import watermark
+from app.core.config import settings
+from app.core.database import close_db, connect_db, get_collection
 from app.core.marketplace_config import load_marketplace_config, set_marketplace_config
 from app.core.security import hash_password
-from app.modules.profiles import repository as prof_repo
+from app.modules.population.service import import_population
+from _demo_data import align_demo_pair, make_fields
 
 CFG_PATH = os.environ.get("MARKETPLACE_CONFIG_PATH", "../marketplace.yaml")
 PASSWORD = os.environ.get("SEED_PASSWORD", "Passw0rd!23")
 # A normal registrable domain — the login endpoint validates EmailStr, which rejects
 # reserved TLDs like .test/.example, so those addresses could never authenticate.
 DOMAIN = os.environ.get("SEED_DOMAIN", "demo-machinery.com")
-SEED_MARKER = "demo-seed"
 COUNTS = {"seller": 40, "buyer": 30, "service_provider": 15}
 
 CFG = load_marketplace_config(CFG_PATH)
 rng = random.Random(42)
 
-COMPANIES = ["Atlas", "Summit", "Ironclad", "Vanguard", "Meridian", "Titan", "Cascade", "Bedrock",
-             "Northwind", "Keystone", "Redwood", "Granite", "Pioneer", "Sterling", "Apex", "Forge",
-             "Beacon", "Harbor", "Ridgeline", "Copperfield"]
-SUFFIX = ["Machinery", "Equipment Co", "Industrial", "Trading", "Heavy Group", "Works", "Logistics"]
-
-
-def _pick(field):
-    opts = list(field.options or [])
-    if not opts:
-        return None
-    if field.type == "multi_select":
-        k = rng.randint(1, min(3, len(opts)))
-        return rng.sample(opts, k)
-    return rng.choice(opts)
-
-
-def _make_fields(slug, i):
-    schema = CFG.profile_schemas[slug]
-    fields = {}
-    for f in schema.all_fields:
-        if f.type in ("files", "file"):
-            continue
-        if f.type == "text":
-            fields[f.name] = f"{rng.choice(COMPANIES)} {rng.choice(SUFFIX)} #{i:02d}"
-        elif f.type == "rich_text":
-            fields[f.name] = f"A {slug.replace('_', ' ')} in industrial machinery trade, established operator."
-        elif f.type == "number":
-            fields[f.name] = rng.choice([1200, 3500, 8000, 15000, 40000])
-        elif f.type in ("select", "multi_select"):
-            v = _pick(f)
-            if v is not None:
-                fields[f.name] = v
-    return fields
-
 
 async def _cleanup_prior():
-    """Remove any earlier demo batch (by marker or the invalid .test domain)."""
-    users = await get_collection("users").find({}).to_list(length=100000)
+    """Remove any earlier demo batch (this domain, or the old invalid .test domain
+    from before this script went through the population pipeline)."""
+    users = await get_collection("users").find({"is_synthetic": True}).to_list(length=100000)
     removed = 0
     for u in users:
         email = str(u.get("email", ""))
-        if u.get("seed_marker") == SEED_MARKER or email.endswith("@demo.test"):
+        if email.endswith(f"@{DOMAIN}") or email.endswith("@demo.test"):
             uid = u["_id"]
             prof = await get_collection("profiles").find_one({"user_id": uid})
             if prof:
@@ -82,44 +53,47 @@ async def _cleanup_prior():
         print(f"[cleanup] removed {removed} prior demo user(s)")
 
 
+def _build_records() -> list[dict]:
+    """Population-import records for every demo account. Field generation is
+    unchanged from before — only how the result reaches the database changes."""
+    # Pre-compute an aligned pair for the flagship demo accounts (seller01/buyer01) so
+    # discovery matching surfaces them as an obvious top match for each other.
+    demo_seller_fields = make_fields(CFG, "seller", rng)
+    demo_buyer_fields = make_fields(CFG, "buyer", rng)
+    align_demo_pair(demo_buyer_fields, demo_seller_fields)
+
+    records = []
+    for slug, n in COUNTS.items():
+        for i in range(1, n + 1):
+            if slug == "seller" and i == 1:
+                fields = demo_seller_fields
+            elif slug == "buyer" and i == 1:
+                fields = demo_buyer_fields
+            else:
+                fields = make_fields(CFG, slug, rng)
+            records.append({"participant_type": slug, "external_id": f"{slug}{i:02d}", "fields": fields})
+    return records
+
+
 async def main():
     await connect_db()
     set_marketplace_config(CFG)
-    pw_hash = hash_password(PASSWORD)
-    now = datetime.now(timezone.utc)
     await _cleanup_prior()
 
-    created = {"seller": [], "buyer": [], "service_provider": []}
-    indexed = 0
-    for slug, n in COUNTS.items():
-        for i in range(1, n + 1):
-            email = f"{slug}{i:02d}@{DOMAIN}"
-            if await get_collection("users").find_one({"email": email}):
-                created[slug].append(email)
-                continue
-            user = {
-                "email": email, "participant_type": slug, "role": "user",
-                "is_active": True, "has_onboarded": True, "password_hash": pw_hash,
-                "created_at": now, "seed_marker": SEED_MARKER,
-            }
-            res = await get_collection("users").insert_one(user)
-            uid = res.inserted_id
-            fields = _make_fields(slug, i)
-            profile = await prof_repo.create_profile(
-                user_id=uid, participant_type=slug, fields=fields, status="active", completeness=100
-            )
-            created[slug].append(email)
-            try:
-                from app.modules.discovery.indexer import index_profile
-                await index_profile(profile, CFG)
-                indexed += 1
-            except Exception:
-                pass
+    records = _build_records()
+    stamped = [watermark.stamp(r, settings.synthetic_watermark_secret) for r in records]
+    pw_hash = hash_password(PASSWORD)
 
-    total = sum(len(v) for v in created.values())
-    print(f"\n✓ Seeded {total} active participants ({indexed} embedded for vector search)")
-    for slug, emails in created.items():
-        print(f"  {slug}: {len(emails)}")
+    res = await import_population(CFG, stamped, mode="demo", email_domain=DOMAIN, password_hash=pw_hash)
+
+    total = res.loaded + res.updated
+    print(f"\n✓ Seeded {total} active participants ({res.indexed} embedded for vector search)")
+    for slug, n in COUNTS.items():
+        print(f"  {slug}: {n}")
+    if res.rejected_watermark or res.skipped_invalid:
+        print(f"  ! rejected_watermark={res.rejected_watermark} skipped_invalid={res.skipped_invalid}")
+        for e in res.errors[:10]:
+            print(f"    - {e}")
 
     print("\n─────────── LOGIN CREDENTIALS ───────────")
     print(f"  password (all users): {PASSWORD}")

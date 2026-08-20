@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import Cookie, Depends, HTTPException
+from fastapi import Cookie, Depends, Header, HTTPException
 
 from app.core.database import get_collection
 from app.core.marketplace_config import MarketplaceConfig, get_marketplace_config
@@ -14,6 +14,26 @@ from app.engine.permission_engine import check_permission
 
 def get_config() -> MarketplaceConfig:
     return get_marketplace_config()
+
+
+def extract_bearer_token(authorization: str | None) -> str | None:
+    """Pull the token out of an ``Authorization: Bearer <token>`` header, or None.
+
+    This is the cross-origin credential path (GAP-1): a session cookie set by the API
+    may not be sent back by browsers on genuinely cross-site requests (SameSite policy,
+    third-party-cookie blocking), and non-browser callers (native apps, server-to-server
+    integrations) have no cookie jar at all. Those callers authenticate by echoing the
+    `access_token` returned from login/signup back in this header instead.
+    """
+    # Guard against FastAPI's unresolved `Header(None)` sentinel: dependencies are called
+    # directly (not through request DI) in some unit tests, so `authorization` can arrive
+    # as that sentinel object rather than a real `str | None`.
+    if not isinstance(authorization, str) or not authorization:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+    return token
 
 
 async def get_current_user_from_token(session_token: str | None) -> dict[str, Any]:
@@ -43,9 +63,17 @@ async def get_current_user_from_token(session_token: str | None) -> dict[str, An
     return user
 
 
-async def get_current_user(session_token: str = Cookie(None)) -> dict[str, Any]:
-    """Resolve the current user from session cookie. Raises 401 if invalid."""
-    return await get_current_user_from_token(session_token)
+async def get_current_user(
+    session_token: str = Cookie(None),
+    authorization: str = Header(None),
+) -> dict[str, Any]:
+    """Resolve the current user from the session cookie or an ``Authorization: Bearer``
+    header (GAP-1), whichever is present. The header wins when both are — a caller that
+    deliberately sets it is asserting bearer auth, e.g. to bypass a stale/absent cookie.
+    Raises 401 if neither resolves to a valid session.
+    """
+    token = extract_bearer_token(authorization) or session_token
+    return await get_current_user_from_token(token)
 
 
 def _is_session_expired(expires_at: Any) -> bool:
@@ -62,12 +90,16 @@ def _is_session_expired(expires_at: Any) -> bool:
     return expires_at.astimezone(timezone.utc) < datetime.now(timezone.utc)
 
 
-async def get_optional_user(session_token: str = Cookie(None)) -> dict[str, Any] | None:
+async def get_optional_user(
+    session_token: str = Cookie(None),
+    authorization: str = Header(None),
+) -> dict[str, Any] | None:
     """Like get_current_user but returns None instead of raising."""
-    if not session_token:
+    token = extract_bearer_token(authorization) or session_token
+    if not token:
         return None
     try:
-        return await get_current_user(session_token)
+        return await get_current_user_from_token(token)
     except HTTPException:
         return None
 

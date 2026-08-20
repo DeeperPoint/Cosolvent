@@ -103,7 +103,7 @@ def discovery_block(market: MarketDefinition) -> dict:
                     filter_fields.append(f.name)
     filter_fields = filter_fields[:8]
 
-    return {
+    block: dict = {
         "searchable_types": searchable_types,
         "filter_fields": filter_fields,
         "result_visibility": {"anonymous": "public", "authenticated": "protected"},
@@ -118,3 +118,72 @@ def discovery_block(market: MarketDefinition) -> dict:
             "max_vector_candidates": 500,
         },
     }
+    matching = _matching_block(market)
+    if matching:
+        block["matching"] = matching
+    return block
+
+
+def _matching_block(market: MarketDefinition) -> dict | None:
+    """GAP-3: config-driven weighted-slot scoring for principal↔principal matching.
+
+    Deterministically derives per-target weight tables from the searchable select /
+    multi_select fields the principal types share: multi_select → jaccard (weighted higher),
+    select → scalar_eq. ``vector_weight`` takes the remainder so weights sum to 1.0. Hard gates
+    are policy (not inferable), so they are carried from the domain schema's ``matching.hard_gates``
+    (keyed by target slug or role) rather than guessed.
+    """
+    principals = [p for p in market.participants if p.role in ("supply", "demand")]
+    if len(principals) < 2:
+        return None
+
+    gates_by_key = (market.matching or {}).get("hard_gates", {}) or {}
+
+    def _gates_for(p: "ParticipantDef") -> list[dict]:
+        raw = gates_by_key.get(p.slug) or gates_by_key.get(p.role) or []
+        out = []
+        for g in raw if isinstance(raw, list) else []:
+            if isinstance(g, dict) and g.get("name") and g.get("field") and g.get("op"):
+                gate = {"name": g["name"], "field": g["field"], "op": g["op"]}
+                if "value" in g:
+                    gate["value"] = g["value"]
+                out.append(gate)
+        return out
+
+    ftype: dict[str, str] = {}
+    per_type: list[set[str]] = []
+    for p in principals:
+        names: set[str] = set()
+        for sec in p.sections:
+            for f in sec.fields:
+                if f.searchable and f.type in ("select", "multi_select"):
+                    ftype[f.name] = f.type
+                    names.add(f.name)
+        per_type.append(names)
+    common = sorted(set.intersection(*per_type)) if per_type else []
+    if not common:
+        return None
+
+    base = {n: (2.0 if ftype[n] == "multi_select" else 1.0) for n in common}
+    total_base = sum(base.values())
+    slot_budget = 0.5  # slots share half the weight; semantic similarity keeps the rest
+
+    def _profile(p: "ParticipantDef") -> dict:
+        slots = []
+        acc = 0.0
+        for n in common:
+            w = round(slot_budget * base[n] / total_base, 3)
+            acc += w
+            slots.append({
+                "name": f"{n}_fit",
+                "fields": [n],
+                "comparator": "jaccard" if ftype[n] == "multi_select" else "scalar_eq",
+                "weight": w,
+            })
+        prof: dict = {"vector_weight": round(1.0 - acc, 6), "slots": slots}
+        gates = _gates_for(p)
+        if gates:
+            prof["hard_gates"] = gates
+        return prof
+
+    return {"per_target": {p.slug: _profile(p) for p in principals}}

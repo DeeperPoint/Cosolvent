@@ -93,6 +93,21 @@ async def get_my_profile(
     return await service.get_my_profile(user, config)
 
 
+@router.post("/{type_slug}/me/extract")
+async def extract_from_prose(
+    body: dict,
+    type_slug: str = Path(...),
+    user: dict = Depends(get_current_user),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """GAP-11: describe yourself in prose -> canonical fields are extracted and applied."""
+    _validate_type(type_slug, config)
+    text = str(body.get("text") or "").strip()
+    if len(text) < 10:
+        raise AppError("Write a sentence or two about your business first", status_code=422)
+    return await service.extract_from_prose(user, text, config)
+
+
 @router.get("/{type_slug}/me/clarify")
 async def get_clarification(
     type_slug: str = Path(...),

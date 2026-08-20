@@ -16,6 +16,8 @@ from app.modules.admin.schemas import (
     UserRoleUpdate,
 )
 from app.modules.ai.schemas import LLMSettingsUpdate, PromptUpdate, ProviderValidateRequest
+from app.modules.analytics.schemas import MarketOverview, MatchDensity
+from app.modules.knowledge.schemas import EscapeHatchCreate
 
 router = APIRouter()
 
@@ -39,6 +41,45 @@ async def resolve_knowledge_gap(gap_id: str, user: dict = Depends(require_admin)
     return {"resolved": ok}
 
 
+# ── Escape hatches — Loop-2 conditional gates (GAP-14 payoff half) ────────
+@router.get("/escape-hatches")
+async def list_escape_hatches_route(
+    status: str = Query("active"),
+    user: dict = Depends(require_admin),
+):
+    from app.modules.knowledge import list_escape_hatches
+
+    return {"hatches": await list_escape_hatches(status=status or None)}
+
+
+@router.post("/escape-hatches")
+async def create_escape_hatch_route(
+    body: EscapeHatchCreate,
+    user: dict = Depends(require_admin),
+):
+    from app.modules.knowledge import create_escape_hatch, set_gap_status
+
+    hatch_id = await create_escape_hatch(
+        gate_name=body.gate_name,
+        condition=body.condition.model_dump(),
+        rationale=body.rationale,
+        vertical=body.vertical,
+        metadata={"source_gap_id": body.source_gap_id} if body.source_gap_id else {},
+    )
+    # Ingesting a hatch answers the pull signal that motivated it.
+    if body.source_gap_id:
+        await set_gap_status(body.source_gap_id, "resolved")
+    return {"id": hatch_id}
+
+
+@router.post("/escape-hatches/{hatch_id}/deactivate")
+async def deactivate_escape_hatch_route(hatch_id: str, user: dict = Depends(require_admin)):
+    from app.modules.knowledge import set_escape_hatch_status
+
+    ok = await set_escape_hatch_status(hatch_id, "inactive")
+    return {"deactivated": ok}
+
+
 # ── Dashboard & Config ───────────────────────────────────────────────────
 
 @router.get("/dashboard")
@@ -55,6 +96,32 @@ async def get_config_summary(
     config: MarketplaceConfig = Depends(get_config),
 ):
     return await service.get_config_summary(config)
+
+
+# ── Market-dynamics reporting (roadmap B1.8 'Market Physics Scorecard') ──
+@router.get("/analytics/market-overview", response_model=MarketOverview)
+async def market_overview(
+    user: dict = Depends(require_admin),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    from app.modules.analytics import get_market_overview
+
+    return await get_market_overview(config)
+
+
+@router.get("/analytics/match-density", response_model=MatchDensity)
+async def match_density(
+    threshold: float = Query(0.75, ge=0.0, le=1.0, description="Minimum cosine similarity to count as a plausible pair"),
+    sample_limit: int = Query(200, ge=1, le=500, description="Max active source-type profiles sampled per corridor"),
+    user: dict = Depends(require_admin),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Approximate market thickness per supply->demand corridor. Heavier than
+    market-overview (runs live pgvector queries) — see get_match_density's
+    docstring for the approximation this makes."""
+    from app.modules.analytics import get_match_density
+
+    return await get_match_density(config, threshold=threshold, sample_limit=sample_limit)
 
 
 # ── User Management ─────────────────────────────────────────────────────

@@ -45,7 +45,15 @@ async def import_population(
     mode: Mode = "demo",
     secret: str | None = None,
     do_index: bool = True,
+    email_domain: str | None = None,
+    password_hash: str | None = None,
 ) -> PopulationImportResult:
+    """``email_domain``/``password_hash`` are the interactive-demo-account extension:
+    when set, each created synthetic user gets ``{external_id}@{email_domain}`` and
+    the given password hash instead of the default unaddressable/no-login C0 user, so
+    it can log in through the normal ``/api/auth/login`` flow. Every other GAP-9/10
+    guarantee (watermark gate, schema validation, idempotent upsert, `is_synthetic`
+    flag) still applies — this only changes what the *user* record looks like."""
     secret = secret if secret is not None else settings.synthetic_watermark_secret
     res = PopulationImportResult(mode=mode, total=len(records))
 
@@ -82,7 +90,10 @@ async def import_population(
             continue
         completeness = compute_completeness(config, pt, validated)
 
-        profile, created = await repo.upsert_synthetic_profile(ext, pt, validated, completeness)
+        email = f"{ext}@{email_domain}" if email_domain else None
+        profile, created = await repo.upsert_synthetic_profile(
+            ext, pt, validated, completeness, email=email, password_hash=password_hash
+        )
         if created:
             res.loaded += 1
         else:

@@ -121,6 +121,7 @@ def _register_routers(application: FastAPI) -> None:
     from app.modules.notifications.router import router as notif_router
     from app.modules.population.router import router as population_router
     from app.modules.profiles.router import router as profiles_router
+    from app.modules.reputation.router import router as reputation_router
     from app.modules.setup.router import router as setup_router
 
     application.include_router(auth_router, prefix="/api/auth", tags=["auth"])
@@ -132,9 +133,41 @@ def _register_routers(application: FastAPI) -> None:
     application.include_router(notif_router, prefix="/api/notifications", tags=["notifications"])
     application.include_router(ai_router, prefix="/api/ai", tags=["ai"])
     application.include_router(knowledge_router, prefix="/api/knowledge", tags=["knowledge"])
+    application.include_router(reputation_router, prefix="/api/reputation", tags=["reputation"])
     application.include_router(admin_router, prefix="/api/admin", tags=["admin"])
     application.include_router(population_router, prefix="/api/admin/population", tags=["population"])
     application.include_router(setup_router, tags=["setup"])
+
+    @application.get("/api/marketplace", tags=["marketplace"])
+    async def get_marketplace_info() -> dict:
+        """Public marketplace metadata — the participant-type taxonomy a demo-ui role
+        picker (or a registration form) needs before the visitor is authenticated. Not
+        a new information disclosure: the same taxonomy is already visible in /docs and
+        the generated frontend's /register/{type} routes.
+
+        ``stats`` is a deliberately narrow, aggregate-only slice (counts, no PII) —
+        the same posture as a storefront's public "N members" counter — so a landing
+        page can show real numbers instead of the hardcoded placeholder stats earlier
+        demo-UI designs used."""
+        from app.core.marketplace_config import get_marketplace_config
+        from app.modules.analytics import repository as analytics_repo
+
+        config = get_marketplace_config()
+        by_type = await analytics_repo.profile_counts_by_type(status="active")
+        deals = await analytics_repo.all_deals()
+        stats = {
+            "participant_count": sum(b["real"] + b["synthetic"] for b in by_type.values()),
+            "active_deals": sum(1 for d in deals if d.get("status") not in ("closed", "cancelled")),
+            "completed_deals": sum(1 for d in deals if d.get("status") == "handoff"),
+        }
+        return {
+            "name": config.marketplace.name,
+            "description": config.marketplace.description,
+            "participant_types": [
+                {"slug": pt.slug, "name": pt.name, "role": pt.role} for pt in config.participant_types
+            ],
+            "stats": stats,
+        }
 
     @application.get("/api/mode", tags=["mode"])
     async def get_mode() -> dict:

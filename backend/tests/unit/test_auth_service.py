@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import ConflictError, UnauthorizedError
+from app.core.exceptions import ConflictError, NotFoundError, UnauthorizedError
 from app.modules.auth import service
 
 
@@ -84,3 +84,62 @@ async def test_login_rejects_when_no_password_hash():
 
         with pytest.raises(UnauthorizedError, match="No password set"):
             await service.login("a@b.com", "anything")
+
+
+# ── demo persona assignment ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_demo_persona_rejects_unknown_participant_type():
+    with pytest.raises(NotFoundError, match="Unknown participant type"):
+        await service.assign_demo_persona("ghost", _Config())
+
+
+@pytest.mark.asyncio
+async def test_demo_persona_rejects_when_no_synthetic_profiles_exist():
+    real_only = [{"user_id": "u1", "is_synthetic": False, "fields": {}}]
+    with patch("app.modules.profiles.repository.list_profiles", new=AsyncMock(return_value=real_only)):
+        with pytest.raises(NotFoundError, match="No synthetic producer personas"):
+            await service.assign_demo_persona("producer", _Config())
+
+
+@pytest.mark.asyncio
+async def test_demo_persona_never_picks_a_real_profile():
+    """Even mixed in with real profiles, only is_synthetic=True is ever eligible."""
+    mixed = [
+        {"_id": "p-real", "user_id": "u-real", "is_synthetic": False, "fields": {"x": 1}},
+        {"_id": "p-real2", "user_id": "u-real2", "is_synthetic": False, "fields": {"x": 2}},
+    ]
+    with patch("app.modules.profiles.repository.list_profiles", new=AsyncMock(return_value=mixed)):
+        with pytest.raises(NotFoundError, match="No synthetic"):
+            await service.assign_demo_persona("producer", _Config())
+
+
+@pytest.mark.asyncio
+async def test_demo_persona_logs_in_as_the_synthetic_profiles_owner():
+    synthetic = [{"_id": "p1", "user_id": "u1", "is_synthetic": True, "fields": {"farm_name": "Farm A"}}]
+    user = {"_id": "u1", "email": "synthetic+p1@population.local", "role": "user",
+            "participant_type": "producer", "has_onboarded": True}
+    with patch("app.modules.profiles.repository.list_profiles", new=AsyncMock(return_value=synthetic)), \
+         patch("app.modules.auth.service.repo") as mock_repo:
+        mock_repo.find_user_by_id = AsyncMock(return_value=user)
+        mock_repo.create_session = AsyncMock(return_value="tok-123")
+
+        result = await service.assign_demo_persona("producer", _Config())
+
+    assert result["user_id"] == "u1"
+    assert result["session_token"] == "tok-123"
+    assert result["persona"] == {
+        "profile_id": "p1", "participant_type": "producer", "fields": {"farm_name": "Farm A"}
+    }
+    mock_repo.find_user_by_id.assert_awaited_once_with("u1")
+
+
+@pytest.mark.asyncio
+async def test_demo_persona_404s_if_owning_user_is_missing():
+    synthetic = [{"_id": "p1", "user_id": "orphan", "is_synthetic": True, "fields": {}}]
+    with patch("app.modules.profiles.repository.list_profiles", new=AsyncMock(return_value=synthetic)), \
+         patch("app.modules.auth.service.repo") as mock_repo:
+        mock_repo.find_user_by_id = AsyncMock(return_value=None)
+
+        with pytest.raises(NotFoundError, match="Persona's user account not found"):
+            await service.assign_demo_persona("producer", _Config())

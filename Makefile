@@ -9,10 +9,6 @@ BE_RUFF := .venv/bin/ruff
 BE_UVICORN := .venv/bin/uvicorn
 BE_ARQ := .venv/bin/arq
 
-# Frontend venv paths (relative to frontend/)
-FE_PYTHON := .venv/bin/python
-FE_PYTEST := .venv/bin/pytest
-
 API_HOST_PORT ?= 18000
 SETUP_HOST_PORT ?= 18080
 POSTGRES_HOST_PORT ?= 15432
@@ -22,11 +18,10 @@ ADMIN_EMAIL ?= admin@example.com
 ADMIN_PASSWORD ?= $(error Set ADMIN_PASSWORD env var before running bootstrap-admin)
 DOCKER_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
 
-.PHONY: help venv install install-frontend lint lint-fix format type-check clean \
-	unit unit-frontend integration e2e live test-all \
+.PHONY: help venv install lint lint-fix format type-check clean \
+	unit integration e2e live test-all \
 	docker-cache setup-up setup-down up down reset ps logs logs-api logs-worker wait-api bootstrap-admin \
-	api worker validate-config wizard gen-config build-from-docs live-from-docs load-knowledge onboarding smoke-setup compile compile-check export postman-export regenerate-auto \
-	generate-frontend
+	api worker validate-config wizard gen-config build-from-docs live-from-docs load-knowledge onboarding smoke-setup compile compile-check export postman-export regenerate-auto
 
 help: ## Show available commands
 	@echo "Cosolvent Make Targets"
@@ -40,9 +35,6 @@ venv: ## Create Python virtual environment for backend
 
 install: venv ## Install backend + dev dependencies into backend/.venv
 	cd backend && $(BE_PIP) install -e ".[dev]"
-
-install-frontend: ## Install frontend compiler deps into frontend venv
-	cd frontend && python3 -m venv .venv && .venv/bin/pip install -e "compiler[dev]"
 
 # ── Lint & Format (backend) ──────────────────────────────────────────
 
@@ -68,9 +60,6 @@ clean: ## Remove build artifacts and caches
 unit: ## Run backend unit tests
 	cd backend && MARKETPLACE_CONFIG_PATH=../marketplace.yaml $(BE_PYTEST) tests/unit -q
 
-unit-frontend: ## Run frontend compiler unit tests
-	cd frontend && $(FE_PYTEST) compiler/tests -q
-
 integration: ## Run integration tests (requires running stack)
 	cd backend && RUN_INTEGRATION=1 INTEGRATION_BASE_URL=$(INTEGRATION_BASE_URL) $(BE_PYTEST) tests/integration -q
 
@@ -81,7 +70,7 @@ live: ## Run live-provider E2E (uses .env secrets if present)
 	cd backend && set -a; [ -f ../.env ] && source ../.env; set +a; \
 	RUN_LIVE_E2E=1 E2E_BASE_URL=$(E2E_BASE_URL) $(BE_PYTEST) tests/e2e/test_live_providers.py -q -rs
 
-test-all: lint unit unit-frontend integration e2e ## Run lint + unit + integration + local E2E
+test-all: lint unit integration e2e ## Run lint + unit + integration + local E2E
 
 # ── Docker ────────────────────────────────────────────────────────────
 
@@ -240,12 +229,6 @@ export: ## Generate artifacts and export deployable package
 
 postman-export: ## Export Postman collection from OpenAPI
 	cd backend && $(BE_PYTHON) scripts/export_postman_collection.py --out postman/Cosolvent-API.postman_collection.json
-
-generate-frontend: ## Generate Next.js frontend from OpenAPI + marketplace.yaml
-	cd frontend && $(FE_PYTHON) -m compiler generate \
-		--openapi ../openapi/generated_openapi.json \
-		--marketplace ../marketplace.yaml \
-		--output .
 
 # ── Full pipeline ─────────────────────────────────────────────────────
 

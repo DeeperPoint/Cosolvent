@@ -62,6 +62,36 @@ def test_pair_score_numeric_proximity():
     assert matching._pair_score("numeric_proximity", "x", 5) is None
 
 
+def test_pair_score_window_overlap_identical_windows():
+    a = ["2026-09-01", "2026-09-14"]
+    assert matching._pair_score("window_overlap", a, list(a)) == 1.0
+
+
+def test_pair_score_window_overlap_partial_overlap():
+    # Union 2026-09-01..2026-09-20 (20 days), overlap 2026-09-10..2026-09-14 (5 days).
+    a = ["2026-09-01", "2026-09-14"]
+    b = ["2026-09-10", "2026-09-20"]
+    assert matching._pair_score("window_overlap", a, b) == pytest.approx(5 / 20)
+
+
+def test_pair_score_window_overlap_disjoint_windows():
+    a = ["2026-09-01", "2026-09-05"]
+    b = ["2026-09-10", "2026-09-14"]
+    assert matching._pair_score("window_overlap", a, b) == 0.0
+
+
+def test_pair_score_window_overlap_accepts_dict_form():
+    a = {"start": "2026-09-01", "end": "2026-09-14"}
+    b = {"start": "2026-09-01", "end": "2026-09-14"}
+    assert matching._pair_score("window_overlap", a, b) == 1.0
+
+
+def test_pair_score_window_overlap_none_when_unparseable():
+    assert matching._pair_score("window_overlap", "not-a-window", ["2026-09-01", "2026-09-14"]) is None
+    assert matching._pair_score("window_overlap", ["2026-09-14", "2026-09-01"], ["2026-09-01", "2026-09-14"]) is None  # start after end
+    assert matching._pair_score("window_overlap", None, ["2026-09-01", "2026-09-14"]) is None
+
+
 def test_slot_score_averages_present_fields():
     s = matching._slot_score("scalar_eq", {"a": "1", "b": "2"}, {"a": "1", "b": "9"}, ["a", "b"])
     assert s == pytest.approx(0.5)
@@ -212,7 +242,9 @@ async def test_hard_gate_excludes_and_explains():
     ]
     with patch.object(matching.profiles_repo, "get_profile_by_id", new=AsyncMock(return_value=_producer_profile())), \
          patch.object(matching.vector_service, "get_profile_embedding", new=AsyncMock(return_value=[0.1] * 1536)), \
-         patch.object(matching.vector_service, "find_similar_profiles", new=AsyncMock(return_value=candidates)):
+         patch.object(matching.vector_service, "find_similar_profiles", new=AsyncMock(return_value=candidates)), \
+         patch.object(matching, "active_escape_hatches", new=AsyncMock(return_value={})), \
+         patch.object(matching, "maybe_record_gate_gap", new=AsyncMock()):
         out = await matching.suggested_matches(
             cfg, profile_id="p-1", type_slug="producer", viewer={"_id": "u-1", "role": "user"})
 
@@ -246,7 +278,9 @@ async def test_config_driven_output_validates_against_response_model():
     ]
     with patch.object(matching.profiles_repo, "get_profile_by_id", new=AsyncMock(return_value=_producer_profile())), \
          patch.object(matching.vector_service, "get_profile_embedding", new=AsyncMock(return_value=[0.1] * 1536)), \
-         patch.object(matching.vector_service, "find_similar_profiles", new=AsyncMock(return_value=candidates)):
+         patch.object(matching.vector_service, "find_similar_profiles", new=AsyncMock(return_value=candidates)), \
+         patch.object(matching, "active_escape_hatches", new=AsyncMock(return_value={})), \
+         patch.object(matching, "maybe_record_gate_gap", new=AsyncMock()):
         out = await matching.suggested_matches(
             cfg, profile_id="p-1", type_slug="producer", viewer={"_id": "u-1", "role": "user"})
 

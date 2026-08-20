@@ -160,7 +160,7 @@ def test_enrichment_applies_whitelisted_adjustments_only():
     assert seller_fields["average_unit_price_usd"]["visibility"] == "protected"
     assert seller_fields["average_unit_price_usd"]["label"] == "Average Unit Price (USD)"
     assert seller_fields["category"]["type"] == "select"
-    assert seller_fields["category"]["options"] == ["A", "B"]  # options untouched
+    assert seller_fields["category"]["options"] == ["a", "b"]  # slugified, and enrich can't rewrite them
 
     # And the enriched draft still validates.
     cfg = validate_and_repair(enriched)

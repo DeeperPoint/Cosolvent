@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 
-from fastapi import Request, UploadFile
+from fastapi import Request
+from starlette.datastructures import UploadFile
 
 from app.core.config import settings
 from app.core.exceptions import AppError

@@ -29,6 +29,9 @@ DOCUMENT_COLLECTIONS = [
     "version_responses",
     "consent_records",
     "notifications",
+    # Post-handoff bidirectional ratings (roadmap §9.2 reputation system / trust
+    # stage 6 "post-transaction evaluation"). One row per (deal, rater, ratee).
+    "deal_ratings",
     "faqs",
     "ai_documents",
     "ai_prompts",
@@ -122,8 +125,33 @@ knowledge_gap_signals = Table(
     Column("status", Text, nullable=False, server_default=text("'open'")),
     Column("vertical", Text, nullable=True),
     Column("filters", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
-    # Why the gap was recorded: "no_matching_chunks" | "model_not_covered" | "answer_without_citation".
-    Column("reason", Text, nullable=False),
+    # Why the gap was recorded: "no_matching_chunks" | "model_not_covered" |
+    # "answer_without_citation" | "match_gate_blocked". Defaulted so writers that don't
+    # classify a reason (e.g. record_gap_signal) still satisfy the NOT NULL constraint.
+    Column("reason", Text, nullable=False, server_default=text("''")),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
+)
+
+
+# Loop-2 escape hatches (GAP-14, payoff half): curator-ingested alternative-compliance
+# rules that make a hard match gate *conditional*. When a candidate fails a gate
+# (`gate_name`) but satisfies this hatch's `condition` (an alternative predicate on the
+# candidate's fields), the matching engine unlocks the gate instead of excluding the
+# candidate — the "Match is unlocked!" moment of The Regulatory Escape Hatch.
+escape_hatches = Table(
+    "escape_hatches",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+    Column("vertical", Text, nullable=True),
+    # The hard-gate this hatch conditions (matches HardGate.name in the matching config).
+    Column("gate_name", Text, nullable=False),
+    # Alternative-compliance predicate: {"field": ..., "op": ..., "value": ...}, same
+    # shape/semantics as a HardGate. If it passes, the blocked gate is unlocked.
+    Column("condition", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    # Human-readable "why this unlocks" shown on the match (e.g. "holds CWB W59-002").
+    Column("rationale", Text, nullable=False, server_default=text("''")),
+    Column("status", Text, nullable=False, server_default=text("'active'")),
+    Column("hatch_metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
 )
 

@@ -2,7 +2,9 @@
 
 Base URL: `/api`
 
-All endpoints return JSON. Authentication is via `session_token` HTTP-only cookie, set automatically on signup/login.
+All endpoints return JSON. Authentication is via a `session_token` HTTP-only cookie, set automatically on signup/login — this is all a same-origin browser frontend needs.
+
+**Cross-origin frontends** (a sponsor's own domain, native apps, server-to-server callers — GAP-1): the cookie may not be sent back on genuinely cross-site requests depending on browser SameSite/third-party-cookie policy. These callers should instead take the `access_token` returned in the signup/login/bootstrap response body and send it as `Authorization: Bearer <access_token>` on every request; the API accepts either credential (the header takes precedence when both are present). See `SESSION_COOKIE_SAMESITE` / `CORS_ORIGINS` in [environment-variables.md](environment-variables.md) for the matching cookie/CORS configuration.
 
 ---
 
@@ -24,7 +26,7 @@ All endpoints return JSON. Authentication is via `session_token` HTTP-only cooki
 | GET | `/auth/verify` | Required | Return current user info |
 | POST | `/auth/bootstrap` | None | Create first admin. Body: `{email, password}`. Fails if admin exists. |
 
-**Responses:** Signup and login return `{session_token, user: {id, email, role, ...}}` and set the `session_token` cookie.
+**Responses:** signup/login/bootstrap return `{user_id, email, participant_type, role, has_onboarded, access_token}` and set the `session_token` cookie. `access_token` is the same credential as the cookie, exposed for `Authorization: Bearer` use by cross-origin/native/server-to-server callers (GAP-1) — same-origin browser clients can ignore it.
 
 ---
 

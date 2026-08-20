@@ -55,7 +55,10 @@ def client_signup_disabled() -> TestClient:
         ("/api/auth/bootstrap", {"email": "admin@example.com", "password": "Password123!"}, "bootstrap_admin"),
     ],
 )
-def test_auth_endpoints_hide_token_and_set_secure_cookie(client: TestClient, path: str, payload: dict, service_fn: str):
+def test_auth_endpoints_expose_bearer_token_and_set_secure_cookie(client: TestClient, path: str, payload: dict, service_fn: str):
+    """The raw `session_token` key never appears (internal name); it's re-exposed as
+    `access_token` — the bearer credential cross-origin/native callers use (GAP-1). The
+    cookie is still set alongside it for same-origin browser clients."""
     with patch(
         f"app.modules.auth.router.service.{service_fn}",
         new=AsyncMock(return_value=_auth_result()),
@@ -63,7 +66,9 @@ def test_auth_endpoints_hide_token_and_set_secure_cookie(client: TestClient, pat
         response = client.post(path, json=payload)
 
     assert response.status_code == 200
-    assert "session_token" not in response.json()
+    body = response.json()
+    assert "session_token" not in body
+    assert body["access_token"] == "token-123"
 
     cookie = response.headers["set-cookie"]
     assert "session_token=token-123" in cookie
@@ -96,3 +101,68 @@ def test_logout_deletes_cookie_with_secure_flags(client: TestClient):
     assert "Secure" in cookie
     assert "SameSite=lax" in cookie
     assert "Max-Age=0" in cookie
+
+
+def test_logout_accepts_bearer_token_with_no_cookie(client: TestClient):
+    """A cross-origin/native caller with no cookie jar (GAP-1) can still log out by
+    sending the access_token back as a Bearer header."""
+    with patch("app.modules.auth.router.service.logout", new=AsyncMock()) as logout_mock:
+        response = client.post(
+            "/api/auth/logout", headers={"Authorization": "Bearer token-123"}
+        )
+
+    assert response.status_code == 200
+    logout_mock.assert_awaited_once_with("token-123")
+
+
+def test_logout_prefers_bearer_token_over_stale_cookie(client: TestClient):
+    with patch("app.modules.auth.router.service.logout", new=AsyncMock()) as logout_mock:
+        client.cookies.set("session_token", "cookie-token")
+        response = client.post(
+            "/api/auth/logout", headers={"Authorization": "Bearer header-token"}
+        )
+
+    assert response.status_code == 200
+    logout_mock.assert_awaited_once_with("header-token")
+
+
+def test_session_cookie_samesite_is_configurable(client: TestClient):
+    """A cross-origin sponsor frontend needs SameSite=None (GAP-1); confirm it's actually
+    honored end-to-end rather than the hardcoded "lax" this replaced."""
+    with patch(
+        "app.modules.auth.router.service.login",
+        new=AsyncMock(return_value=_auth_result()),
+    ), patch.object(settings, "session_cookie_samesite", "none"):
+        response = client.post(
+            "/api/auth/login", json={"email": "user@example.com", "password": "Password123!"}
+        )
+
+    cookie = response.headers["set-cookie"]
+    assert "samesite=none" in cookie.lower()
+
+
+# ── demo persona assignment ──────────────────────────────────────────────────
+
+def _persona_result() -> dict:
+    return {**_auth_result(), "persona": {"profile_id": "p1", "participant_type": "producer", "fields": {}}}
+
+
+def test_demo_persona_403s_when_demo_mode_off(client: TestClient):
+    with patch.object(settings, "demo_mode", "off"):
+        response = client.post("/api/auth/demo-persona", json={"participant_type": "producer"})
+    assert response.status_code == 403
+    assert "demo mode" in response.json()["detail"].lower()
+
+
+def test_demo_persona_logs_in_and_returns_persona(client: TestClient):
+    with patch.object(settings, "demo_mode", "showcase"), patch(
+        "app.modules.auth.router.service.assign_demo_persona",
+        new=AsyncMock(return_value=_persona_result()),
+    ):
+        response = client.post("/api/auth/demo-persona", json={"participant_type": "producer"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["access_token"] == "token-123"
+    assert body["persona"] == {"profile_id": "p1", "participant_type": "producer", "fields": {}}
+    assert "session_token=token-123" in response.headers["set-cookie"]

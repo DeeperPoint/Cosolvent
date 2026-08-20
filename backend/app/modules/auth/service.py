@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import random
+
 from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import ConflictError, NotFoundError, UnauthorizedError
@@ -91,6 +93,42 @@ async def bootstrap_admin(email: str, password: str) -> dict:
     user["has_onboarded"] = True
     token = await repo.create_session(user["_id"])
     return _auth_response(user, token)
+
+
+async def assign_demo_persona(participant_type: str, config: MarketplaceConfig) -> dict:
+    """Log the caller in as a random synthetic participant of ``participant_type`` —
+    the persona-assignment mechanic for a public demo instance (CONVERGENCE.md Phase
+    6a: "the system randomly selects one synthetic participant of the chosen type and
+    logs the visitor in as that persona"). Only ``is_synthetic`` profiles are ever
+    eligible — never a real participant — and the router gates this to
+    ``DEMO_MODE != "off"``: an unauthenticated "log me in as anyone" is only
+    acceptable when every account it can reach is already known-synthetic.
+    """
+    if config.get_type(participant_type) is None:
+        raise NotFoundError(f"Unknown participant type: {participant_type}")
+
+    from app.modules.profiles import repository as profiles_repo
+
+    candidates = await profiles_repo.list_profiles(participant_type, status="active", limit=500)
+    synthetic = [p for p in candidates if p.get("is_synthetic")]
+    if not synthetic:
+        raise NotFoundError(
+            f"No synthetic {participant_type} personas available — seed demo data first"
+        )
+
+    profile = random.choice(synthetic)
+    user = await repo.find_user_by_id(profile["user_id"])
+    if not user:
+        raise NotFoundError("Persona's user account not found")
+
+    token = await repo.create_session(user["_id"])
+    result = _auth_response(user, token)
+    result["persona"] = {
+        "profile_id": str(profile.get("_id") or profile.get("id") or ""),
+        "participant_type": participant_type,
+        "fields": profile.get("fields", {}) or {},
+    }
+    return result
 
 
 def _auth_response(user: dict, token: str) -> dict:
