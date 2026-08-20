@@ -1,10 +1,11 @@
 """Refresh field detail on an already-seeded demo DB, in place.
 
-Unlike seed_demo_users.py (which deletes + recreates demo users), this updates
-existing sellerNN/buyerNN/service_providerNN@<domain> profiles' fields and
-re-embeds them — user_ids, sessions, conversations, and deals built against them
-stay valid. Also forces buyer01/seller01 onto aligned fields so discovery matching
-surfaces them as each other's top match.
+Re-runs the same watermarked population-import path (GAP-9/10) that seeded the demo
+in the first place: freshly generated fields for the existing seller/buyer/
+service_provider external_ids upsert in place (same user_ids, so sessions,
+conversations, and deals built against them stay valid) and get re-embedded. Also
+forces buyer01/seller01 onto aligned fields so discovery matching surfaces them as
+each other's top match.
 
 Run against the docker stack:
     POSTGRES_DSN=postgresql+asyncpg://postgres:postgres@localhost:15432/cosolvent \
@@ -14,71 +15,73 @@ Run against the docker stack:
 import asyncio
 import os
 import random
-import re
 
-from app.core.database import connect_db, close_db, get_collection
+from app.core import watermark
+from app.core.config import settings
+from app.core.database import close_db, connect_db, get_collection
 from app.core.marketplace_config import load_marketplace_config, set_marketplace_config
-from app.modules.profiles import repository as prof_repo
+from app.modules.population.service import import_population
 from _demo_data import align_demo_pair, make_fields
 
 CFG_PATH = os.environ.get("MARKETPLACE_CONFIG_PATH", "../marketplace.yaml")
 DOMAIN = os.environ.get("SEED_DOMAIN", "demo-machinery.com")
-SEED_MARKER = "demo-seed"
+SLUGS = ("seller", "buyer", "service_provider")
 
 CFG = load_marketplace_config(CFG_PATH)
 rng = random.Random(42)
 
-EMAIL_RE = re.compile(r"^(seller|buyer|service_provider)(\d+)@")
+
+async def _existing_counts() -> dict[str, int]:
+    """How many external_ids per slug (seller01, seller02, ...) seed_demo_users.py
+    already created — refresh regenerates exactly that many, in the same order, so
+    every external_id lands on an existing record (upsert, never a fresh create)."""
+    return {
+        slug: await get_collection("users").count_documents({"is_synthetic": True, "participant_type": slug})
+        for slug in SLUGS
+    }
+
+
+def _build_records(counts: dict[str, int]) -> list[dict]:
+    demo_seller_fields = make_fields(CFG, "seller", rng)
+    demo_buyer_fields = make_fields(CFG, "buyer", rng)
+    align_demo_pair(demo_buyer_fields, demo_seller_fields)
+
+    records = []
+    for slug, n in counts.items():
+        for i in range(1, n + 1):
+            if slug == "seller" and i == 1:
+                fields = demo_seller_fields
+            elif slug == "buyer" and i == 1:
+                fields = demo_buyer_fields
+            else:
+                fields = make_fields(CFG, slug, rng)
+            records.append({"participant_type": slug, "external_id": f"{slug}{i:02d}", "fields": fields})
+    return records
 
 
 async def main():
     await connect_db()
     set_marketplace_config(CFG)
 
-    users = await get_collection("users").find({"seed_marker": SEED_MARKER}).to_list(length=100000)
-    by_slug: dict[str, list[dict]] = {"seller": [], "buyer": [], "service_provider": []}
-    for u in users:
-        m = EMAIL_RE.match(str(u.get("email", "")))
-        if not m:
-            continue
-        slug, idx = m.group(1), int(m.group(2))
-        by_slug.setdefault(slug, []).append((idx, u))
-    for slug in by_slug:
-        by_slug[slug].sort(key=lambda pair: pair[0])
+    counts = await _existing_counts()
+    if not any(counts.values()):
+        print("No seeded demo profiles found — run seed_demo_users.py first.")
+        await close_db()
+        return
 
-    demo_seller_fields = make_fields(CFG, "seller", rng)
-    demo_buyer_fields = make_fields(CFG, "buyer", rng)
-    align_demo_pair(demo_buyer_fields, demo_seller_fields)
+    records = _build_records(counts)
+    stamped = [watermark.stamp(r, settings.synthetic_watermark_secret) for r in records]
 
-    from app.modules.discovery.indexer import index_profile
+    # No email_domain/password_hash: this is a pure field refresh on external_ids that
+    # already exist, and upsert_synthetic_profile never touches login credentials on
+    # an existing user — seller01/buyer01/... keep whatever seed_demo_users.py set.
+    res = await import_population(CFG, stamped, mode="demo")
 
-    updated = 0
-    indexed = 0
-    for slug, entries in by_slug.items():
-        for idx, user in entries:
-            uid = str(user["_id"])
-            profile = await prof_repo.get_profile_by_user(uid)
-            if not profile:
-                continue
-
-            if slug == "seller" and idx == 1:
-                fields = demo_seller_fields
-            elif slug == "buyer" and idx == 1:
-                fields = demo_buyer_fields
-            else:
-                fields = make_fields(CFG, slug, rng)
-
-            updated_profile = await prof_repo.update_profile(
-                str(profile["_id"]), {"fields": fields, "completeness": 100}
-            )
-            updated += 1
-            try:
-                await index_profile(updated_profile, CFG)
-                indexed += 1
-            except Exception:
-                pass
-
-    print(f"✓ Refreshed {updated} demo profiles ({indexed} re-embedded)")
+    print(f"✓ Refreshed {res.updated} demo profiles ({res.indexed} re-embedded)")
+    if res.rejected_watermark or res.skipped_invalid:
+        print(f"  ! rejected_watermark={res.rejected_watermark} skipped_invalid={res.skipped_invalid}")
+        for e in res.errors[:10]:
+            print(f"    - {e}")
     print(f"  aligned pair → seller01@{DOMAIN} ↔ buyer01@{DOMAIN}")
     await close_db()
 

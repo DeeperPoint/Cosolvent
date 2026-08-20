@@ -31,7 +31,7 @@ def _producer(ext: str, country: str = "Canada", crops=None) -> dict:
 
 @contextmanager
 def _mock_persist(created: bool = True):
-    async def _upsert(external_id, participant_type, fields, completeness):
+    async def _upsert(external_id, participant_type, fields, completeness, *, email=None, password_hash=None):
         return {"_id": external_id, "participant_type": participant_type, "fields": fields}, created
     with patch.object(service.repo, "upsert_synthetic_profile", side_effect=_upsert) as up, \
          patch.object(service, "index_profile", new=AsyncMock()) as idx:
@@ -131,3 +131,41 @@ async def test_indexing_invoked_when_enabled():
             _cfg(), [watermark.stamp(_producer("s1"), SECRET)], mode="demo", secret=SECRET, do_index=True)
     assert res.indexed == 1
     idx.assert_awaited_once()
+
+
+# ── interactive demo accounts: email_domain + password_hash (still watermark-gated) ──
+
+@pytest.mark.asyncio
+async def test_no_login_credentials_by_default():
+    """The plain C0 path (no email_domain/password_hash) still produces an
+    unaddressable, no-login synthetic user — unchanged default behavior."""
+    with _mock_persist() as (up, _idx):
+        await service.import_population(
+            _cfg(), [watermark.stamp(_producer("s1"), SECRET)], mode="demo", secret=SECRET, do_index=False)
+    assert up.call_args.kwargs == {"email": None, "password_hash": None}
+
+
+@pytest.mark.asyncio
+async def test_email_domain_and_password_hash_threaded_to_repo():
+    """A caller building login-capable demo accounts (e.g. seed_demo_users.py) still
+    goes through the same watermark-gated, schema-validated import path — it just
+    asks for a real email + password on the synthetic user this creates."""
+    with _mock_persist() as (up, _idx):
+        await service.import_population(
+            _cfg(), [watermark.stamp(_producer("s1"), SECRET)], mode="demo", secret=SECRET,
+            do_index=False, email_domain="demo.example.com", password_hash="hashed-pw",
+        )
+    assert up.call_args.kwargs == {"email": "s1@demo.example.com", "password_hash": "hashed-pw"}
+
+
+@pytest.mark.asyncio
+async def test_login_credentials_do_not_bypass_the_watermark_gate():
+    """email_domain/password_hash must not become a side door around GAP-9: an
+    unwatermarked record is still rejected even when demo-login fields are requested."""
+    with _mock_persist() as (up, _idx):
+        res = await service.import_population(
+            _cfg(), [_producer("s1")], mode="demo", secret=SECRET,  # no watermark
+            do_index=False, email_domain="demo.example.com", password_hash="hashed-pw",
+        )
+    assert res.rejected_watermark == 1 and res.loaded == 0
+    up.assert_not_awaited()

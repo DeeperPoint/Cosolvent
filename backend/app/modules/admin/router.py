@@ -16,6 +16,7 @@ from app.modules.admin.schemas import (
     UserRoleUpdate,
 )
 from app.modules.ai.schemas import LLMSettingsUpdate, PromptUpdate, ProviderValidateRequest
+from app.modules.analytics.schemas import MarketOverview
 from app.modules.knowledge.schemas import EscapeHatchCreate
 
 router = APIRouter()
@@ -95,6 +96,17 @@ async def get_config_summary(
     config: MarketplaceConfig = Depends(get_config),
 ):
     return await service.get_config_summary(config)
+
+
+# ── Market-dynamics reporting (roadmap B1.8 'Market Physics Scorecard') ──
+@router.get("/analytics/market-overview", response_model=MarketOverview)
+async def market_overview(
+    user: dict = Depends(require_admin),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    from app.modules.analytics import get_market_overview
+
+    return await get_market_overview(config)
 
 
 # ── User Management ─────────────────────────────────────────────────────
