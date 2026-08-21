@@ -16,7 +16,7 @@ import random
 
 from app.core import watermark
 from app.core.config import settings
-from app.core.database import close_db, connect_db, get_collection
+from app.core.database import close_db, connect_db
 from app.core.marketplace_config import load_marketplace_config, set_marketplace_config
 from app.core.security import hash_password
 from app.modules.population.service import import_population
