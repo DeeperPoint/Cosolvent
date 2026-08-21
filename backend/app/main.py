@@ -123,6 +123,7 @@ def _register_routers(application: FastAPI) -> None:
     from app.modules.profiles.router import router as profiles_router
     from app.modules.reputation.router import router as reputation_router
     from app.modules.setup.router import router as setup_router
+    from app.modules.showcase.router import router as showcase_router
 
     application.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     application.include_router(profiles_router, prefix="/api/profiles", tags=["profiles"])
@@ -136,6 +137,7 @@ def _register_routers(application: FastAPI) -> None:
     application.include_router(reputation_router, prefix="/api/reputation", tags=["reputation"])
     application.include_router(admin_router, prefix="/api/admin", tags=["admin"])
     application.include_router(population_router, prefix="/api/admin/population", tags=["population"])
+    application.include_router(showcase_router, prefix="/api/showcase", tags=["showcase"])
     application.include_router(setup_router, tags=["setup"])
 
     @application.get("/api/marketplace", tags=["marketplace"])

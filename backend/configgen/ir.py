@@ -51,9 +51,12 @@ class ParticipantDef:
     role: RoleKind
     description: str = ""
     sections: list[Section] = field(default_factory=list)
-    # Subtypes that were collapsed into this participant (e.g. broker/shipper/inspector
-    # -> one facilitator under the MVP 3-type cap). Recorded so the review gate can
-    # surface the lossy collapse. See Cosolvent ROADMAP "Conflict C3".
+    # Subtypes collapsed into this one participant type, when a schema names more
+    # facilitator subtypes than the remaining participant-type budget allows to each
+    # get their own type (see extract.py::_facilitator_participants). Recorded so the
+    # review gate can surface the lossy collapse. Cosolvent ROADMAP "Conflict C3" is
+    # resolved (MAX_PARTICIPANT_TYPES > 3); this now only fires on a genuinely large
+    # subtype list.
     collapsed_subtypes: list[str] = field(default_factory=list)
 
 

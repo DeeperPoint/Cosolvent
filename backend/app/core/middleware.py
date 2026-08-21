@@ -15,8 +15,16 @@ logger = logging.getLogger("cosolvent")
 
 # Methods that mutate state — blocked when the instance is in read-only Demo (showcase) mode.
 _WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-# Write paths that must stay allowed even in showcase mode (auth for persona assignment).
-_SHOWCASE_WRITE_ALLOWLIST = ("/api/auth/login", "/api/auth/logout", "/api/auth/signup")
+# Write paths that must stay allowed even in showcase mode: auth (persona assignment)
+# and the admin-triggered precompute refresh — showcase mode blocks *participant*
+# writes, not the operator's ability to update pre-computed content (demo-mode-spec:
+# "Admin access ... remains accessible ... for updating pre-computed content").
+# `run_showcase_precompute` is itself gated by require_admin, so this doesn't open
+# the path to unauthenticated writes.
+_SHOWCASE_WRITE_ALLOWLIST = (
+    "/api/auth/login", "/api/auth/logout", "/api/auth/signup",
+    "/api/admin/showcase/run",
+)
 
 
 def register_middleware(app: FastAPI) -> None:

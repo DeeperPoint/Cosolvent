@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         for p in result.market.participants:
             if p.collapsed_subtypes:
                 print(f"  ⚠ '{p.slug}' collapsed {len(p.collapsed_subtypes)} subtypes "
-                      f"(MVP 3-type cap): {', '.join(p.collapsed_subtypes)}")
+                      f"(exceeds the participant-type budget): {', '.join(p.collapsed_subtypes)}")
 
     if args.provenance:
         print("\nProvenance (field -> source):")

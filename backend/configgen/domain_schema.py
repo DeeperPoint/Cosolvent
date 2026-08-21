@@ -59,12 +59,19 @@ class DomainSchema:
         return {k: v for k, v in pr.items() if k in ("supply", "demand", "facilitator") and isinstance(v, dict)}
 
     def facilitator_subtypes(self) -> list[str]:
+        return [d["role"] for d in self.facilitator_subtype_defs()]
+
+    def facilitator_subtype_defs(self) -> list[dict[str, str]]:
+        """Each facilitator subtype as ``{"role": ..., "description": ...}``, in
+        schema order. Used both to build the collapsed single-facilitator-type
+        services vocabulary and (when the participant-type budget allows — see
+        extract.py) to expand each subtype into its own participant type."""
         fac = self.participant_roles().get("facilitator", {})
         subs = fac.get("subtypes", []) if isinstance(fac, dict) else []
-        out: list[str] = []
+        out: list[dict[str, str]] = []
         for s in subs:
             if isinstance(s, dict) and s.get("role"):
-                out.append(str(s["role"]))
+                out.append({"role": str(s["role"]), "description": str(s.get("description", ""))})
         return out
 
     # ── field / vocabulary access ─────────────────────────────────────────
@@ -97,6 +104,26 @@ class DomainSchema:
             for name, spec in sec["fields"].items():
                 if isinstance(spec, dict):
                     out.append((str(name), spec))
+        return out
+
+    _RESERVED_TOP_LEVEL = {
+        "schema_version", "vertical", "domain", "source_authority", "governing_law",
+        "participant_roles", "referenced_standards", "matching",
+    }
+
+    def domain_sections(self) -> list[str]:
+        """Every top-level key that's a domain-content section (a dict with a
+        ``fields`` dict), in document order — the schema's own vocabulary
+        organization, whatever it chose to call its sections (``goods``, or
+        ``capacity``/``material``/``quality``/... — the synthesis prompt only
+        *suggests* ``goods`` as an example name, so a schema is free to name its
+        sections however fits the domain)."""
+        out: list[str] = []
+        for key, body in self.raw.items():
+            if key in self._RESERVED_TOP_LEVEL:
+                continue
+            if isinstance(body, dict) and isinstance(body.get("fields"), dict):
+                out.append(str(key))
         return out
 
     def vocab_fields(self) -> list[VocabField]:

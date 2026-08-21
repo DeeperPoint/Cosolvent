@@ -1,0 +1,1156 @@
+marketplace:
+  name: Cnc Machining Capacity
+  description: A thin-market marketplace for Cnc Machining Capacity.
+  industry: Cnc Machining Capacity
+participant_types:
+- name: Machine Shop
+  slug: machine_shop
+  role: supply
+  permissions:
+    can_list: true
+    can_search: false
+    can_initiate_conversation: false
+    can_receive_conversation: true
+    can_share_private_assets: true
+    requires_onboarding: true
+    requires_approval: true
+    visible_in_search: true
+- name: Buyer
+  slug: buyer
+  role: demand
+  permissions:
+    can_list: false
+    can_search: true
+    can_initiate_conversation: true
+    can_receive_conversation: true
+    can_share_private_assets: false
+    requires_onboarding: true
+    requires_approval: true
+    visible_in_search: false
+- name: Quality Inspector
+  slug: quality_inspector
+  role: facilitator
+  permissions:
+    can_list: true
+    can_search: false
+    can_initiate_conversation: false
+    can_receive_conversation: true
+    can_share_private_assets: true
+    requires_onboarding: true
+    requires_approval: true
+    visible_in_search: true
+- name: Rigging Logistics Provider
+  slug: rigging_logistics_provider
+  role: facilitator
+  permissions:
+    can_list: true
+    can_search: false
+    can_initiate_conversation: false
+    can_receive_conversation: true
+    can_share_private_assets: true
+    requires_onboarding: true
+    requires_approval: true
+    visible_in_search: true
+- name: Cargo Insurer
+  slug: cargo_insurer
+  role: facilitator
+  permissions:
+    can_list: true
+    can_search: false
+    can_initiate_conversation: false
+    can_receive_conversation: true
+    can_share_private_assets: true
+    requires_onboarding: true
+    requires_approval: true
+    visible_in_search: true
+- name: Trade Finance Provider
+  slug: trade_finance_provider
+  role: facilitator
+  permissions:
+    can_list: true
+    can_search: false
+    can_initiate_conversation: false
+    can_receive_conversation: true
+    can_share_private_assets: true
+    requires_onboarding: true
+    requires_approval: true
+    visible_in_search: true
+- name: Certification Body
+  slug: certification_body
+  role: facilitator
+  permissions:
+    can_list: true
+    can_search: false
+    can_initiate_conversation: false
+    can_receive_conversation: true
+    can_share_private_assets: true
+    requires_onboarding: true
+    requires_approval: true
+    visible_in_search: true
+profile_schemas:
+  machine_shop:
+    sections:
+    - name: Company
+      fields:
+      - name: company_name
+        label: Company Name
+        type: text
+        required: true
+        visibility: public
+        searchable: true
+      - name: country
+        label: Country
+        type: select
+        required: true
+        options:
+        - usa
+        - canada
+        - mexico
+        - germany
+        - brazil
+        - india
+        - china
+        - japan
+        visibility: public
+        searchable: true
+      - name: description
+        label: About
+        type: rich_text
+        required: false
+        visibility: public
+        searchable: true
+    - name: Offering
+      fields:
+      - name: machine_type
+        label: Machine Type
+        type: multi_select
+        required: true
+        options:
+        - vertical_machining_center
+        - cnc_lathe
+        - 3_axis_mill
+        - 4_axis_mill
+        - 5_axis_machining_center
+        - multiaxis_machining_center
+        - laser_cutting
+        - waterjet_cutting
+        visibility: public
+        searchable: true
+      - name: tool_taper
+        label: Tool Taper
+        type: multi_select
+        required: false
+        options:
+        - ct40
+        - bt40
+        - big_plus_no_40
+        - big_plus_no_50
+        visibility: public
+        searchable: true
+      - name: max_spindle_speed_rpm
+        label: Max Spindle Speed (RPM)
+        type: number
+        required: false
+        visibility: public
+        searchable: true
+      - name: table_load_limit_kg
+        label: Table Load Limit (kg)
+        type: number
+        required: false
+        visibility: public
+        searchable: true
+      - name: deal_instrument
+        label: Deal Instrument
+        type: multi_select
+        required: true
+        options:
+        - spot_purchase
+        - capacity_rental
+        - ongoing_subcontract
+        visibility: protected
+        searchable: true
+      - name: material_grade
+        label: Material Grade
+        type: multi_select
+        required: true
+        options:
+        - aluminum_7075_t6
+        - aluminum_6061
+        - ti_6al_4v
+        - inconel_625
+        - inconel_718
+        - stainless_steel
+        - carbon_steel
+        - plastic
+        visibility: public
+        searchable: true
+      - name: material_family
+        label: Material Family
+        type: multi_select
+        required: false
+        options:
+        - aluminum_alloy
+        - titanium_alloy
+        - nickel_superalloy
+        - steel
+        - non_ferrous
+        - polymer
+        visibility: public
+        searchable: true
+      - name: required_processes
+        label: Required Processes
+        type: multi_select
+        required: false
+        options:
+        - heat_treatment
+        - coating
+        - edm
+        - threadmilling
+        - inspection_cmm
+        - deburring
+        visibility: public
+        searchable: true
+      - name: end_use_sector
+        label: End Use Sector
+        type: multi_select
+        required: false
+        options:
+        - aerospace
+        - defense
+        - automotive
+        - medical
+        - power_generation
+        - marine
+        - general_industrial
+        visibility: public
+        searchable: true
+      - name: quality_certification
+        label: Quality Certification
+        type: multi_select
+        required: true
+        options:
+        - iso_9001
+        - as9100d
+        - as9110
+        - as9120
+        - none
+        visibility: public
+        searchable: true
+      - name: tolerance_class
+        label: Tolerance Class
+        type: multi_select
+        required: false
+        options:
+        - general
+        - tight_precision
+        - first_article_inspection
+        - statistical_sampling
+        visibility: public
+        searchable: true
+      - name: inspection_method
+        label: Inspection Method
+        type: multi_select
+        required: false
+        options:
+        - cmm_report
+        - first_article_inspection
+        - statistical_sampling_plan
+        - visual
+        visibility: public
+        searchable: true
+      - name: rate_structure
+        label: Rate Structure
+        type: multi_select
+        required: true
+        options:
+        - per_part
+        - per_machine_hour
+        - fixed_price
+        visibility: protected
+        searchable: true
+      - name: payment_terms
+        label: Payment Terms
+        type: multi_select
+        required: false
+        options:
+        - net_30
+        - net_45
+        - net_60
+        - on_delivery
+        visibility: protected
+        searchable: true
+      - name: currency
+        label: Currency
+        type: select
+        required: false
+        options:
+        - cad
+        - usd
+        visibility: protected
+        searchable: true
+      - name: contract_stage
+        label: Contract Stage
+        type: select
+        required: false
+        options:
+        - anonymous
+        - mutual_nda
+        - deal_context
+        - subcontract_agreement
+        visibility: protected
+        searchable: true
+      - name: economic_region
+        label: Economic Region
+        type: multi_select
+        required: false
+        options:
+        - toronto
+        - kitchener_waterloo_barrie
+        - windsor_sarnia
+        - hamilton_niagara
+        - london
+        - ottawa
+        - stratford_bruce
+        visibility: public
+        searchable: true
+      - name: spec_sheets
+        label: Spec Sheets / Documents
+        type: files
+        required: false
+        accepted_types:
+        - pdf
+        visibility: private
+        searchable: false
+  buyer:
+    sections:
+    - name: Organization
+      fields:
+      - name: company_name
+        label: Organization Name
+        type: text
+        required: true
+        visibility: public
+        searchable: true
+      - name: country
+        label: Country
+        type: select
+        required: true
+        options:
+        - usa
+        - canada
+        - mexico
+        - germany
+        - brazil
+        - india
+        - china
+        - japan
+        visibility: public
+        searchable: true
+      - name: description
+        label: About
+        type: rich_text
+        required: false
+        visibility: public
+        searchable: true
+    - name: Requirements
+      fields:
+      - name: machine_type
+        label: Machine Type
+        type: multi_select
+        required: true
+        options:
+        - vertical_machining_center
+        - cnc_lathe
+        - 3_axis_mill
+        - 4_axis_mill
+        - 5_axis_machining_center
+        - multiaxis_machining_center
+        - laser_cutting
+        - waterjet_cutting
+        visibility: protected
+        searchable: true
+      - name: tool_taper
+        label: Tool Taper
+        type: multi_select
+        required: false
+        options:
+        - ct40
+        - bt40
+        - big_plus_no_40
+        - big_plus_no_50
+        visibility: protected
+        searchable: true
+      - name: max_spindle_speed_rpm
+        label: Max Spindle Speed (RPM)
+        type: number
+        required: false
+        visibility: protected
+        searchable: true
+      - name: table_load_limit_kg
+        label: Table Load Limit (kg)
+        type: number
+        required: false
+        visibility: protected
+        searchable: true
+      - name: deal_instrument
+        label: Deal Instrument
+        type: multi_select
+        required: true
+        options:
+        - spot_purchase
+        - capacity_rental
+        - ongoing_subcontract
+        visibility: protected
+        searchable: true
+      - name: material_grade
+        label: Material Grade
+        type: multi_select
+        required: true
+        options:
+        - aluminum_7075_t6
+        - aluminum_6061
+        - ti_6al_4v
+        - inconel_625
+        - inconel_718
+        - stainless_steel
+        - carbon_steel
+        - plastic
+        visibility: protected
+        searchable: true
+      - name: material_family
+        label: Material Family
+        type: multi_select
+        required: false
+        options:
+        - aluminum_alloy
+        - titanium_alloy
+        - nickel_superalloy
+        - steel
+        - non_ferrous
+        - polymer
+        visibility: protected
+        searchable: true
+      - name: required_processes
+        label: Required Processes
+        type: multi_select
+        required: false
+        options:
+        - heat_treatment
+        - coating
+        - edm
+        - threadmilling
+        - inspection_cmm
+        - deburring
+        visibility: protected
+        searchable: true
+      - name: end_use_sector
+        label: End Use Sector
+        type: multi_select
+        required: false
+        options:
+        - aerospace
+        - defense
+        - automotive
+        - medical
+        - power_generation
+        - marine
+        - general_industrial
+        visibility: protected
+        searchable: true
+      - name: quality_certification
+        label: Quality Certification
+        type: multi_select
+        required: true
+        options:
+        - iso_9001
+        - as9100d
+        - as9110
+        - as9120
+        - none
+        visibility: protected
+        searchable: true
+      - name: tolerance_class
+        label: Tolerance Class
+        type: multi_select
+        required: false
+        options:
+        - general
+        - tight_precision
+        - first_article_inspection
+        - statistical_sampling
+        visibility: protected
+        searchable: true
+      - name: inspection_method
+        label: Inspection Method
+        type: multi_select
+        required: false
+        options:
+        - cmm_report
+        - first_article_inspection
+        - statistical_sampling_plan
+        - visual
+        visibility: protected
+        searchable: true
+      - name: rate_structure
+        label: Rate Structure
+        type: multi_select
+        required: true
+        options:
+        - per_part
+        - per_machine_hour
+        - fixed_price
+        visibility: protected
+        searchable: true
+      - name: payment_terms
+        label: Payment Terms
+        type: multi_select
+        required: false
+        options:
+        - net_30
+        - net_45
+        - net_60
+        - on_delivery
+        visibility: protected
+        searchable: true
+      - name: currency
+        label: Currency
+        type: select
+        required: false
+        options:
+        - cad
+        - usd
+        visibility: protected
+        searchable: true
+      - name: contract_stage
+        label: Contract Stage
+        type: select
+        required: false
+        options:
+        - anonymous
+        - mutual_nda
+        - deal_context
+        - subcontract_agreement
+        visibility: protected
+        searchable: true
+      - name: economic_region
+        label: Economic Region
+        type: multi_select
+        required: false
+        options:
+        - toronto
+        - kitchener_waterloo_barrie
+        - windsor_sarnia
+        - hamilton_niagara
+        - london
+        - ottawa
+        - stratford_bruce
+        visibility: protected
+        searchable: true
+      - name: budget_range
+        label: Typical Budget per Order
+        type: select
+        required: false
+        options:
+        - under_25k
+        - 25k_100k
+        - 100k_500k
+        - 500k_2m
+        - 2m
+        visibility: protected
+        searchable: false
+  quality_inspector:
+    sections:
+    - name: Company
+      fields:
+      - name: company_name
+        label: Company Name
+        type: text
+        required: true
+        visibility: public
+        searchable: true
+      - name: country
+        label: Country
+        type: select
+        required: true
+        options:
+        - usa
+        - canada
+        - mexico
+        - germany
+        - brazil
+        - india
+        - china
+        - japan
+        visibility: public
+        searchable: true
+      - name: description
+        label: About
+        type: rich_text
+        required: false
+        visibility: public
+        searchable: true
+    - name: Services
+      fields:
+      - name: service_regions
+        label: Service Regions
+        type: multi_select
+        required: true
+        options:
+        - north_america
+        - south_america
+        - europe
+        - middle_east
+        - africa
+        - south_asia
+        - east_asia
+        - southeast_asia
+        - oceania
+        visibility: public
+        searchable: true
+      - name: credentials
+        label: Credentials / Certificates
+        type: files
+        required: false
+        accepted_types:
+        - pdf
+        visibility: private
+        searchable: false
+  rigging_logistics_provider:
+    sections:
+    - name: Company
+      fields:
+      - name: company_name
+        label: Company Name
+        type: text
+        required: true
+        visibility: public
+        searchable: true
+      - name: country
+        label: Country
+        type: select
+        required: true
+        options:
+        - usa
+        - canada
+        - mexico
+        - germany
+        - brazil
+        - india
+        - china
+        - japan
+        visibility: public
+        searchable: true
+      - name: description
+        label: About
+        type: rich_text
+        required: false
+        visibility: public
+        searchable: true
+    - name: Services
+      fields:
+      - name: service_regions
+        label: Service Regions
+        type: multi_select
+        required: true
+        options:
+        - north_america
+        - south_america
+        - europe
+        - middle_east
+        - africa
+        - south_asia
+        - east_asia
+        - southeast_asia
+        - oceania
+        visibility: public
+        searchable: true
+      - name: credentials
+        label: Credentials / Certificates
+        type: files
+        required: false
+        accepted_types:
+        - pdf
+        visibility: private
+        searchable: false
+  cargo_insurer:
+    sections:
+    - name: Company
+      fields:
+      - name: company_name
+        label: Company Name
+        type: text
+        required: true
+        visibility: public
+        searchable: true
+      - name: country
+        label: Country
+        type: select
+        required: true
+        options:
+        - usa
+        - canada
+        - mexico
+        - germany
+        - brazil
+        - india
+        - china
+        - japan
+        visibility: public
+        searchable: true
+      - name: description
+        label: About
+        type: rich_text
+        required: false
+        visibility: public
+        searchable: true
+    - name: Services
+      fields:
+      - name: service_regions
+        label: Service Regions
+        type: multi_select
+        required: true
+        options:
+        - north_america
+        - south_america
+        - europe
+        - middle_east
+        - africa
+        - south_asia
+        - east_asia
+        - southeast_asia
+        - oceania
+        visibility: public
+        searchable: true
+      - name: credentials
+        label: Credentials / Certificates
+        type: files
+        required: false
+        accepted_types:
+        - pdf
+        visibility: private
+        searchable: false
+  trade_finance_provider:
+    sections:
+    - name: Company
+      fields:
+      - name: company_name
+        label: Company Name
+        type: text
+        required: true
+        visibility: public
+        searchable: true
+      - name: country
+        label: Country
+        type: select
+        required: true
+        options:
+        - usa
+        - canada
+        - mexico
+        - germany
+        - brazil
+        - india
+        - china
+        - japan
+        visibility: public
+        searchable: true
+      - name: description
+        label: About
+        type: rich_text
+        required: false
+        visibility: public
+        searchable: true
+    - name: Services
+      fields:
+      - name: service_regions
+        label: Service Regions
+        type: multi_select
+        required: true
+        options:
+        - north_america
+        - south_america
+        - europe
+        - middle_east
+        - africa
+        - south_asia
+        - east_asia
+        - southeast_asia
+        - oceania
+        visibility: public
+        searchable: true
+      - name: credentials
+        label: Credentials / Certificates
+        type: files
+        required: false
+        accepted_types:
+        - pdf
+        visibility: private
+        searchable: false
+  certification_body:
+    sections:
+    - name: Company
+      fields:
+      - name: company_name
+        label: Company Name
+        type: text
+        required: true
+        visibility: public
+        searchable: true
+      - name: country
+        label: Country
+        type: select
+        required: true
+        options:
+        - usa
+        - canada
+        - mexico
+        - germany
+        - brazil
+        - india
+        - china
+        - japan
+        visibility: public
+        searchable: true
+      - name: description
+        label: About
+        type: rich_text
+        required: false
+        visibility: public
+        searchable: true
+    - name: Services
+      fields:
+      - name: service_regions
+        label: Service Regions
+        type: multi_select
+        required: true
+        options:
+        - north_america
+        - south_america
+        - europe
+        - middle_east
+        - africa
+        - south_asia
+        - east_asia
+        - southeast_asia
+        - oceania
+        visibility: public
+        searchable: true
+      - name: credentials
+        label: Credentials / Certificates
+        type: files
+        required: false
+        accepted_types:
+        - pdf
+        visibility: private
+        searchable: false
+onboarding:
+  machine_shop:
+    requires_approval: true
+    approval_type: manual
+    document_upload_required: true
+    ai_extraction_enabled: true
+    ai_profile_generation: true
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 80
+  buyer:
+    requires_approval: true
+    approval_type: manual
+    document_upload_required: false
+    ai_extraction_enabled: false
+    ai_profile_generation: false
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 70
+  quality_inspector:
+    requires_approval: true
+    approval_type: manual
+    document_upload_required: true
+    ai_extraction_enabled: true
+    ai_profile_generation: true
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 80
+  rigging_logistics_provider:
+    requires_approval: true
+    approval_type: manual
+    document_upload_required: true
+    ai_extraction_enabled: true
+    ai_profile_generation: true
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 80
+  cargo_insurer:
+    requires_approval: true
+    approval_type: manual
+    document_upload_required: true
+    ai_extraction_enabled: true
+    ai_profile_generation: true
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 80
+  trade_finance_provider:
+    requires_approval: true
+    approval_type: manual
+    document_upload_required: true
+    ai_extraction_enabled: true
+    ai_profile_generation: true
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 80
+  certification_body:
+    requires_approval: true
+    approval_type: manual
+    document_upload_required: true
+    ai_extraction_enabled: true
+    ai_profile_generation: true
+    welcome_email_on_approval: true
+    profile_completeness_threshold: 80
+communication:
+  conversation_rules:
+  - initiator: buyer
+    receiver: machine_shop
+    requires_approval: true
+  - initiator: buyer
+    receiver: quality_inspector
+    requires_approval: true
+  - initiator: buyer
+    receiver: rigging_logistics_provider
+    requires_approval: true
+  - initiator: buyer
+    receiver: cargo_insurer
+    requires_approval: true
+  - initiator: buyer
+    receiver: trade_finance_provider
+    requires_approval: true
+  - initiator: buyer
+    receiver: certification_body
+    requires_approval: true
+discovery:
+  searchable_types:
+  - machine_shop
+  - quality_inspector
+  - rigging_logistics_provider
+  - cargo_insurer
+  - trade_finance_provider
+  - certification_body
+  filter_fields:
+  - country
+  - machine_type
+  - tool_taper
+  - deal_instrument
+  - material_grade
+  - material_family
+  - required_processes
+  - end_use_sector
+  result_visibility:
+    anonymous: public
+    authenticated: protected
+  ai:
+    vector_search_enabled: true
+    rag_query_enabled: true
+    follow_up_suggestions: true
+    profile_retrieval_mode: hybrid
+    rag_failure_behavior: empty
+    profile_similarity_threshold: 0.25
+    max_vector_candidates: 500
+  access:
+    anonymous_search_enabled: true
+    anonymous_filter_mode: public_only
+  matching:
+    per_target:
+      machine_shop:
+        vector_weight: 0.504
+        slots:
+        - name: contract_stage_fit
+          fields:
+          - contract_stage
+          comparator: jaccard
+          weight: 0.032
+        - name: country_fit
+          fields:
+          - country
+          comparator: scalar_eq
+          weight: 0.016
+        - name: currency_fit
+          fields:
+          - currency
+          comparator: jaccard
+          weight: 0.032
+        - name: deal_instrument_fit
+          fields:
+          - deal_instrument
+          comparator: jaccard
+          weight: 0.032
+        - name: economic_region_fit
+          fields:
+          - economic_region
+          comparator: jaccard
+          weight: 0.032
+        - name: end_use_sector_fit
+          fields:
+          - end_use_sector
+          comparator: jaccard
+          weight: 0.032
+        - name: inspection_method_fit
+          fields:
+          - inspection_method
+          comparator: jaccard
+          weight: 0.032
+        - name: machine_type_fit
+          fields:
+          - machine_type
+          comparator: jaccard
+          weight: 0.032
+        - name: material_family_fit
+          fields:
+          - material_family
+          comparator: jaccard
+          weight: 0.032
+        - name: material_grade_fit
+          fields:
+          - material_grade
+          comparator: jaccard
+          weight: 0.032
+        - name: payment_terms_fit
+          fields:
+          - payment_terms
+          comparator: jaccard
+          weight: 0.032
+        - name: quality_certification_fit
+          fields:
+          - quality_certification
+          comparator: jaccard
+          weight: 0.032
+        - name: rate_structure_fit
+          fields:
+          - rate_structure
+          comparator: jaccard
+          weight: 0.032
+        - name: required_processes_fit
+          fields:
+          - required_processes
+          comparator: jaccard
+          weight: 0.032
+        - name: tolerance_class_fit
+          fields:
+          - tolerance_class
+          comparator: jaccard
+          weight: 0.032
+        - name: tool_taper_fit
+          fields:
+          - tool_taper
+          comparator: jaccard
+          weight: 0.032
+        hard_gates: []
+      buyer:
+        vector_weight: 0.504
+        slots:
+        - name: contract_stage_fit
+          fields:
+          - contract_stage
+          comparator: jaccard
+          weight: 0.032
+        - name: country_fit
+          fields:
+          - country
+          comparator: scalar_eq
+          weight: 0.016
+        - name: currency_fit
+          fields:
+          - currency
+          comparator: jaccard
+          weight: 0.032
+        - name: deal_instrument_fit
+          fields:
+          - deal_instrument
+          comparator: jaccard
+          weight: 0.032
+        - name: economic_region_fit
+          fields:
+          - economic_region
+          comparator: jaccard
+          weight: 0.032
+        - name: end_use_sector_fit
+          fields:
+          - end_use_sector
+          comparator: jaccard
+          weight: 0.032
+        - name: inspection_method_fit
+          fields:
+          - inspection_method
+          comparator: jaccard
+          weight: 0.032
+        - name: machine_type_fit
+          fields:
+          - machine_type
+          comparator: jaccard
+          weight: 0.032
+        - name: material_family_fit
+          fields:
+          - material_family
+          comparator: jaccard
+          weight: 0.032
+        - name: material_grade_fit
+          fields:
+          - material_grade
+          comparator: jaccard
+          weight: 0.032
+        - name: payment_terms_fit
+          fields:
+          - payment_terms
+          comparator: jaccard
+          weight: 0.032
+        - name: quality_certification_fit
+          fields:
+          - quality_certification
+          comparator: jaccard
+          weight: 0.032
+        - name: rate_structure_fit
+          fields:
+          - rate_structure
+          comparator: jaccard
+          weight: 0.032
+        - name: required_processes_fit
+          fields:
+          - required_processes
+          comparator: jaccard
+          weight: 0.032
+        - name: tolerance_class_fit
+          fields:
+          - tolerance_class
+          comparator: jaccard
+          weight: 0.032
+        - name: tool_taper_fit
+          fields:
+          - tool_taper
+          comparator: jaccard
+          weight: 0.032
+        hard_gates: []
+ai:
+  enabled_providers:
+  - openai
+auth:
+  allow_public_signup: false
+  allow_public_application: true
+story_progression:
+  acknowledgment_window_days: 14
+  pending_visibility: false
+  reminder_cadence_days:
+  - 3
+  - 7
+  disclosure_levels:
+  - anonymous
+  - named
+  - deal_context
+  final_wording_key: brief_signoff
+  signoff_wording: I have read this summary and I have nothing to add or correct at this time. This is
+    not an agreement to any terms and does not create any obligation.
+  final_signoff_wording: I have read this Deal Brief and it accurately captures our shared intent. It
+    is a summary for our own use, not a contract.
+  protected_attributes:
+  - price
+  - pricing
+  - reserve
+  - margin
+  - cost
+  - utilization
+  - utilisation
+  - budget
+  - floor
+  - discount
+deal_instruments: []

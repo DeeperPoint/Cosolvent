@@ -18,6 +18,7 @@ from app.modules.admin.schemas import (
 from app.modules.ai.schemas import LLMSettingsUpdate, PromptUpdate, ProviderValidateRequest
 from app.modules.analytics.schemas import MarketOverview, MatchDensity
 from app.modules.knowledge.schemas import EscapeHatchCreate
+from app.modules.showcase.schemas import PrecomputeRunResult
 
 router = APIRouter()
 
@@ -122,6 +123,20 @@ async def match_density(
     from app.modules.analytics import get_match_density
 
     return await get_match_density(config, threshold=threshold, sample_limit=sample_limit)
+
+
+# ── Showcase precompute (MarketForge Phase 6a 'Mode 1' public demo) ──────
+@router.post("/showcase/run", response_model=PrecomputeRunResult)
+async def run_showcase_precompute(
+    user: dict = Depends(require_admin),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """(Re)bake the showcase cache — per-persona matches + curated knowledge Q&A —
+    so /api/showcase/* never runs a live vector search or LLM call. Re-run whenever
+    the population or reference library changes; each entry is replaced in place."""
+    from app.modules.showcase import run_precompute
+
+    return await run_precompute(config)
 
 
 # ── User Management ─────────────────────────────────────────────────────
