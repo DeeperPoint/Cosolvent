@@ -16,28 +16,29 @@ Cosolvent/
 │   ├── scripts/               # Utility scripts
 │   ├── Dockerfile
 │   └── pyproject.toml
-├── frontend/                  # Frontend compiler + generated Next.js app
-│   ├── compiler/              # Python compiler (generates Next.js from OpenAPI + YAML)
-│   │   ├── parsers/           # OpenAPI + marketplace.yaml parsers
-│   │   ├── transforms/        # IR merge, page conventions, navigation
-│   │   ├── generators/        # Code generators (types, schemas, hooks, routes, components)
-│   │   ├── tests/
-│   │   └── pyproject.toml
+├── frontend/                  # Hand-maintained Next.js app (no codegen)
+│   ├── src/
+│   │   ├── api/                # Hand-written API client + hooks (was `generated/`; see below)
+│   │   ├── app/                 # Pages (App Router)
+│   │   ├── components/
+│   │   └── lib/                 # participant-schemas.ts: hand-maintained mirror of marketplace.yaml
 │   ├── Dockerfile
-│   └── (generated Next.js files: package.json, src/, etc.)
+│   └── package.json
 ├── docker-compose.yml         # Shared compose (orchestrates all services)
-├── marketplace.yaml           # Shared config (read by both compilers)
-├── openapi/                   # Shared OpenAPI spec (backend generates, frontend reads)
+├── marketplace.yaml           # Shared config (read by the backend compiler; frontend/src/lib/participant-schemas.ts is kept in sync with it by hand)
+├── openapi/                   # Backend-generated OpenAPI spec (reference only — nothing reads it automatically)
 ├── Makefile                   # Root orchestration
 └── .env                       # Shared env vars
 ```
+
+**No frontend code generator.** There used to be a `frontend/compiler/` (OpenAPI + marketplace.yaml → Next.js) — it was removed because it silently went stale (regenerating it was a separate step nobody remembered to run when the vertical changed). `frontend/src/` is now an ordinary hand-maintained Next.js app: when `marketplace.yaml` changes participant types or fields, update `frontend/src/lib/participant-schemas.ts` and the relevant `frontend/src/api/*.ts` client functions by hand, the same as any other client of the backend API.
 
 ## Commands
 
 ```bash
 # Install dependencies
 make install                    # Backend: creates backend/.venv and installs deps
-make install-frontend           # Frontend compiler: creates frontend/.venv and installs deps
+cd frontend && npm install      # Frontend
 
 # Linting & formatting (backend, Ruff + mypy)
 make lint                       # Check for lint errors
@@ -47,15 +48,16 @@ make type-check                 # Run mypy
 
 # Testing
 make unit                       # Backend unit tests
-make unit-frontend              # Frontend compiler unit tests
 make integration                # Integration tests (requires Docker stack)
-make test-all                   # lint + unit + unit-frontend + integration + e2e
+make test-all                   # lint + unit + integration + e2e
 
 # Single backend test
 cd backend && .venv/bin/python -m pytest tests/unit/path/to/test.py::ClassName::test_method -v
 
-# Single frontend compiler test
-cd frontend && .venv/bin/python -m pytest compiler/tests/test_compiler.py::ClassName::test_method -v
+# Frontend
+cd frontend && npm run dev        # Dev server
+cd frontend && npm run build      # Production build / type-check
+cd frontend && npm run type-check # tsc --noEmit only
 
 # Dev server (Docker, recommended)
 make up                         # Start full stack: Postgres + Redis + API + worker
@@ -72,7 +74,6 @@ make worker                     # ARQ task worker
 make validate-config            # Validate marketplace.yaml
 make compile                    # Generate backend artifacts from marketplace.yaml
 make compile-check              # Verify generated artifacts match config
-make generate-frontend          # Generate Next.js frontend from OpenAPI + marketplace.yaml
 ```
 
 **URLs when running:**
@@ -83,9 +84,8 @@ make generate-frontend          # Generate Next.js frontend from OpenAPI + marke
 ## Architecture
 
 ### Overview
-Config-driven marketplace builder. A single `marketplace.yaml` defines participant types, profile schemas, discovery rules, and onboarding workflows. Two compilers generate artifacts:
+Config-driven marketplace builder. A single `marketplace.yaml` defines participant types, profile schemas, discovery rules, and onboarding workflows, compiled into backend runtime artifacts by the backend compiler. The frontend is hand-maintained (see above) — no code is generated from `marketplace.yaml` on the frontend side.
 - **Backend compiler** (`backend/app/compiler/`): Generates Python runtime artifacts (role routers, enums, policy matrix)
-- **Frontend compiler** (`frontend/compiler/`): Generates a complete Next.js app from OpenAPI spec + marketplace.yaml
 
 ### Backend Module Layout (`backend/app/modules/`)
 Each module follows the same pattern: `router.py` (FastAPI routes) → `service.py` (business logic) → `repository.py` (DB access) → `schemas.py` (Pydantic models).
@@ -93,11 +93,16 @@ Each module follows the same pattern: `router.py` (FastAPI routes) → `service.
 | Module | Responsibility |
 |--------|---------------|
 | `auth` | Signup/login/sessions via HttpOnly cookies |
-| `profiles` | User profiles driven by marketplace.yaml field schemas |
-| `discovery` | Vector search + keyword filtering for matching |
+| `profiles` | User profiles driven by marketplace.yaml field schemas; whole-profile prose intake + Loop-1 clarify |
+| `discovery` | Vector search + weighted/gated matching |
+| `deals` | Deal assembly — story-version chain, acknowledge/annotate/correct, consent, facilitator slots, Deal Brief |
+| `knowledge` | Reference library + cited Q&A + curatorial pull-signal/escape-hatch loop |
+| `reputation` | Post-handoff counterparty ratings |
 | `communication` | Conversations, messages, WebSocket real-time |
 | `ai` | RAG queries, document management, LLM/embedding config |
 | `files` | S3-based storage with presigned URL generation |
+| `population` | Synthetic population import + watermark enforcement |
+| `showcase` | Precomputed persona/match/Q&A cache for a zero-cost public demo mode |
 | `setup` | Onboarding wizard UI + config validation endpoints |
 | `admin` | Admin-only management APIs |
 
@@ -142,16 +147,8 @@ python -m cli compile    # Generate app/generated/role_alias_router.py and other
 ```
 Generated artifacts in `backend/app/generated/` must be committed alongside config changes.
 
-### Frontend Compiler (`frontend/compiler/`)
-Self-contained Python package. Zero dependency on the backend Python code.
-```bash
-cd frontend
-python -m compiler generate \
-    --openapi ../openapi/generated_openapi.json \
-    --marketplace ../marketplace.yaml \
-    --output .
-```
-Pipeline: Parse OpenAPI + YAML → Build IR → Transform → Generate TypeScript/TSX → Write files.
+### Frontend API Client (`frontend/src/api/`)
+Hand-maintained, not generated. `client.ts` (fetch wrapper), `types.ts` (shared request/response shapes), and one file per backend module (`deals.ts`, `admin.ts`, `reputation.ts`, `showcase.ts`, …) with a thin `use-*.ts` hook alongside each. When a backend route changes, edit the matching file directly — there is no build step to re-run.
 
 ### Frontend Setup UI (`backend/app/modules/setup/ui/`)
 Vanilla JS setup wizard. Key files:
@@ -177,8 +174,6 @@ backend/tests/
 ├── integration/         # Requires running stack — run with make integration
 └── e2e/                 # Full-stack tests — run with make e2e
 
-frontend/compiler/tests/
-└── test_compiler.py     # Frontend compiler unit tests — run with make unit-frontend
 ```
 
 Async tests use `asyncio_mode = "auto"`. Integration/e2e tests are gated by markers and env vars (`RUN_INTEGRATION=1`, `RUN_E2E=1`).
