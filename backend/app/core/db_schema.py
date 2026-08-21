@@ -5,7 +5,18 @@ from __future__ import annotations
 import uuid
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, MetaData, Table, Text, UniqueConstraint, text
+from sqlalchemy import (
+    Column,
+    Computed,
+    DateTime,
+    ForeignKey,
+    Integer,
+    MetaData,
+    Table,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 metadata = MetaData()
@@ -33,6 +44,10 @@ DOCUMENT_COLLECTIONS = [
     # stage 6 "post-transaction evaluation"). One row per (deal, rater, ratee).
     "deal_ratings",
     "faqs",
+    # Pre-computed showcase cache (MarketForge Phase 6a "Mode 1"): baked match
+    # results and curated knowledge Q&A so a public demo instance never needs a
+    # live vector search or LLM call per visitor. One row per (kind, cache_key).
+    "showcase_cache",
     "ai_documents",
     "ai_prompts",
     "ai_llm_settings",
@@ -103,10 +118,17 @@ reference_library = Table(
     Column("source_doc_id", UUID(as_uuid=True), nullable=False),
     Column("vertical", Text, nullable=False),
     Column("chunk_text", Text, nullable=False),
+    # A real chunk (a whole converted document section, in practice) routinely runs
+    # past Postgres's btree row-size limit (~2704 bytes at the default 8KB page size)
+    # — indexing chunk_text directly failed on ordinary Wikipedia-length prose the
+    # first time this table was loaded with real (non-synthetic-sample) content.
+    # Dedup on a fixed-size hash of it instead; server-computed so every writer gets
+    # it for free (see knowledge/service.py::normalize_record, which never sets it).
+    Column("chunk_text_hash", Text, Computed("md5(chunk_text)", persisted=True)),
     Column("embedding", Vector(1536), nullable=False),
     Column("reference_metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
-    UniqueConstraint("source_doc_id", "chunk_text", name="uq_reference_library_doc_chunk"),
+    UniqueConstraint("source_doc_id", "chunk_text_hash", name="uq_reference_library_doc_chunk"),
 )
 
 
