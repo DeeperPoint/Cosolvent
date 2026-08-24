@@ -9,6 +9,8 @@ from fastapi import Cookie, Depends, Header, HTTPException
 
 from app.core.database import get_collection
 from app.core.marketplace_config import MarketplaceConfig, get_marketplace_config
+from app.modules.auth import api_keys
+from app.modules.auth.api_keys import SCOPE_ADMIN
 from app.engine.permission_engine import check_permission
 
 
@@ -63,15 +65,35 @@ async def get_current_user_from_token(session_token: str | None) -> dict[str, An
     return user
 
 
+async def get_current_user_from_api_key(api_key: str | None) -> dict[str, Any]:
+    """Resolve the current user from an ``X-API-Key`` header (GAP-1).
+
+    A long-lived credential for callers that have no login session at all —
+    a sponsor's backend integrating server-to-server. An invalid key raises
+    rather than falling through to the cookie, so a wrong key never silently
+    authenticates as whoever happens to be logged in in the same browser.
+    """
+    user = await api_keys.resolve_api_key(api_key or "")
+    if not user:
+        raise HTTPException(401, "Invalid API key")
+    user["_id"] = str(user["_id"])
+    return user
+
+
 async def get_current_user(
     session_token: str = Cookie(None),
     authorization: str = Header(None),
+    x_api_key: str = Header(None),
 ) -> dict[str, Any]:
-    """Resolve the current user from the session cookie or an ``Authorization: Bearer``
-    header (GAP-1), whichever is present. The header wins when both are — a caller that
-    deliberately sets it is asserting bearer auth, e.g. to bypass a stale/absent cookie.
-    Raises 401 if neither resolves to a valid session.
+    """Resolve the current user from an API key, an ``Authorization: Bearer`` header,
+    or the session cookie (GAP-1), in that order of precedence.
+
+    Explicit credentials win over the ambient cookie: a caller that sets a header is
+    asserting that identity, e.g. to bypass a stale or absent cookie.
+    Raises 401 if none resolves to a valid session.
     """
+    if isinstance(x_api_key, str) and x_api_key:
+        return await get_current_user_from_api_key(x_api_key)
     token = extract_bearer_token(authorization) or session_token
     return await get_current_user_from_token(token)
 
@@ -93,8 +115,14 @@ def _is_session_expired(expires_at: Any) -> bool:
 async def get_optional_user(
     session_token: str = Cookie(None),
     authorization: str = Header(None),
+    x_api_key: str = Header(None),
 ) -> dict[str, Any] | None:
     """Like get_current_user but returns None instead of raising."""
+    if isinstance(x_api_key, str) and x_api_key:
+        try:
+            return await get_current_user_from_api_key(x_api_key)
+        except HTTPException:
+            return None
     token = extract_bearer_token(authorization) or session_token
     if not token:
         return None
@@ -104,10 +132,45 @@ async def get_optional_user(
         return None
 
 
+async def require_session_principal(
+    session_token: str = Cookie(None),
+    authorization: str = Header(None),
+) -> dict[str, Any]:
+    """Resolve the caller from a session cookie or bearer token only — never an API key.
+
+    Guards credential management. If an API key could authenticate here, a stolen
+    key could mint further keys, and revoking the original would not evict the
+    attacker: leaked-and-containable becomes leaked-and-persistent. Key management
+    therefore requires the interactive credential that a human controls.
+    """
+    token = extract_bearer_token(authorization) or session_token
+    return await get_current_user_from_token(token)
+
+
 async def require_admin(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(403, "Admin access required")
+    # An admin's API key is for integration, not for administering the marketplace.
+    # Without this, issuing a key to a sponsor hands over admin whenever the
+    # issuing user happens to be an admin.
+    if user.get("auth_method") == "api_key" and SCOPE_ADMIN not in (user.get("scopes") or []):
+        raise HTTPException(403, "This API key does not carry the 'admin' scope")
     return user
+
+
+def require_scope(scope: str):
+    """Factory: require a scope when the caller is an API key.
+
+    Session and bearer callers are unaffected — scopes describe what a *key* may
+    do, not what a person may do; a person's authority is their role.
+    """
+
+    async def checker(user: dict = Depends(get_current_user)) -> dict:
+        if user.get("auth_method") == "api_key" and scope not in (user.get("scopes") or []):
+            raise HTTPException(403, f"This API key does not carry the '{scope}' scope")
+        return user
+
+    return checker
 
 
 def require_permission(permission: str):
