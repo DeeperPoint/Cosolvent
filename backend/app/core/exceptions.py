@@ -28,6 +28,12 @@ class UnauthorizedError(AppError):
         super().__init__(message, 401)
 
 
+class TooManyRequestsError(AppError):
+    def __init__(self, message: str = "Too many requests", retry_after: int | None = None):
+        super().__init__(message, 429)
+        self.retry_after = retry_after
+
+
 class ConflictError(AppError):
     def __init__(self, message: str = "Conflict"):
         super().__init__(message, 409)
@@ -45,7 +51,14 @@ class ConfigError(Exception):
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
+        # Retry-After tells a well-behaved client when to come back instead of
+        # hammering a throttled endpoint (RFC 9110 §10.2.3).
+        headers = None
+        retry_after = getattr(exc, "retry_after", None)
+        if retry_after:
+            headers = {"Retry-After": str(int(retry_after))}
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.message},
+            headers=headers,
         )
