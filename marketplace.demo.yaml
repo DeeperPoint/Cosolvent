@@ -150,7 +150,7 @@ onboarding:
     requires_approval: true
     approval_type: "manual"
     document_upload_required: false
-    ai_extraction_enabled: false
+    ai_extraction_enabled: true
     ai_profile_generation: false
     welcome_email_on_approval: true
     profile_completeness_threshold: 70
