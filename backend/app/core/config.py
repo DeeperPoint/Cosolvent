@@ -107,6 +107,21 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def _credentialed_cors_rejects_wildcard(self) -> "Settings":
+        # The CORS middleware sends `allow_credentials=True`, and the spec forbids
+        # pairing that with `Access-Control-Allow-Origin: *`. Browsers refuse the
+        # response outright, so a wildcard allowlist disables exactly the
+        # cross-origin login it looks like it enables — the same silent failure
+        # GAP-1 exists to remove. Listing origins explicitly is the only valid form.
+        if "*" in self.cors_origins:
+            raise ValueError(
+                "cors_origins cannot contain '*' while credentials are allowed "
+                "(browsers reject a wildcard origin on credentialed requests) — "
+                "list the frontend origins explicitly"
+            )
+        return self
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 

@@ -34,7 +34,45 @@ def register_middleware(app: FastAPI) -> None:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # Without this every cross-origin call pays an extra OPTIONS round trip.
+        # 10 minutes is the effective ceiling in Chromium; Firefox caps at 24h.
+        max_age=600,
     )
+
+    @app.middleware("http")
+    async def enforce_origin_on_cookie_writes(request: Request, call_next):
+        """Restore CSRF protection when cross-site cookies are enabled (GAP-1).
+
+        `SameSite=lax` is what currently stops a cross-site form POST from carrying
+        the session cookie. Setting it to `none` — which a sponsor frontend on its
+        own origin requires — removes that protection, and CORS does not replace
+        it: a simple form POST is never preflighted, so the request executes and
+        only the *response* is withheld from the attacker.
+
+        So while cross-site cookies are enabled, a state-changing request relying
+        on the ambient cookie must carry an allowlisted Origin. Bearer and API-key
+        callers are exempt: those credentials are attached deliberately by the
+        client, never automatically by the browser, so they cannot be ridden.
+        """
+        if (
+            settings.session_cookie_samesite == "none"
+            and request.method in _WRITE_METHODS
+            and request.cookies.get("session_token")
+            and not request.headers.get("authorization")
+            and not request.headers.get("x-api-key")
+        ):
+            origin = request.headers.get("origin")
+            if origin is None or origin not in settings.cors_origins:
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "detail": (
+                            "Cross-site request rejected: a cookie-authenticated write "
+                            "must come from an allowlisted origin."
+                        )
+                    },
+                )
+        return await call_next(request)
 
     @app.middleware("http")
     async def demo_mode_readonly(request: Request, call_next):

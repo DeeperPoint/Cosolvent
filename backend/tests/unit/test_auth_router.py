@@ -56,19 +56,25 @@ def client_signup_disabled() -> TestClient:
     ],
 )
 def test_auth_endpoints_expose_bearer_token_and_set_secure_cookie(client: TestClient, path: str, payload: dict, service_fn: str):
-    """The raw `session_token` key never appears (internal name); it's re-exposed as
-    `access_token` — the bearer credential cross-origin/native callers use (GAP-1). The
-    cookie is still set alongside it for same-origin browser clients."""
+    """The raw `session_token` key never appears (internal name). It is re-exposed as
+    `access_token` — the bearer credential cross-origin/native callers use (GAP-1) —
+    but only when the caller opts in with `X-Auth-Mode: bearer`, so a same-origin
+    browser client never receives the session token in a JS-readable form. The cookie
+    is set either way."""
     with patch(
         f"app.modules.auth.router.service.{service_fn}",
         new=AsyncMock(return_value=_auth_result()),
     ):
         response = client.post(path, json=payload)
+        opted_in = client.post(path, json=payload, headers={"X-Auth-Mode": "bearer"})
 
     assert response.status_code == 200
     body = response.json()
     assert "session_token" not in body
-    assert body["access_token"] == "token-123"
+    # Default: no usable token handed to page scripts.
+    assert body.get("access_token") is None
+    # Opt-in: the bearer credential is returned for callers that cannot use cookies.
+    assert opted_in.json()["access_token"] == "token-123"
 
     cookie = response.headers["set-cookie"]
     assert "session_token=token-123" in cookie
@@ -163,6 +169,7 @@ def test_demo_persona_logs_in_and_returns_persona(client: TestClient):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["access_token"] == "token-123"
+    # Opt-in only (GAP-1): the demo UI is same-origin and uses the cookie.
+    assert body.get("access_token") is None
     assert body["persona"] == {"profile_id": "p1", "participant_type": "producer", "fields": {}}
     assert "session_token=token-123" in response.headers["set-cookie"]

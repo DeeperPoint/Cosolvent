@@ -24,6 +24,12 @@ metadata = MetaData()
 DOCUMENT_COLLECTIONS = [
     "users",
     "sessions",
+    # Non-ambient credentials for callers with no cookie jar — native apps and
+    # server-to-server integrations (GAP-1). Stores a hash, never the key itself,
+    # so a leaked database yields no usable credentials.
+    "api_keys",
+    # Authentication audit trail: issuance, use and revocation of credentials.
+    "auth_audit",
     "profiles",
     "drafts",
     "applications",
