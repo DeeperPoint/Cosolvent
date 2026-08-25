@@ -54,7 +54,7 @@ onboarding:
     requires_approval: false
     approval_type: "auto"
     document_upload_required: false
-    ai_extraction_enabled: false
+    ai_extraction_enabled: true
     ai_profile_generation: false
     welcome_email_on_approval: false
     profile_completeness_threshold: 100
