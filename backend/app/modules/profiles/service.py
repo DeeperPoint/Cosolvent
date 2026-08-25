@@ -344,16 +344,56 @@ async def next_clarification(user: dict, config: MarketplaceConfig) -> dict:
     empty *required* field, else the first empty optional field. Same 'update-and-recompose'
     spine as a story `correct` — answering it fills the field and the profile-strength score jumps."""
     pt = str(user.get("participant_type", ""))
-    profile = await get_my_profile(user, config)
+    user_id = str(user["_id"])
+    raw_profile = await repo.get_profile_by_user(user_id)
+    if raw_profile is not None:
+        profile = _profile_response(raw_profile, config, "owner")
+    else:
+        draft = await repo.get_draft(user_id)
+        if draft is None:
+            raise NotFoundError("No profile or draft to clarify — register first")
+        profile = _draft_response(draft)
     fields = (profile or {}).get("fields", {}) or {}
     schema = config.profile_schemas.get(pt)
     all_fields = list(schema.all_fields) if schema else []
     strength = _profile_strength(config, pt, fields)
 
-    candidate = next((f for f in all_fields if f.required and _empty(fields.get(f.name))), None) \
+    # A field extracted with low confidence is worth more than an empty optional one:
+    # a wrong value already in the profile is misleading matching right now, whereas a
+    # missing optional field merely leaves it thinner. Confirming beats collecting.
+    intake = (profile or {}).get(INTAKE_KEY) or {}
+    # Values extracted but held back because the model was unsure — confirming one
+    # writes it to the canonical field, which is the whole point of asking.
+    suggested = intake.get("suggested", {}) or {}
+    uncertain = next((f for f in all_fields if f.name in suggested), None)
+
+    candidate = (
+        next((f for f in all_fields if f.required and _empty(fields.get(f.name))), None)
+        or uncertain
         or next((f for f in all_fields if _empty(fields.get(f.name))), None)
+    )
     if candidate is None:
         return {"question": None, "complete": True, "strength": strength}
+
+    if candidate is uncertain:
+        entry = suggested.get(candidate.name, {})
+        current = entry.get("value")
+        return {
+            "field": candidate.name,
+            "label": candidate.label,
+            "type": candidate.type,
+            "options": candidate.options,
+            "required": candidate.required,
+            "current_value": current,
+            "confidence": entry.get("confidence"),
+            "source": entry.get("source"),
+            # Confirmation, not collection — the participant already told us this,
+            # we are just unsure we read it correctly.
+            "question": f"I read your {candidate.label.lower()} as \"{current}\" — is that right?",
+            "strength": strength,
+            "complete": False,
+        }
+
     return {
         "field": candidate.name,
         "label": candidate.label,
@@ -387,16 +427,56 @@ async def answer_clarification(user: dict, field: str, value: Any, config: Marke
     }
 
 
+# Below this, an extracted value is treated as a suggestion to confirm rather than a
+# fact to rely on — the clarify loop asks about it before the profile leans on it.
+LOW_CONFIDENCE_THRESHOLD = 0.6
+
+# Where the raw submission and per-field provenance live on the profile. Kept out of
+# `fields` so it never collides with a marketplace-defined field name.
+INTAKE_KEY = "_intake"
+
+
 async def extract_from_prose(user: dict, text: str, config: MarketplaceConfig) -> dict:
     """GAP-11 whole-profile own-voice intake: read a paragraph of prose, extract canonical
-    fields for the caller's schema, and apply the ones that validate — while preserving the
-    raw prose in ``description`` (the dual representation: gate on canonical, keep raw for nuance)."""
+    fields for the caller's schema, and apply the ones that validate.
+
+    Both halves of the dual representation are kept: the canonical values go into
+    ``fields`` (what gating and scoring read), and the raw submission plus each field's
+    confidence and supporting excerpt go into ``_intake`` (what the clarify loop and
+    nuance judgements read). Storing only the canonical half would discard the evidence;
+    storing only a single prose blob would lose which text supported which value.
+    """
     from app.modules.profiles.ai_extraction import extract_fields_from_document
 
     pt = str(user.get("participant_type", ""))
-    profile = await get_my_profile(user, config)
-    if not profile or not profile.get("id"):
-        raise NotFoundError("No profile to enrich")
+
+    # Extraction is a per-type onboarding capability, not a global one — the config
+    # flag exists so an operator can decide, and a market may deliberately want the
+    # demand side filling structured forms instead.
+    onboarding = config.onboarding.get(pt)
+    if onboarding is not None and not onboarding.ai_extraction_enabled:
+        raise ForbiddenError(
+            f"Prose extraction is not enabled for '{pt}'. "
+            "Set onboarding.{pt}.ai_extraction_enabled to turn it on.".replace("{pt}", pt)
+        )
+
+    # Own-voice intake belongs at registration — the stories open with a participant
+    # describing their position before any structured profile exists. A newly registered
+    # user has a draft, not a profile, so extraction has to work against whichever exists
+    # or the feature is unusable at exactly the moment it is meant to be used.
+    user_id = str(user["_id"])
+    raw_profile = await repo.get_profile_by_user(user_id)
+    draft = None if raw_profile else await repo.get_draft(user_id)
+
+    if raw_profile is not None:
+        profile = _profile_response(raw_profile, config, "owner")
+        target = "profile"
+    elif draft is not None:
+        profile = {"id": str(draft["_id"]), "fields": draft.get("fields", {}) or {}, **{INTAKE_KEY: draft.get(INTAKE_KEY)}}
+        target = "draft"
+    else:
+        raise NotFoundError("No profile or draft to enrich — register first")
+
     schema = config.profile_schemas.get(pt)
     field_defs = [
         {"name": f.name, "type": f.type, "options": f.options}
@@ -408,29 +488,89 @@ async def extract_from_prose(user: dict, text: str, config: MarketplaceConfig) -
 
     try:
         extracted = await extract_fields_from_document(text, pt, field_defs)
+    except AppError:
+        raise
     except Exception as exc:
         raise AppError(f"Could not extract from your description: {exc}", status_code=502) from exc
 
-    # Apply each extracted field that is individually valid for its type/options (no
-    # whole-profile required-completeness gate, so a sparse profile still gets enriched).
     base = dict(profile.get("fields", {}) or {})
-    base["description"] = text
+    # Only seed `description` when the participant has not written one. Overwriting it
+    # with the raw submission destroys text they authored; the raw text is preserved in
+    # `_intake` either way.
+    if _empty(base.get("description")) and "description" in by_name:
+        base["description"] = text
+
     applied: list[str] = []
-    for key, value in (extracted or {}).items():
+    rejected: list[dict[str, Any]] = []
+    low_confidence: list[str] = []
+    provenance: dict[str, Any] = {}
+    # Values the model produced but was not confident about — kept out of `fields`
+    # and offered to the clarify loop for confirmation.
+    suggested: dict[str, Any] = {}
+
+    for key, entry in (extracted or {}).items():
         fd = by_name.get(key)
-        if fd is None or key == "description" or _empty(value):
+        value = entry.get("value") if isinstance(entry, dict) else entry
+        confidence = float(entry.get("confidence", 0.5)) if isinstance(entry, dict) else 0.5
+        source = entry.get("source", "") if isinstance(entry, dict) else ""
+
+        if fd is None:
+            rejected.append({"field": key, "value": value, "reason": "not a field in this schema"})
             continue
+        if _empty(value):
+            continue
+
         coerced = _coerce_field_value(fd, value)
-        if coerced is not None:
-            base[key] = coerced
-            applied.append(key)
+        if coerced is None:
+            # Reported rather than dropped: silently skipping means a participant writes a
+            # paragraph, the call succeeds, and the field just never appears.
+            rejected.append(
+                {"field": key, "value": value, "reason": f"not a valid {fd.type} value for this field"}
+            )
+            continue
+
+        if confidence < LOW_CONFIDENCE_THRESHOLD:
+            # Held back rather than written. A canonical field is what gating and
+            # scoring read, so an inferred value there is worse than an absent one:
+            # it silently distorts matching against a requirement the participant
+            # never stated. Surfaced for the clarify loop to confirm instead.
+            suggested[key] = {"value": coerced, "confidence": confidence, "source": source}
+            low_confidence.append(key)
+            continue
+
+        base[key] = coerced
+        applied.append(key)
+        provenance[key] = {"confidence": confidence, "source": source}
+
+    intake = {
+        "raw_text": text,
+        "extracted_at": datetime.now(timezone.utc).isoformat(),
+        "fields": provenance,
+        "suggested": suggested,
+    }
 
     completeness = compute_completeness(config, pt, base)
-    await repo.update_profile(str(profile["id"]), {"fields": base, "completeness": completeness})
-    await _queue_profile_index(str(profile["id"]))
+    if target == "profile":
+        await repo.update_profile(
+            str(profile["id"]),
+            {"fields": base, "completeness": completeness, INTAKE_KEY: intake},
+        )
+        # Only a live profile belongs in the discovery index; a draft is not yet
+        # discoverable, and indexing one would surface an unsubmitted participant.
+        await _queue_profile_index(str(profile["id"]))
+    else:
+        await get_collection("drafts").update_one(
+            {"_id": profile["id"]},
+            {"$set": {"fields": base, "completeness": completeness, INTAKE_KEY: intake}},
+        )
+
     after = _profile_strength(config, pt, base)
     return {
+        "target": target,
         "applied": applied,
+        "rejected": rejected,
+        "suggested": suggested,
+        "low_confidence": low_confidence,
         "extracted": extracted,
         "strength_before": before,
         "strength_after": after,
@@ -635,6 +775,9 @@ def _draft_response(draft: dict) -> dict:
         "participant_type": draft["participant_type"],
         "status": draft["status"],
         "fields": draft["fields"],
+        # Own-voice intake can run before submission, so the draft carries the same
+        # provenance a profile does. A draft is only ever readable by its owner.
+        INTAKE_KEY: draft.get(INTAKE_KEY),
         "created_at": str(draft.get("created_at", "")),
         "updated_at": str(draft.get("updated_at", "")),
     }
@@ -659,6 +802,12 @@ def _profile_response(profile: dict, config: MarketplaceConfig, tier: ViewerTier
             str(profile.get("ai_profile_updated_at", "")) if profile.get("ai_profile_updated_at") else None
         ),
         "completeness": profile.get("completeness", 0),
+        # Own-voice intake provenance (GAP-11) — the raw submission and per-field
+        # confidence. Owner-only, like the AI profile above: the raw prose is what the
+        # participant said before any visibility filtering, so exposing it to another
+        # viewer would route around `filter_fields` entirely. The clarify loop reads it
+        # through this projection, so omitting it silently disables confirmation questions.
+        INTAKE_KEY: profile.get(INTAKE_KEY) if can_view_ai else None,
         "created_at": str(profile.get("created_at", "")),
         "updated_at": str(profile.get("updated_at", "")),
     }
