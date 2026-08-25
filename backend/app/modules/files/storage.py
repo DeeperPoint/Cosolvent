@@ -12,6 +12,7 @@ from typing import BinaryIO
 from urllib.parse import quote, unquote, urlparse
 
 import boto3
+from botocore.config import Config as BotoConfig
 
 from app.core.config import settings
 
@@ -32,6 +33,12 @@ def _get_client():
         "region_name": settings.s3_region,
         "aws_access_key_id": settings.aws_access_key_id,
         "aws_secret_access_key": settings.aws_secret_access_key,
+        # Pin SigV4. Against real AWS botocore negotiates it anyway, but against a
+        # custom endpoint it falls back to SigV2 — which AWS has deprecated and
+        # which MinIO, R2, Wasabi and Ceph reject outright. Without this, presigned
+        # URLs work in production and silently break on any non-AWS store,
+        # including the MinIO in this repo's own docker-compose.
+        "config": BotoConfig(signature_version="s3v4"),
     }
     if settings.s3_endpoint_url:
         kwargs["endpoint_url"] = settings.s3_endpoint_url

@@ -9,11 +9,26 @@ from .render import GENERATOR_VERSION
 
 
 MANIFEST_PATH = Path("generated/manifest.json")
+
+# Paths the compiler owns and records in the manifest.
 MANAGED_PREFIXES = (
     "app/generated/",
     "generated/",
     "openapi/",
     "alembic/versions/auto_marketplace_",
+)
+
+# Of those, the ones safe to delete when a later compile no longer produces them.
+#
+# Alembic migrations are deliberately excluded. Generated code under `app/generated/`
+# is a pure projection of the current config — regenerating from a different config
+# makes the old files meaningless, so pruning them is correct. A migration is not a
+# projection; it is history that may already have been applied to a database, and it
+# stays referenced by the revision chain. Pruning those meant that compiling a second
+# marketplace config deleted the first one's migration from the working tree — a file
+# that is normally committed — leaving a deletion in `git status` that nobody made.
+PRUNABLE_PREFIXES = tuple(
+    prefix for prefix in MANAGED_PREFIXES if not prefix.startswith("alembic/versions/")
 )
 
 
@@ -85,7 +100,7 @@ def stale_managed_files(root: Path, new_files: set[str]) -> list[str]:
             continue
         if normalized in normalized_new_files:
             continue
-        if is_managed_path(normalized):
+        if is_prunable_path(normalized):
             stale.append(normalized)
     return sorted(set(stale))
 
@@ -105,7 +120,16 @@ def invalid_managed_manifest_entries(root: Path) -> list[str]:
 
 
 def is_managed_path(relative_path: str) -> bool:
+    """True if the compiler generates this path (and records it in the manifest)."""
     return any(relative_path.startswith(prefix) for prefix in MANAGED_PREFIXES)
+
+
+def is_prunable_path(relative_path: str) -> bool:
+    """True if the compiler may delete this path when it is no longer generated.
+
+    Narrower than `is_managed_path` on purpose — see PRUNABLE_PREFIXES.
+    """
+    return any(relative_path.startswith(prefix) for prefix in PRUNABLE_PREFIXES)
 
 
 def _normalize_manifest_path(relative_path: str) -> str | None:
