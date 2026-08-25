@@ -16,8 +16,15 @@ async def generate(
     temperature: float | None = None,
     max_tokens: int | None = None,
     use_case: str | None = None,
+    response_format: dict | None = None,
 ) -> str:
-    """Generate a response using the configured LLM provider."""
+    """Generate a response using the configured LLM provider.
+
+    ``response_format`` accepts an OpenAI-style ``{"type": "json_schema", ...}`` block.
+    Constraining the response with a schema — rather than asking for JSON in the prompt
+    and parsing hopefully — is what makes an out-of-vocabulary value impossible instead
+    of something to detect and discard afterwards.
+    """
     config = await repo.get_resolved_chat_config(use_case)
     provider = config["provider"]
     model = config["model"]
@@ -26,12 +33,17 @@ async def generate(
 
     client = get_chat_client(provider)
 
+    kwargs: dict = {}
+    if response_format is not None:
+        kwargs["response_format"] = response_format
+
     try:
         response = await client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=temp,
             max_tokens=max_tok,
+            **kwargs,
         )
         return response.choices[0].message.content or ""
     except Exception as exc:
