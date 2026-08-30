@@ -17,7 +17,7 @@ The format is inspired by Keep a Changelog and this project follows SemVer inten
     per-IP rate-limited. Respects each type's `onboarding.ai_extraction_enabled` flag.
   - Voice uses the browser's Web Speech API (no API key, no new dependency; Chrome/Edge/
     Safari — Firefox falls back to the text box).
-  - Field extraction defaults to `openrouter` / `google/gemini-2.0-flash-001` (a cheap,
+  - Field extraction defaults to `openrouter` / `google/gemini-2.5-flash` (a cheap,
     JSON-schema-reliable model); override per-use-case via LLM settings.
 - Open-source community standards docs:
   - `LICENSE` (MIT)
