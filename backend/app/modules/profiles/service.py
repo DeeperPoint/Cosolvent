@@ -579,6 +579,103 @@ async def extract_from_prose(user: dict, text: str, config: MarketplaceConfig) -
     }
 
 
+async def extract_for_registration(
+    participant_type: str, text: str, config: MarketplaceConfig
+) -> dict:
+    """Stateless own-voice intake for the *anonymous* registration form (GAP-11).
+
+    Unlike ``extract_from_prose``, there is no account, draft or profile yet: this
+    reads a paragraph of prose (typed, pasted, or dictated and transcribed in the
+    browser) and returns the canonical field values the registration form should be
+    pre-filled with. Nothing is persisted — the applicant reviews and edits the
+    form, then submits it through the normal ``register`` path.
+
+    Returned shape:
+      - ``fields``    — ``{name: value}`` to merge into the form (includes low-confidence
+                        guesses so the applicant can correct them in place)
+      - ``filled``    — field names the model was confident about
+      - ``uncertain`` — field names pre-filled from a low-confidence guess (highlight these)
+      - ``rejected``  — ``[{field, value, reason}]`` the model produced that don't fit the schema
+      - ``raw_text``  — the submission, echoed back
+    """
+    from app.modules.profiles.ai_extraction import extract_fields_from_document
+
+    if config.get_type(participant_type) is None:
+        raise NotFoundError(f"Unknown participant type: {participant_type}")
+
+    # Extraction is a per-type onboarding capability — a market may deliberately
+    # want one side filling the structured form by hand.
+    onboarding = config.onboarding.get(participant_type)
+    if onboarding is not None and not onboarding.ai_extraction_enabled:
+        raise ForbiddenError(f"AI-assisted registration is not enabled for '{participant_type}'.")
+
+    schema = config.profile_schemas.get(participant_type)
+    by_name = {f.name: f for f in (schema.all_fields if schema else [])}
+    field_defs = [
+        {"name": f.name, "type": f.type, "options": f.options}
+        for f in by_name.values()
+        if f.type not in ("file", "files")
+    ]
+    if not field_defs:
+        return {"fields": {}, "filled": [], "uncertain": [], "rejected": [], "raw_text": text}
+
+    try:
+        extracted = await extract_fields_from_document(text, participant_type, field_defs)
+    except AppError:
+        raise
+    except Exception as exc:
+        raise AppError(f"Could not read that description: {exc}", status_code=502) from exc
+
+    fields: dict[str, Any] = {}
+    filled: list[str] = []
+    uncertain: list[str] = []
+    rejected: list[dict[str, Any]] = []
+
+    # The raw submission is the natural content of a free-text "About" field, if the
+    # schema has one. The applicant can still edit or clear it before submitting.
+    if "description" in by_name:
+        fields["description"] = text
+
+    for key, entry in (extracted or {}).items():
+        fd = by_name.get(key)
+        value = entry.get("value") if isinstance(entry, dict) else entry
+        confidence = float(entry.get("confidence", 0.5)) if isinstance(entry, dict) else 0.5
+
+        if fd is None:
+            rejected.append({"field": key, "value": value, "reason": "not a field in this form"})
+            continue
+        if _empty(value):
+            continue
+
+        coerced = _coerce_field_value(fd, value)
+        if coerced is None:
+            rejected.append(
+                {"field": key, "value": value, "reason": f"not a valid {fd.type} value"}
+            )
+            continue
+
+        fields[key] = coerced
+        # Both confident and unsure values pre-fill the form — the applicant reviews
+        # everything anyway — but the unsure ones are flagged so the UI can highlight
+        # them for a second look rather than burying them among the rest.
+        if confidence < LOW_CONFIDENCE_THRESHOLD:
+            uncertain.append(key)
+        else:
+            filled.append(key)
+
+    logger.info(
+        "Registration extraction for %s: %d filled, %d uncertain, %d rejected",
+        participant_type, len(filled), len(uncertain), len(rejected),
+    )
+    return {
+        "fields": fields,
+        "filled": filled,
+        "uncertain": uncertain,
+        "rejected": rejected,
+        "raw_text": text,
+    }
+
+
 def _coerce_field_value(field_def: Any, value: Any) -> Any:
     """Return a schema-valid value for one field, or None if it can't be made valid."""
     t = field_def.type

@@ -11,6 +11,7 @@ Cosolvent provides AI-powered profile generation, semantic search, and RAG-based
 | **Follow-up suggestions** | Suggests related queries after a search or Q&A response | Chat model |
 | **AI profile generation** | Generates a draft profile from documents uploaded during onboarding | Chat model |
 | **AI document extraction** | Reads uploaded onboarding documents and pre-fills profile fields | Chat model |
+| **AI-assisted registration** | On the public registration form, applicants can describe their business in text or by voice; an LLM pre-fills the form fields for them to review and edit | Chat model (voice: browser Web Speech API, no key) |
 
 AI features degrade gracefully: if no provider is configured, all AI endpoints return `503 Service Unavailable`. All other marketplace flows (auth, profiles, conversations) continue normally.
 
@@ -156,6 +157,24 @@ This generates a draft profile based on any documents the user uploaded during o
 POST /api/profiles/{type_slug}/{profile_id}/ai-approve
 POST /api/profiles/{type_slug}/{profile_id}/ai-reject
 ```
+
+---
+
+## AI-Assisted Registration
+
+The public registration form (`/register/{type}`) offers three ways to fill it in — **Fill in the form**, **Describe in text**, and **Use voice** — whenever `ai_extraction_enabled: true` is set for that participant type.
+
+- **Describe in text** — the applicant writes or pastes a short description of their business. The backend extracts the structured form fields and pre-fills them.
+- **Use voice** — the applicant dictates the description. Transcription happens in the browser via the Web Speech API (no API key, no server round-trip; works in Chrome, Edge, and Safari — Firefox falls back to the text box). The transcript then goes through the same extraction.
+
+Both paths are **assistive only**: nothing is submitted automatically. The form is pre-filled, low-confidence guesses are flagged for confirmation, and the applicant reviews and edits everything before submitting the application as normal.
+
+```
+POST /api/profiles/{type_slug}/register/extract
+Body: { "text": "We're a Hamilton machine shop running two 5-axis centres..." }
+```
+
+This endpoint is anonymous (no account exists yet), stateless (nothing is saved), and per-IP rate-limited. Field extraction defaults to `openrouter` / `google/gemini-2.0-flash-001` — a low-cost model that reliably honours the JSON-schema response format extraction depends on. Override it per use case (`document_extraction`) through the LLM settings API if you prefer another model.
 
 ---
 

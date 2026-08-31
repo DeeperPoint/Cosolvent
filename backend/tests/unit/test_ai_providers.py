@@ -167,6 +167,44 @@ class TestResolvedChatConfig:
         assert config["provider"] == "openai"
         assert config["model"] == "gpt-4o-mini"
 
+    @pytest.mark.asyncio
+    @patch("app.modules.ai.repository.get_llm_settings", new_callable=AsyncMock)
+    async def test_document_extraction_has_a_schema_reliable_default(self, mock_get):
+        """Field extraction needs strict JSON-schema output, so it defaults to a cheap
+        schema-reliable model even with no settings stored."""
+        mock_get.return_value = None
+        from app.modules.ai.repository import get_resolved_chat_config
+
+        config = await get_resolved_chat_config("document_extraction")
+        assert config["provider"] == "openrouter"
+        assert config["model"] == "google/gemini-2.0-flash-001"
+
+    @pytest.mark.asyncio
+    @patch("app.modules.ai.repository.get_llm_settings", new_callable=AsyncMock)
+    async def test_use_case_default_beats_global_setting(self, mock_get):
+        """A global chat model an operator set is not thereby their choice for extraction."""
+        mock_get.return_value = {"chat_provider": "openai", "chat_model": "gpt-4o"}
+        from app.modules.ai.repository import get_resolved_chat_config
+
+        config = await get_resolved_chat_config("document_extraction")
+        assert config["model"] == "google/gemini-2.0-flash-001"
+
+    @pytest.mark.asyncio
+    @patch("app.modules.ai.repository.get_llm_settings", new_callable=AsyncMock)
+    async def test_explicit_override_still_beats_use_case_default(self, mock_get):
+        mock_get.return_value = {
+            "chat_provider": "openrouter",
+            "chat_model": "openai/gpt-4o-mini",
+            "use_case_configs": {
+                "document_extraction": {"provider": "openai", "model": "gpt-4o"},
+            },
+        }
+        from app.modules.ai.repository import get_resolved_chat_config
+
+        config = await get_resolved_chat_config("document_extraction")
+        assert config["provider"] == "openai"
+        assert config["model"] == "gpt-4o"
+
 
 class TestEmbeddingConfig:
     @pytest.mark.asyncio

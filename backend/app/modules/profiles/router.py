@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Path, Query, Request
+from app.core import rate_limit
 from app.core.dependencies import get_config, get_current_user, get_optional_user, require_admin
-from app.core.exceptions import AppError, ForbiddenError, UnauthorizedError
+from app.core.exceptions import AppError, ForbiddenError, TooManyRequestsError, UnauthorizedError
+from app.modules.auth import audit
 from app.core.marketplace_config import MarketplaceConfig
 from app.modules.auth.signup_policy import public_application_allowed
 from app.modules.discovery import matching as discovery_matching
@@ -50,6 +52,45 @@ async def register(
         fields_payload,
         file_parts=file_parts or None,
     )
+
+
+# Anonymous, unauthenticated: called from the public registration form before an
+# account exists. It runs an LLM call, so it carries its own per-IP throttle.
+_EXTRACT_IP_LIMIT = 40
+_EXTRACT_IP_WINDOW_SECONDS = 3600
+_EXTRACT_MAX_CHARS = 6000
+
+
+@router.post("/{type_slug}/register/extract")
+async def register_extract(
+    body: dict,
+    request: Request,
+    type_slug: str = Path(...),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """AI-assisted registration: prose (typed, pasted, or dictated) -> pre-filled form
+    fields. Stateless — nothing is saved; the applicant edits the form and submits it
+    through POST /{type_slug}/register as usual."""
+    _validate_type(type_slug, config)
+
+    ip = audit.client_ip(request)
+    if ip:
+        count = await rate_limit.hit(f"register_extract:ip:{ip}", _EXTRACT_IP_WINDOW_SECONDS)
+        if count > _EXTRACT_IP_LIMIT:
+            raise TooManyRequestsError(
+                "Too many AI-assist requests. Try again later or fill the form manually.",
+                retry_after=_EXTRACT_IP_WINDOW_SECONDS,
+            )
+
+    text = str(body.get("text") or "").strip()
+    if len(text) < 10:
+        raise AppError("Write a sentence or two about your business first", status_code=422)
+    if len(text) > _EXTRACT_MAX_CHARS:
+        raise AppError(
+            f"That description is too long — keep it under {_EXTRACT_MAX_CHARS} characters.",
+            status_code=422,
+        )
+    return await service.extract_for_registration(type_slug, text, config)
 
 
 @router.get("/{type_slug}/draft")

@@ -83,6 +83,16 @@ async def upsert_llm_settings(settings: dict) -> dict[str, Any]:
     return result
 
 
+# Per-use-case defaults, applied over the global default but under any explicit
+# operator override in `ai_llm_settings`. Field extraction (`document_extraction`)
+# depends on strict JSON-schema structured output and runs on the anonymous
+# registration path, so it defaults to a cheap, schema-reliable model rather than
+# whatever the global chat default happens to be.
+_USE_CASE_DEFAULTS: dict[str, dict[str, str]] = {
+    "document_extraction": {"provider": "openrouter", "model": "google/gemini-2.0-flash-001"},
+}
+
+
 async def get_resolved_chat_config(use_case: str | None = None) -> dict[str, Any]:
     """Resolve chat config for a given use case, falling back to global defaults."""
     s = await get_llm_settings()
@@ -98,6 +108,15 @@ async def get_resolved_chat_config(use_case: str | None = None) -> dict[str, Any
         temperature = s.get("temperature", temperature)
         max_tokens = s.get("max_tokens", max_tokens)
 
+    # The use-case default sits between the global default and an explicit
+    # override: an operator who set a global chat model did not thereby choose it
+    # for extraction, but an explicit per-use-case config below still wins.
+    uc_default = _USE_CASE_DEFAULTS.get(use_case or "")
+    if uc_default:
+        provider = uc_default.get("provider", provider)
+        model = uc_default.get("model", model)
+
+    if s:
         # Apply per-use-case config (new-style) first
         if use_case:
             configs = s.get("use_case_configs", {})
