@@ -177,7 +177,7 @@ class TestResolvedChatConfig:
 
         config = await get_resolved_chat_config("document_extraction")
         assert config["provider"] == "openrouter"
-        assert config["model"] == "google/gemini-2.0-flash-001"
+        assert config["model"] == "google/gemini-2.5-flash"
 
     @pytest.mark.asyncio
     @patch("app.modules.ai.repository.get_llm_settings", new_callable=AsyncMock)
@@ -187,7 +187,7 @@ class TestResolvedChatConfig:
         from app.modules.ai.repository import get_resolved_chat_config
 
         config = await get_resolved_chat_config("document_extraction")
-        assert config["model"] == "google/gemini-2.0-flash-001"
+        assert config["model"] == "google/gemini-2.5-flash"
 
     @pytest.mark.asyncio
     @patch("app.modules.ai.repository.get_llm_settings", new_callable=AsyncMock)

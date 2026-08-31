@@ -174,7 +174,7 @@ POST /api/profiles/{type_slug}/register/extract
 Body: { "text": "We're a Hamilton machine shop running two 5-axis centres..." }
 ```
 
-This endpoint is anonymous (no account exists yet), stateless (nothing is saved), and per-IP rate-limited. Field extraction defaults to `openrouter` / `google/gemini-2.0-flash-001` — a low-cost model that reliably honours the JSON-schema response format extraction depends on. Override it per use case (`document_extraction`) through the LLM settings API if you prefer another model.
+This endpoint is anonymous (no account exists yet), stateless (nothing is saved), and per-IP rate-limited. Field extraction defaults to `openrouter` / `google/gemini-2.5-flash` — a low-cost model that reliably honours the JSON-schema response format extraction depends on. Override it per use case (`document_extraction`) through the LLM settings API if you prefer another model.
 
 ---
 

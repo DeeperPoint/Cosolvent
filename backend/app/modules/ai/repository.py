@@ -89,7 +89,7 @@ async def upsert_llm_settings(settings: dict) -> dict[str, Any]:
 # registration path, so it defaults to a cheap, schema-reliable model rather than
 # whatever the global chat default happens to be.
 _USE_CASE_DEFAULTS: dict[str, dict[str, str]] = {
-    "document_extraction": {"provider": "openrouter", "model": "google/gemini-2.0-flash-001"},
+    "document_extraction": {"provider": "openrouter", "model": "google/gemini-2.5-flash"},
 }
 
 
