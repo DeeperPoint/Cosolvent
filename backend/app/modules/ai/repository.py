@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
-
 from app.core.database import get_collection
+
+logger = logging.getLogger("cosolvent.ai")
 
 
 # ── AI Documents ──────────────────────────────────────────────────────────
@@ -158,18 +160,74 @@ async def get_multimodal_config() -> dict[str, Any]:
     return defaults
 
 
+# The pgvector columns storing profile and document embeddings are fixed at this
+# width, so a provider whose vectors differ cannot be used without a migration
+# and a full re-index.
+REQUIRED_EMBEDDING_DIMENSIONS = 1536
+
+
+def _default_embedding_provider() -> str:
+    """Pick a *dimension-compatible* embedding provider that is actually keyed.
+
+    Two failure modes this avoids, both of which surface only at index time —
+    after a population has already "loaded" — rather than at startup:
+
+      - Defaulting unconditionally to OpenAI on an instance keyed for a
+        different provider: every `index_profile` call raises, and the records
+        are present but undiscoverable.
+      - Selecting whichever provider happens to hold a key: Gemini's embeddings
+        are 768-dimensional and would be rejected by a `Vector(1536)` column on
+        every insert.
+
+    Candidates are therefore filtered to providers whose default width matches
+    the column, in registry order so behaviour is stable rather than dependent
+    on which keys happen to be present. An explicit `embedding_provider`
+    setting always wins over this, including a deliberate non-1536 choice paired
+    with a migration.
+    """
+    from app.core.config import settings as app_settings
+    from app.modules.ai.providers import PROVIDER_REGISTRY
+
+    for provider_id, spec in PROVIDER_REGISTRY.items():
+        if not spec.supports_embeddings:
+            continue
+        if spec.default_embedding_dimensions != REQUIRED_EMBEDDING_DIMENSIONS:
+            continue
+        if getattr(app_settings, spec.api_key_env_name, ""):
+            name = str(getattr(provider_id, "value", provider_id))
+            logger.info("Embedding provider resolved to '%s' (keyed, %d-dim)", name, REQUIRED_EMBEDDING_DIMENSIONS)
+            return name
+
+    # Nothing compatible is keyed. Return the conventional default so the failure
+    # surfaces as a missing-key error naming a provider, not an empty string.
+    return "openai"
+
+
 async def get_embedding_config() -> dict[str, Any]:
     """Return embedding provider/model/dimensions from settings."""
     s = await get_llm_settings()
 
-    provider = "openai"
-    model = "text-embedding-3-small"
-    dimensions = 1536
+    provider = _default_embedding_provider()
+    model = None
+    dimensions = None
 
     if s:
-        provider = s.get("embedding_provider", provider)
-        model = s.get("embedding_model", model)
-        dimensions = s.get("embedding_dimensions", dimensions)
+        provider = s.get("embedding_provider") or provider
+        model = s.get("embedding_model")
+        dimensions = s.get("embedding_dimensions")
+
+    if not model or not dimensions:
+        # Fall back to the chosen provider's own defaults rather than OpenAI's,
+        # so a non-OpenAI provider is not handed an OpenAI model name.
+        from app.modules.ai.providers import PROVIDER_REGISTRY
+
+        spec = next(
+            (sp for pid, sp in PROVIDER_REGISTRY.items()
+             if str(getattr(pid, "value", pid)) == provider),
+            None,
+        )
+        model = model or (spec.default_embedding_model if spec else "text-embedding-3-small")
+        dimensions = dimensions or (spec.default_embedding_dimensions if spec else 1536)
 
     return {
         "provider": provider,

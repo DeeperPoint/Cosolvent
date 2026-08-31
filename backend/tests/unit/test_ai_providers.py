@@ -209,13 +209,52 @@ class TestResolvedChatConfig:
 class TestEmbeddingConfig:
     @pytest.mark.asyncio
     @patch("app.modules.ai.repository.get_llm_settings", new_callable=AsyncMock)
-    async def test_defaults(self, mock_get):
+    async def test_defaults_when_nothing_is_keyed(self, mock_get, monkeypatch):
+        """With no provider keyed, the conventional default stands so the failure
+        surfaces as a named missing-key error rather than an empty provider."""
         mock_get.return_value = None
+        from app.core.config import settings as app_settings
         from app.modules.ai.repository import get_embedding_config
+
+        for key in ("openai_api_key", "openrouter_api_key", "gemini_api_key", "cohere_api_key"):
+            monkeypatch.setattr(app_settings, key, "", raising=False)
 
         config = await get_embedding_config()
         assert config["provider"] == "openai"
         assert config["model"] == "text-embedding-3-small"
+        assert config["dimensions"] == 1536
+
+    @pytest.mark.asyncio
+    @patch("app.modules.ai.repository.get_llm_settings", new_callable=AsyncMock)
+    async def test_selects_a_keyed_provider(self, mock_get, monkeypatch):
+        """An instance keyed only for OpenRouter must not default to OpenAI and
+        then fail on every index call."""
+        mock_get.return_value = None
+        from app.core.config import settings as app_settings
+        from app.modules.ai.repository import get_embedding_config
+
+        monkeypatch.setattr(app_settings, "openai_api_key", "", raising=False)
+        monkeypatch.setattr(app_settings, "openrouter_api_key", "key", raising=False)
+
+        config = await get_embedding_config()
+        assert config["provider"] == "openrouter"
+        assert config["dimensions"] == 1536
+
+    @pytest.mark.asyncio
+    @patch("app.modules.ai.repository.get_llm_settings", new_callable=AsyncMock)
+    async def test_skips_a_dimension_incompatible_provider(self, mock_get, monkeypatch):
+        """Gemini embeddings are 768-dimensional; selecting it against a
+        Vector(1536) column would fail on every insert."""
+        mock_get.return_value = None
+        from app.core.config import settings as app_settings
+        from app.modules.ai.repository import get_embedding_config
+
+        monkeypatch.setattr(app_settings, "openai_api_key", "", raising=False)
+        monkeypatch.setattr(app_settings, "openrouter_api_key", "", raising=False)
+        monkeypatch.setattr(app_settings, "gemini_api_key", "key", raising=False)
+
+        config = await get_embedding_config()
+        assert config["provider"] == "openai"  # gemini skipped, not selected
         assert config["dimensions"] == 1536
 
     @pytest.mark.asyncio
