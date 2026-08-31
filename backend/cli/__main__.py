@@ -124,6 +124,17 @@ def main() -> None:
     stamp_parser.add_argument("-o", "--output", required=True, help="Output (watermarked) file path")
     stamp_parser.add_argument("--secret", default=None, help="Override the watermark secret")
 
+    verify_parser = subparsers.add_parser(
+        "verify-population",
+        help="Verify watermarks on a population file (no database required)",
+    )
+    verify_parser.add_argument("file", help="Path to the population JSON file")
+    verify_parser.add_argument(
+        "--policy", choices=["signature", "hash"], default=None,
+        help="Admission policy to check against (default: settings.watermark_policy)",
+    )
+    verify_parser.add_argument("--secret", default=None, help="Override the watermark secret")
+
     schema_parser = subparsers.add_parser(
         "export-profile-schema",
         help="Publish a participant type's profile schema as JSON (contract for generators)",
@@ -150,6 +161,11 @@ def main() -> None:
         from cli.stamp_population import stamp_population
 
         ok = stamp_population(args.file, args.output, secret=args.secret)
+        sys.exit(0 if ok else 1)
+    if args.command == "verify-population":
+        from cli.verify_population import verify_population
+
+        ok = verify_population(args.file, policy=args.policy, secret=args.secret)
         sys.exit(0 if ok else 1)
     if args.command == "export-profile-schema":
         from app.core.config import settings
