@@ -43,6 +43,15 @@ class TestFilterFields:
         assert "annual_production" in result
         assert "financial_notes" in result
 
+    def test_sealed_sees_public_only(self):
+        # A "sealed" viewer is authenticated but held to the anonymous allowance —
+        # the confidential-matching disclosure protocol overrides the ordinary
+        # "authenticated -> protected" policy for this specific viewer/owner pair.
+        result = filter_fields(_schema(), SAMPLE_FIELDS, "sealed")
+        assert "farm_name" in result
+        assert "annual_production" not in result
+        assert "financial_notes" not in result
+
     def test_missing_fields_not_included(self):
         partial = {"farm_name": "Test"}
         result = filter_fields(_schema(), partial, "owner")

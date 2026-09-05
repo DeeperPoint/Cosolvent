@@ -1,9 +1,21 @@
 """Visibility-based field filtering for profiles.
 
-Three tiers:
+Three field-visibility levels:
   - public:    visible to everyone (including anonymous)
   - protected: visible to authenticated users
   - private:   visible only to profile owner and admins
+
+Four viewer tiers. ``sealed`` is not a fourth field-visibility level — it is a
+viewer tier that is deliberately held to the ``anonymous`` allowance despite the
+viewer being authenticated. It exists for the confidential-matching disclosure
+protocol (GAP-6/13): two parties who are counterparties on a deal whose
+disclosure level has not yet advanced to "revealed" must not see each other's
+``protected`` fields, even though both are ordinary authenticated marketplace
+users who would see ``protected`` fields on *any other* profile. Callers that
+have no deal context (e.g. discovery search, an unrelated stranger's profile)
+never need it and pass ``authenticated`` as before — only a caller that knows
+about a specific viewer/owner deal relationship (see
+``app.modules.deals.service.is_sealed_from``) downgrades to ``sealed``.
 """
 
 from __future__ import annotations
@@ -12,7 +24,7 @@ from typing import Any, Literal
 
 from app.core.marketplace_config import MarketplaceConfig, ProfileSchema
 
-ViewerTier = Literal["anonymous", "authenticated", "owner"]
+ViewerTier = Literal["anonymous", "authenticated", "sealed", "owner"]
 
 
 def filter_fields(
@@ -58,6 +70,8 @@ def _allowed_visibilities(tier: ViewerTier) -> set[str]:
         return {"public", "protected", "private"}
     if tier == "authenticated":
         return {"public", "protected"}
+    # "sealed" falls through to the same allowance as "anonymous" on purpose —
+    # see the module docstring.
     return {"public"}
 
 
