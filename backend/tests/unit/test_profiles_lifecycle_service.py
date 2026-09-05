@@ -320,11 +320,41 @@ async def test_get_profile_redacts_ai_fields_for_non_owner(mock_repo):
         }
     )
 
-    result = await service.get_profile(
-        "p1",
-        "producer",
-        cfg,
-        current_user={"_id": "viewer", "role": "user"},
-    )
+    with patch("app.modules.profiles.service.is_sealed_from", new=AsyncMock(return_value=False)):
+        result = await service.get_profile(
+            "p1",
+            "producer",
+            cfg,
+            current_user={"_id": "viewer", "role": "user"},
+        )
     assert result["ai_profile"] is None
     assert result["ai_profile_draft"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_profile_seals_protected_fields_from_unrevealed_deal_counterparty(mock_repo):
+    # An ordinary authenticated stranger sees protected fields (documented policy).
+    cfg = load_marketplace_config(FIXTURES / "agriculture.yaml")
+    mock_repo.get_profile_by_id = AsyncMock(
+        return_value={
+            "_id": "p1",
+            "user_id": "owner",
+            "participant_type": "producer",
+            "status": "active",
+            "fields": {"farm_name": "North Ridge", "country": "Canada", "annual_production": 5000},
+        }
+    )
+    with patch("app.modules.profiles.service.is_sealed_from", new=AsyncMock(return_value=False)):
+        stranger = await service.get_profile(
+            "p1", "producer", cfg, current_user={"_id": "stranger", "role": "user"}
+        )
+    assert stranger["fields"]["annual_production"] == 5000
+
+    # But a viewer who shares an unrevealed deal with the owner is sealed to the
+    # same protected fields, even though they are just as "authenticated".
+    with patch("app.modules.profiles.service.is_sealed_from", new=AsyncMock(return_value=True)):
+        counterparty = await service.get_profile(
+            "p1", "producer", cfg, current_user={"_id": "counterparty", "role": "user"}
+        )
+    assert "annual_production" not in counterparty["fields"]
+    assert counterparty["fields"]["farm_name"] == "North Ridge"

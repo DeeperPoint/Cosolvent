@@ -369,6 +369,30 @@ async def get_deal(deal_id: str, user: dict[str, Any], config: MarketplaceConfig
     return await _deal_view(deal_id, user, config)
 
 
+async def is_sealed_from(viewer_id: str, owner_id: str, config: MarketplaceConfig) -> bool:
+    """True if ``viewer_id`` must be denied ``owner_id``'s protected fields on the
+    general profile-view path, despite being an ordinary authenticated user.
+
+    The disclosure protocol (GAP-6) redacts protected content out of story-version
+    narratives until mutual reveal consent advances a deal's ``disclosure_level`` —
+    but that redaction only covers the deal's own story content. Nothing stopped
+    the same two parties from fetching each other's raw profile directly and seeing
+    protected fields anyway, via the ordinary "authenticated -> protected" policy
+    that applies to every other pair of unrelated users. This closes that gap: any
+    deal the two share that hasn't reached the final disclosure level keeps them
+    sealed to one another, regardless of deal status (a deal that never advanced
+    disclosure before being cancelled did not retroactively earn a reveal).
+    """
+    if not viewer_id or not owner_id or viewer_id == owner_id:
+        return False
+    final = _final_level(config)
+    deals = await repo.list_deals_for_user(viewer_id)
+    return any(
+        deal.get("disclosure_level") != final and story.is_party(deal, owner_id)
+        for deal in deals
+    )
+
+
 # ── respond: acknowledge / annotate / correct (§5) ──────────────────────────────
 async def respond(deal_id: str, user: dict[str, Any], req: Any, config: MarketplaceConfig) -> dict[str, Any]:
     deal = await _get_or_404(deal_id)
