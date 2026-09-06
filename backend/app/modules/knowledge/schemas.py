@@ -62,6 +62,16 @@ class EscapeHatchCreate(BaseModel):
     vertical: str | None = None
     # Optional link back to the pull signal that motivated this hatch.
     source_gap_id: str | None = None
+    # Structured provenance (MarketForge "alternative routes" design): the body +
+    # clause that actually grants the route, e.g. "UL 9540A Ed. 4 §8.3". A curator
+    # may still save a hatch without one (a draft, pending research), but the
+    # matching engine will not let it unlock a gate until this is set — "a route
+    # the platform inferred is not a route."
+    granting_authority: str | None = None
+    # What the route is versioned against (an edition, not a calendar date) — a
+    # provision valid under one edition may not survive the next.
+    edition: str | None = None
+    evidence_status: str = Field(default="unconfirmed", pattern="^(confirmed|unconfirmed|refuted)$")
 
 
 class EscapeHatch(BaseModel):
@@ -71,5 +81,8 @@ class EscapeHatch(BaseModel):
     rationale: str
     vertical: str | None = None
     status: str
+    granting_authority: str | None = None
+    edition: str | None = None
+    evidence_status: str = "unconfirmed"
     metadata: dict = Field(default_factory=dict)
     created_at: str | None = None
