@@ -154,7 +154,14 @@ async def suggested_matches(
             # The "Match is unlocked!" moment: a gate that would have excluded this
             # candidate was satisfied by an escape hatch's alternative-compliance path.
             entry["unlocked_gates"] = [
-                {"name": g["name"], "rationale": g["unlocked_by"].get("rationale", "")}
+                {
+                    "name": g["name"],
+                    "rationale": g["unlocked_by"].get("rationale", ""),
+                    # The citation travels with the unlock, not just the internal
+                    # decision — a route nobody can see is a route nobody can check.
+                    "granting_authority": g["unlocked_by"].get("granting_authority"),
+                    "edition": g["unlocked_by"].get("edition"),
+                }
                 for g in unlocked
             ]
 
@@ -427,12 +434,34 @@ def _evaluate_gates(
     return out
 
 
+def _is_citable_hatch(hatch: dict[str, Any]) -> bool:
+    """A hatch may only unlock a gate once its route is actually cited and confirmed.
+
+    "A route the platform inferred is not a route": an escape hatch with a
+    plausible-sounding ``rationale`` but no ``granting_authority`` — the body and
+    clause that actually grants it — is not distinguishable from a guess, and an
+    ``evidence_status`` short of ``confirmed`` means nobody has verified the claim
+    yet. Both are required before a hatch is allowed to override a hard gate; a
+    hatch that fails this check simply never matches (as if it did not exist), so
+    the gate it conditions is enforced normally.
+    """
+    return bool(hatch.get("granting_authority")) and hatch.get("evidence_status") == "confirmed"
+
+
 def _first_unlocking_hatch(
     cand_fields: dict[str, Any], hatches: list[dict[str, Any]]
 ) -> dict[str, Any] | None:
-    """The first escape hatch (if any) whose condition the candidate satisfies."""
+    """The first escape hatch (if any) whose condition the candidate satisfies and
+    whose route is cited and confirmed (see ``_is_citable_hatch``)."""
     for hatch in hatches:
+        if not _is_citable_hatch(hatch):
+            continue
         if _condition_passes(cand_fields, hatch.get("condition", {})):
-            return {"hatch_id": hatch.get("id"), "rationale": hatch.get("rationale", ""),
-                    "condition": hatch.get("condition", {})}
+            return {
+                "hatch_id": hatch.get("id"),
+                "rationale": hatch.get("rationale", ""),
+                "condition": hatch.get("condition", {}),
+                "granting_authority": hatch.get("granting_authority"),
+                "edition": hatch.get("edition"),
+            }
     return None
