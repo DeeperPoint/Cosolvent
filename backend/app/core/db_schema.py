@@ -179,6 +179,21 @@ escape_hatches = Table(
     # Human-readable "why this unlocks" shown on the match (e.g. "holds CWB W59-002").
     Column("rationale", Text, nullable=False, server_default=text("''")),
     Column("status", Text, nullable=False, server_default=text("'active'")),
+    # Structured provenance (MarketForge "alternative routes" design). Free-text
+    # `rationale` and the generic `hatch_metadata` blob let an unlock be shipped with
+    # nothing behind it but a plausible-sounding sentence — these three fields make the
+    # citation a first-class, queryable part of the record instead of prose a curator
+    # might have skipped:
+    #   - granting_authority: the body + clause that actually grants the route (e.g.
+    #     "UL 9540A Ed. 4 §8.3"). Nullable only for pre-existing rows; a hatch created
+    #     from here on must set it — "a route the platform inferred is not a route."
+    #   - edition: what the route is versioned against. A provision valid under one
+    #     edition may not survive the next; this ages the hatch by edition, not by date.
+    #   - evidence_status: confirmed | unconfirmed | refuted — travels with the claim so
+    #     an unlock can be told apart from a claim nobody has verified yet.
+    Column("granting_authority", Text, nullable=True),
+    Column("edition", Text, nullable=True),
+    Column("evidence_status", Text, nullable=False, server_default=text("'unconfirmed'")),
     Column("hatch_metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
 )
