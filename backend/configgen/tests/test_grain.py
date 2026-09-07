@@ -167,6 +167,62 @@ def test_enrichment_applies_whitelisted_adjustments_only():
     assert isinstance(cfg, MarketplaceConfig)
 
 
+def test_generate_from_schema_applies_enrichment_when_llm_client_given():
+    """The wiring, not just the two halves: generate_from_schema (not a caller who
+    imports enrich_fields directly) must run enrichment on the assembled draft
+    before validation, when given an llm_client — and must not touch the LLM at
+    all when it isn't given one (the deterministic/offline path other tests in
+    this file rely on)."""
+    import json
+
+    schema = DomainSchema({
+        "vertical": "widgets",
+        "participant_roles": {"supply": {}, "demand": {}},
+        "goods": {"fields": {"category": {"allowed_values": ["A", "B"], "required": True}}},
+    })
+
+    class StubClient:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, system, user):
+            self.calls += 1
+            # A single, still-valid adjustment. The draft stays valid afterwards,
+            # so validate_and_repair's own (same-stub) repair path is never
+            # exercised — this test is about the enrichment call specifically.
+            return json.dumps([
+                {"participant": "seller", "name": "category", "label": "Product Category"},
+            ])
+
+    stub = StubClient()
+
+    # generate_from_schema takes a schema *path*; write the inline schema to a temp file.
+    import tempfile
+
+    import yaml as _yaml
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+        _yaml.safe_dump(schema.raw, f)
+        schema_path = f.name
+
+    result = generate_from_schema(schema_path, llm_client=stub)
+    assert stub.calls >= 1, "generate_from_schema did not call the LLM client at all"
+    seller = result.config_dict["profile_schemas"]["seller"]
+    label = next(
+        f["label"] for s in seller["sections"] for f in s["fields"] if f["name"] == "category"
+    )
+    assert label == "Product Category"
+
+    # No llm_client -> fully deterministic, the LLM is never touched.
+    offline = generate_from_schema(schema_path)
+    offline_label = next(
+        f["label"]
+        for s in offline.config_dict["profile_schemas"]["seller"]["sections"]
+        for f in s["fields"]
+        if f["name"] == "category"
+    )
+    assert offline_label != "Product Category"
+
+
 def test_unrepairable_raises():
     schema = DomainSchema({"vertical": "widgets", "participant_roles": {"supply": {}, "demand": {}}})
     draft = assemble(extract_market(schema))
