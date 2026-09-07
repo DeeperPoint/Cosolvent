@@ -20,6 +20,7 @@ from app.core.queue import enqueue_job
 from app.engine.schema_engine import compute_completeness, validate_profile_fields
 from app.engine.visibility_engine import ViewerTier, filter_fields, get_viewer_tier
 from app.modules.auth import repository as auth_repo
+from app.modules.deals.service import is_sealed_from
 from app.modules.files import repository as files_repo
 from app.modules.files import service as files_service
 from app.modules.profiles.ai_generation import generate_profile_content
@@ -284,6 +285,15 @@ async def get_profile(
     )
     if tier != "owner" and profile.get("status") != "active":
         raise NotFoundError("Profile not found")
+    if tier == "authenticated" and await is_sealed_from(
+        str(current_user["_id"]), profile["user_id"], config
+    ):
+        # Confidential-matching disclosure protocol overrides the ordinary
+        # "authenticated -> protected" policy: this viewer and this profile's
+        # owner are counterparties on a deal whose disclosure hasn't advanced to
+        # a mutual reveal yet, so protected fields must stay sealed between them
+        # specifically — even though either would see them on an unrelated profile.
+        tier = "sealed"
     return _profile_response(profile, config, tier)
 
 

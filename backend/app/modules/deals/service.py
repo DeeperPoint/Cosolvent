@@ -369,6 +369,30 @@ async def get_deal(deal_id: str, user: dict[str, Any], config: MarketplaceConfig
     return await _deal_view(deal_id, user, config)
 
 
+async def is_sealed_from(viewer_id: str, owner_id: str, config: MarketplaceConfig) -> bool:
+    """True if ``viewer_id`` must be denied ``owner_id``'s protected fields on the
+    general profile-view path, despite being an ordinary authenticated user.
+
+    The disclosure protocol (GAP-6) redacts protected content out of story-version
+    narratives until mutual reveal consent advances a deal's ``disclosure_level`` —
+    but that redaction only covers the deal's own story content. Nothing stopped
+    the same two parties from fetching each other's raw profile directly and seeing
+    protected fields anyway, via the ordinary "authenticated -> protected" policy
+    that applies to every other pair of unrelated users. This closes that gap: any
+    deal the two share that hasn't reached the final disclosure level keeps them
+    sealed to one another, regardless of deal status (a deal that never advanced
+    disclosure before being cancelled did not retroactively earn a reveal).
+    """
+    if not viewer_id or not owner_id or viewer_id == owner_id:
+        return False
+    final = _final_level(config)
+    deals = await repo.list_deals_for_user(viewer_id)
+    return any(
+        deal.get("disclosure_level") != final and story.is_party(deal, owner_id)
+        for deal in deals
+    )
+
+
 # ── respond: acknowledge / annotate / correct (§5) ──────────────────────────────
 async def respond(deal_id: str, user: dict[str, Any], req: Any, config: MarketplaceConfig) -> dict[str, Any]:
     deal = await _get_or_404(deal_id)
@@ -566,7 +590,7 @@ async def set_instrument(deal_id: str, user: dict[str, Any], instrument: str, co
 
 
 # ── facilitator slots + injection (GAP-7) ────────────────────────────────────────
-def _facilitator_availability(fields: dict[str, Any]) -> dict[str, Any] | None:
+def _facilitator_availability(fields: dict[str, Any], *, now: datetime | None = None) -> dict[str, Any] | None:
     """Surface a facilitator's queue/availability signal, if their profile carries
     one (GAP-19: 'the 4-month queue that is really an 8-week booking for
     pre-reviewed packages'). Two conventional field names, generic across
@@ -574,17 +598,43 @@ def _facilitator_availability(fields: dict[str, Any]) -> dict[str, Any] | None:
       * ``queue_depth``    — a number (whatever unit the vertical documents, e.g.
                               business days of backlog).
       * ``available_from`` — an ISO date the facilitator can next take new work.
-    Returns None when neither is present, so callers can omit the key entirely
-    rather than showing an empty availability block.
+
+    Neither field is a live queue-management or booking integration — that stays
+    out of scope (Tier C: no real-time queue estimation, no slot discovery or
+    booking against an external system). What this derives *is* in scope: a
+    self-reported date is not, on its own, comparable across candidates, so a
+    stale or malformed value would silently break ranking. ``days_until_available``
+    normalizes it — 0 once the date has passed (the facilitator reads as free
+    today, not "was free three weeks ago") — into the number ``_availability_sort_key``
+    actually ranks on; an unparseable ``available_from`` is dropped rather than
+    passed through as noise a caller might display or sort on directly.
+
+    Returns None when neither field yields a usable signal, so callers can omit
+    the key entirely rather than showing an empty availability block.
     """
     queue_depth = fields.get("queue_depth")
     available_from = fields.get("available_from")
     out: dict[str, Any] = {}
-    if isinstance(queue_depth, (int, float)):
+    if isinstance(queue_depth, (int, float)) and not isinstance(queue_depth, bool):
         out["queue_depth"] = queue_depth
-    if available_from:
+    parsed = story._as_dt(available_from)
+    if parsed is not None:
         out["available_from"] = available_from
+        out["days_until_available"] = max(0, (parsed - (now or _now())).days)
     return out or None
+
+
+def _availability_sort_key(entry: dict[str, Any]) -> tuple[float, float]:
+    """More-available facilitators sort first: fewer days until available (0 = free
+    today), then a shallower queue as the tie-break. A candidate missing one or
+    both signals sorts after every candidate that reports it — partial
+    availability data is still more useful than none, so it must not tie with
+    "unknown" at the same rank."""
+    avail = entry.get("availability") or {}
+    return (
+        avail.get("days_until_available", float("inf")),
+        avail.get("queue_depth", float("inf")),
+    )
 
 
 async def search_facilitators(
@@ -622,6 +672,10 @@ async def search_facilitators(
         if availability:
             entry["availability"] = availability
         out.append(entry)
+    # Semantic score leads; among near-ties (rounded to 3dp above, so real ties are
+    # common) the more available candidate breaks it (GAP-19) — this path previously
+    # left vector order untouched, so availability never affected it at all.
+    out.sort(key=lambda c: (-c["score"], _availability_sort_key(c)))
     return out
 
 
@@ -657,9 +711,12 @@ async def search_facilitators_by_name(
             out.append(entry)
         if len(out) >= limit:
             break
-    # Best (exact) matches first; among ties, the shorter queue breaks the tie
-    # (GAP-19) — a facilitator who can start sooner is the more useful candidate.
-    out.sort(key=lambda c: (-c["score"], c.get("availability", {}).get("queue_depth", float("inf"))))
+    # Best (exact) matches first; among ties, the more available candidate breaks
+    # the tie (GAP-19) — a facilitator who can start sooner is the more useful
+    # candidate. Previously only queue_depth broke the tie, so a candidate with a
+    # concrete available_from but no queue_depth ranked identically to one with no
+    # availability data at all; _availability_sort_key accounts for both.
+    out.sort(key=lambda c: (-c["score"], _availability_sort_key(c)))
     return out
 
 

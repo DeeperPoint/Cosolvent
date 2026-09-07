@@ -313,6 +313,9 @@ async def create_escape_hatch(
     rationale: str = "",
     vertical: str | None = None,
     metadata: dict[str, Any] | None = None,
+    granting_authority: str | None = None,
+    edition: str | None = None,
+    evidence_status: str = "unconfirmed",
 ) -> str:
     async with session_scope() as session:
         result = await session.execute(
@@ -324,6 +327,9 @@ async def create_escape_hatch(
                 rationale=rationale[:2000],
                 vertical=vertical,
                 status="active",
+                granting_authority=granting_authority,
+                edition=edition,
+                evidence_status=evidence_status,
                 hatch_metadata=metadata or {},
             )
             .returning(escape_hatches.c.id)
@@ -341,6 +347,9 @@ def _hatch_row(r: Any) -> dict[str, Any]:
         "rationale": r.rationale,
         "vertical": r.vertical,
         "status": r.status,
+        "granting_authority": r.granting_authority,
+        "edition": r.edition,
+        "evidence_status": r.evidence_status,
         "metadata": r.hatch_metadata or {},
         "created_at": r.created_at.isoformat() if r.created_at else None,
     }

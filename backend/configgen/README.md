@@ -27,14 +27,22 @@ cd backend
     -o marketplace.yaml
 ```
 
-`--enrich` enables an OpenRouter LLM repair pass (needs `OPENROUTER_API_KEY`); without it
-the run is fully deterministic and offline.
+The CLI (`python -m configgen`) always requires `OPENROUTER_API_KEY` — enrichment and
+repair are mandatory there, both running on Claude via OpenRouter (`--model` or
+`OPENROUTER_MODEL` to override). The fully deterministic, no-LLM path is available at
+the library level — call `generate_from_schema(schema_path)` with no `llm_client` — and
+is how `configgen/tests` runs offline.
 
 ## Pipeline
 
 ```
 domain schema ─▶ extract.py ─▶ MarketDefinition ─▶ assemble.py ─▶ draft dict
                   (the pivot)                                          │
+                                                                       ▼
+                                                          enrich.py (LLM, optional:
+                                                          visibility / label / select
+                                                          type — whitelisted fields only)
+                                                                       │
                                                                        ▼
    marketplace.yaml ◀── generate.py ◀── validate.py (validate + repair vs MarketplaceConfig)
 ```
@@ -43,25 +51,35 @@ domain schema ─▶ extract.py ─▶ MarketDefinition ─▶ assemble.py ─�
 |---|---|
 | `domain_schema.py` | Load schema; read `participant_roles`, extract `allowed_values`/`examples` vocab |
 | `ir.py` | `MarketDefinition` — participant-oriented intermediate representation |
-| `extract.py` | **The pivot**: deal-entity schema → 2–3 participant types + profile fields |
+| `extract.py` | **The pivot**: deal-entity schema → participant types + profile fields |
 | `permissions.py` | Deterministic role-kind → permissions / communication / discovery rules |
 | `assemble.py` | `MarketDefinition` → config dict |
 | `validate.py` | Validate-repair loop (deterministic repairs first, optional LLM repair) |
 | `llm.py` | Pluggable `LLMClient` (OpenRouter impl); stubbable in tests |
+| `enrich.py` | LLM enrichment pass — refines visibility/label/select-vs-multi through a strict whitelist; never touches names, options, slugs, or structure |
 | `generate.py` | Orchestration + provenance + clean YAML emission |
 | `cli.py` | Argparse entrypoint |
 
 ## Notes / known constraints
 
-- **MVP 3-type cap (ROADMAP "Conflict C3").** At most one participant type per role kind,
-  so many facilitator sub-roles (broker, shipper, inspector, …) collapse into one
-  `facilitator`. The collapse is reported on stdout and on `ParticipantDef.collapsed_subtypes`.
-  When C3 is relaxed, only `extract.py` needs to change.
+- **3-type cap resolved (ROADMAP "Conflict C3").** Supply/demand still get one participant
+  type each, but facilitator subtypes (broker, shipper, inspector, …) now expand into one
+  participant type *per subtype* — up to `MAX_PARTICIPANT_TYPES` (`app.core.marketplace_config`,
+  currently 8) minus however many non-facilitator types are in play. A schema with more
+  subtypes than that remaining budget still collapses into one generic `facilitator` type
+  (reported on stdout and on `ParticipantDef.collapsed_subtypes`) — now the overflow case,
+  not the default. See `extract.py::_facilitator_participants` and
+  `configgen/tests/test_facilitator_expansion.py`.
 - **Config drift caught:** the committed root `marketplace.yaml` uses `can_search: [list]`,
   but the model declares `can_search: bool`. This generator emits the model-valid `bool`.
-- The deterministic baseline projects identity + role-appropriate vocabulary fields. The
-  LLM enrichment pass (richer field selection/labels/visibility inference) is the next
-  extension point — wire it in `generate.py` before `assemble`.
+- **LLM enrichment is wired in.** The deterministic baseline projects identity +
+  role-appropriate vocabulary fields; when `generate_from_schema` is given an
+  `llm_client`, it runs `enrich.py` on the assembled draft before validation to refine
+  field visibility, labels, and select-vs-multi choices. Applied through a whitelist
+  (`enrich.py`), so validation stays the backstop either way. See
+  `test_generate_from_schema_applies_enrichment_when_llm_client_given` in
+  `configgen/tests/test_grain.py` for the wiring itself, and
+  `test_enrichment_applies_whitelisted_adjustments_only` for the whitelist.
 
 ## Tests
 

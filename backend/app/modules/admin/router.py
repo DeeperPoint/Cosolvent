@@ -66,6 +66,9 @@ async def create_escape_hatch_route(
         rationale=body.rationale,
         vertical=body.vertical,
         metadata={"source_gap_id": body.source_gap_id} if body.source_gap_id else {},
+        granting_authority=body.granting_authority,
+        edition=body.edition,
+        evidence_status=body.evidence_status,
     )
     # Ingesting a hatch answers the pull signal that motivated it.
     if body.source_gap_id:

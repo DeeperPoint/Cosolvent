@@ -1036,7 +1036,15 @@ discovery:
           - tool_taper
           comparator: jaccard
           weight: 0.032
-        hard_gates: []
+        hard_gates:
+        - name: quality_certification_required
+          field: quality_certification
+          op: in
+          value:
+          - iso_9001
+          - as9100d
+          - as9110
+          - as9120
       buyer:
         vector_weight: 0.504
         slots:
