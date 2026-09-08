@@ -25,17 +25,26 @@ logger = logging.getLogger("cosolvent.population")
 Mode = Literal["demo", "production"]
 
 
-def _watermark_rejection(rec: dict[str, Any], mode: Mode, secret: str) -> str | None:
+def _watermark_rejection(
+    rec: dict[str, Any], mode: Mode, secret: str, policy: str = "signature"
+) -> str | None:
     """Return a rejection reason if the record fails the mode's watermark rule, else None."""
     if mode == "production":
-        # Clean cutover: no synthetic data in production.
+        # Clean cutover: no synthetic data in production, at either tier.
         if watermark.is_watermarked(rec):
             return "watermarked (synthetic) record rejected in production mode"
         return None
-    # demo / synthetic mode: every record must carry a valid watermark.
-    if watermark.verify(rec, secret):
+
+    # demo / synthetic mode: the record must satisfy this instance's admission policy.
+    if watermark.verify_at_policy(rec, secret, policy):
         return None
-    return "invalid synthetic watermark" if watermark.is_watermarked(rec) else "missing synthetic watermark"
+    if not watermark.is_watermarked(rec):
+        return "missing synthetic watermark"
+    if policy == "signature" and not (rec.get(watermark.WATERMARK_KEY) or {}).get("signature"):
+        # Distinguishes "unsigned by an unkeyed generator" from "signature is wrong",
+        # because the operator fix differs: relax the policy versus align the secret.
+        return "unsigned watermark rejected under signature policy (set WATERMARK_POLICY=hash to accept)"
+    return "invalid synthetic watermark"
 
 
 async def import_population(
@@ -44,6 +53,7 @@ async def import_population(
     *,
     mode: Mode = "demo",
     secret: str | None = None,
+    policy: str | None = None,
     do_index: bool = True,
     email_domain: str | None = None,
     password_hash: str | None = None,
@@ -55,6 +65,7 @@ async def import_population(
     guarantee (watermark gate, schema validation, idempotent upsert, `is_synthetic`
     flag) still applies — this only changes what the *user* record looks like."""
     secret = secret if secret is not None else settings.synthetic_watermark_secret
+    policy = policy if policy is not None else settings.watermark_policy
     res = PopulationImportResult(mode=mode, total=len(records))
 
     for i, rec in enumerate(records):
@@ -71,7 +82,7 @@ async def import_population(
             continue
 
         # ── GAP-9: watermark gate at the ingest boundary ──
-        reason = _watermark_rejection(rec, mode, secret)
+        reason = _watermark_rejection(rec, mode, secret, policy)
         if reason:
             res.rejected_watermark += 1
             res.errors.append(f"{ext}: {reason}")

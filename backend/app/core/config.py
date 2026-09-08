@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     # Shared HMAC key for the synthetic-population watermark (GAP-9). ClientSynth
     # signs synthetic records with this same secret; the ingest boundary verifies it.
     synthetic_watermark_secret: str = "change-me-synthetic"
+    # Which watermark tier the ingest boundary demands (GAP-9, see core/watermark.py).
+    #   signature — require the keyed HMAC; only generators holding the secret are admitted.
+    #   hash      — accept the keyless content hash, admitting bring-your-own generators
+    #               while still rejecting anything altered after stamping.
+    # A signed record is verified against its signature under either policy, so relaxing
+    # to `hash` never downgrades a record that claims to be signed.
+    watermark_policy: Literal["signature", "hash"] = "signature"
     session_ttl_hours: int = 72
     # When False, the session cookie omits the Secure flag so it is stored over
     # plain http from any host (127.0.0.1, LAN IPs). Keep True in production.
