@@ -17,7 +17,8 @@ CONFIG = "tests/test_config/agriculture.yaml"
 
 
 def _plan(**kw) -> ProvisionPlan:
-    return ProvisionPlan(config_path=CONFIG, **kw)
+    kw.setdefault("config_path", CONFIG)
+    return ProvisionPlan(**kw)
 
 
 # -- Stage selection ------------------------------------------------------
@@ -134,6 +135,46 @@ class TestPreflight:
             )
         assert res.status == "ok"
         called.assert_not_awaited()
+
+
+class TestPreflightWithAGeneratedConfig:
+    """`--domain-schema` makes `configure` write the config file, so preflight
+    cannot demand that it already exists - that combination could never run."""
+
+    async def test_a_config_that_configure_will_generate_need_not_exist_yet(self, tmp_path):
+        schema = tmp_path / "grain_schema.yaml"
+        schema.write_text("domain: grain_trade", encoding="utf-8")
+        plan = _plan(config_path=str(tmp_path / "does-not-exist.yaml"),
+                     domain_schema=str(schema), skip=("population", "precompute"))
+
+        result = await provision.preflight(plan)
+
+        assert result.status == "ok"
+        assert "to be generated from" in result.detail
+
+    async def test_a_missing_config_directory_is_still_refused(self, tmp_path):
+        schema = tmp_path / "grain_schema.yaml"
+        schema.write_text("domain: grain_trade", encoding="utf-8")
+        plan = _plan(config_path=str(tmp_path / "nope" / "marketplace.yaml"),
+                     domain_schema=str(schema), skip=("population", "precompute"))
+
+        result = await provision.preflight(plan)
+
+        assert result.status == "failed"
+        assert "config directory not found" in result.detail
+
+    async def test_skipping_configure_brings_the_config_requirement_back(self, tmp_path):
+        """`--skip configure` says nothing will generate it, so it must be there."""
+        schema = tmp_path / "grain_schema.yaml"
+        schema.write_text("domain: grain_trade", encoding="utf-8")
+        plan = _plan(config_path=str(tmp_path / "does-not-exist.yaml"),
+                     domain_schema=str(schema),
+                     skip=("configure", "population", "precompute"))
+
+        result = await provision.preflight(plan)
+
+        assert result.status == "failed"
+        assert "marketplace config" in result.detail
 
 
 class TestEmbeddingProviderCheck:
