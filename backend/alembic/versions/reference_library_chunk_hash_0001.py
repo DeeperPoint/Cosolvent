@@ -15,7 +15,7 @@ Fix: dedup on ``md5(chunk_text)`` (a server-computed, fixed-size generated colum
 instead of the raw text. Same dedup semantics — identical chunk_text still
 collides — without a size-dependent index.
 
-Revision ID: reference_library_chunk_hash_0001
+Revision ID: reference_library_chunk_hash
 Revises: reference_library_table_0001
 Create Date: 2026-08-20
 """
@@ -24,7 +24,11 @@ from __future__ import annotations
 
 from alembic import op
 
-revision = "reference_library_chunk_hash_0001"
+# Alembic stores this in `alembic_version.version_num`, a VARCHAR(32). The
+# previous id, "reference_library_chunk_hash_0001", was 33 characters, so
+# `alembic upgrade head` failed on any database that reached this revision -
+# which is every fresh install.
+revision = "reference_library_chunk_hash"
 down_revision = "reference_library_table_0001"
 branch_labels = None
 depends_on = None
