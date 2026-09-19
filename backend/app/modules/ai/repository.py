@@ -158,13 +158,36 @@ async def get_multimodal_config() -> dict[str, Any]:
     return defaults
 
 
+def default_embedding_provider() -> tuple[str, str, int]:
+    """Pick an embedding provider whose API key is actually set.
+
+    Defaulting to OpenAI on a deployment that only has an OpenRouter key means
+    every embedding call fails: a population loads and indexes nothing, and the
+    market is silently undiscoverable. Only 1536-dimension providers qualify,
+    because that is the width of the `profile_vectors`/`reference_library`
+    columns - a 768-dimension provider would have every insert rejected.
+    """
+    from app.core.config import settings
+    from app.modules.ai.providers import PROVIDER_REGISTRY
+
+    for provider_id, spec in PROVIDER_REGISTRY.items():
+        if not spec.supports_embeddings or spec.default_embedding_dimensions != 1536:
+            continue
+        if not getattr(settings, spec.api_key_env_name, ""):
+            continue
+        return (
+            str(getattr(provider_id, "value", provider_id)),
+            spec.default_embedding_model or "text-embedding-3-small",
+            spec.default_embedding_dimensions,
+        )
+    return "openai", "text-embedding-3-small", 1536
+
+
 async def get_embedding_config() -> dict[str, Any]:
     """Return embedding provider/model/dimensions from settings."""
     s = await get_llm_settings()
 
-    provider = "openai"
-    model = "text-embedding-3-small"
-    dimensions = 1536
+    provider, model, dimensions = default_embedding_provider()
 
     if s:
         provider = s.get("embedding_provider", provider)
