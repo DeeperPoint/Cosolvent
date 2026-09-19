@@ -118,12 +118,21 @@ async def preflight(plan: ProvisionPlan) -> StageResult:
     problems: list[str] = []
     notes: list[str] = []
 
-    # 1. Marketplace config parses.
-    try:
-        config = load_marketplace_config(plan.config_path)
-        notes.append(f"config {config.marketplace.name!r} ({len(config.participant_types)} types)")
-    except Exception as exc:  # noqa: BLE001 - reported, not raised
-        return StageResult("preflight", "failed", f"marketplace config: {exc}")
+    # 1. Marketplace config parses. With `--domain-schema`, `configure` writes this
+    #    file, so requiring it up front would make generating a config impossible -
+    #    and parsing whatever sits at the path today describes a config the run is
+    #    about to replace. Check the directory it will be written into instead.
+    if plan.domain_schema and plan.validates("configure"):
+        parent = Path(plan.config_path).parent or Path(".")
+        if not parent.is_dir():
+            problems.append(f"config directory not found: {parent}")
+        notes.append(f"config to be generated from {plan.domain_schema}")
+    else:
+        try:
+            config = load_marketplace_config(plan.config_path)
+            notes.append(f"config {config.marketplace.name!r} ({len(config.participant_types)} types)")
+        except Exception as exc:  # noqa: BLE001 - reported, not raised
+            return StageResult("preflight", "failed", f"marketplace config: {exc}")
 
     # 2. Named input files exist, before any of them is half-consumed.
     for label, path in (
