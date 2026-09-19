@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from app.core.marketplace_config import MarketplaceConfig, load_marketplace_config
 
 from .exporter import create_export_archive
+from .fsutil import ensure_output_dir
 from .ir import CompileOptions
 from .manifest import (
     MANIFEST_PATH,
@@ -50,8 +51,9 @@ def compile_marketplace(
     if include_generated_aliases:
         _assert_generated_alias_contracts(openapi_doc, [role.slug for role in ir.roles])
     openapi_text = json.dumps(openapi_doc, indent=2, sort_keys=True)
-    (root / openapi_rel).parent.mkdir(parents=True, exist_ok=True)
-    (root / openapi_rel).write_text(openapi_text, encoding="utf-8")
+    openapi_path = root / openapi_rel
+    openapi_path = ensure_output_dir(openapi_path.parent) / openapi_path.name
+    openapi_path.write_text(openapi_text, encoding="utf-8")
     generated_files.append(openapi_rel)
 
     warnings: list[str] = []
