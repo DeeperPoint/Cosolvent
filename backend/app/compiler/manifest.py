@@ -11,6 +11,12 @@ from .render import GENERATOR_VERSION
 
 MANIFEST_PATH = Path("generated/manifest.json")
 
+# The manifest is a committed, cross-platform artifact and every path recorded in
+# it is POSIX. `str(MANIFEST_PATH)` is not: on Windows it yields
+# "generated\manifest.json", which then fails the "generated/" prefix checks that
+# decide what is managed, what is stale and what has drifted.
+MANIFEST_REL = MANIFEST_PATH.as_posix()
+
 # Paths the compiler owns and records in the manifest.
 MANAGED_PREFIXES = (
     "app/generated/",
