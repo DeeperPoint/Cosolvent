@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .fsutil import ensure_output_dir
 from .render import GENERATOR_VERSION
 
 
@@ -82,7 +83,7 @@ def write_manifest(
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
     path = root / MANIFEST_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = ensure_output_dir(path.parent) / path.name
     path.write_text(json.dumps(manifest.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
     return manifest.to_dict()
 
