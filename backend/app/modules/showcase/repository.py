@@ -34,9 +34,17 @@ async def get(kind: str, cache_key: str) -> dict[str, Any] | None:
 
 async def list_by_kind_prefix(kind: str, cache_key_prefix: str, limit: int = 200) -> list[dict[str, Any]]:
     """All payloads for ``kind`` whose cache_key starts with ``cache_key_prefix``
-    (e.g. every cached persona of one participant type: ``persona:{type}:``)."""
-    docs = await get_collection(_CACHE).find({"kind": kind}).to_list(length=limit)
-    return [d["payload"] for d in docs if str(d.get("cache_key", "")).startswith(cache_key_prefix)]
+    (e.g. every cached persona of one participant type: ``persona:{type}:``).
+
+    The prefix filter runs before the limit, not after. Applying the limit to the
+    unfiltered read meant a type whose rows sat past the first `limit` documents
+    came back empty: with thirty producers cached ahead of twenty buyers, a
+    thirty-row read returned only producers, and Mode 1 showed no buyers at all.
+    The cache is bounded by population size, so reading it whole is cheap.
+    """
+    docs = await get_collection(_CACHE).find({"kind": kind}).to_list(length=None)
+    matching = [d["payload"] for d in docs if str(d.get("cache_key", "")).startswith(cache_key_prefix)]
+    return matching[:limit]
 
 
 async def clear(kind: str) -> None:
