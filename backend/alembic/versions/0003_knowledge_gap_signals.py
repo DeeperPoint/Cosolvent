@@ -32,21 +32,27 @@ def upgrade() -> None:
         );
         """
     )
+    # `knowledge_gap_signals_0001` creates this same table on the other branch with
+    # a different column set, and both CREATEs are `IF NOT EXISTS`. Whichever runs
+    # second finds a table that is missing its columns, so every column this
+    # revision relies on is added before anything indexes it - otherwise a fresh
+    # install fails here with `column "status" does not exist`.
+    for column in (
+        "topic_needed TEXT NOT NULL DEFAULT ''",
+        "jurisdiction_needed TEXT NOT NULL DEFAULT ''",
+        "gap_description TEXT NOT NULL DEFAULT ''",
+        "metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+        "status TEXT NOT NULL DEFAULT 'open'",
+        # Added after the table's first cut (query-side + match-gate gap signals).
+        "vertical TEXT",
+        "filters JSONB NOT NULL DEFAULT '{}'::jsonb",
+        "reason TEXT NOT NULL DEFAULT ''",
+    ):
+        op.execute(f"ALTER TABLE knowledge_gap_signals ADD COLUMN IF NOT EXISTS {column};")
+
     op.execute(
         "CREATE INDEX IF NOT EXISTS ix_knowledge_gap_signals_status "
         "ON knowledge_gap_signals (status, created_at DESC);"
-    )
-    # Columns added after the table's first cut (query-side + match-gate gap signals).
-    # ADD COLUMN IF NOT EXISTS keeps this reconcilable on DBs created by the earlier
-    # create_all/migration, which lacked them.
-    op.execute("ALTER TABLE knowledge_gap_signals ADD COLUMN IF NOT EXISTS vertical TEXT;")
-    op.execute(
-        "ALTER TABLE knowledge_gap_signals "
-        "ADD COLUMN IF NOT EXISTS filters JSONB NOT NULL DEFAULT '{}'::jsonb;"
-    )
-    op.execute(
-        "ALTER TABLE knowledge_gap_signals "
-        "ADD COLUMN IF NOT EXISTS reason TEXT NOT NULL DEFAULT '';"
     )
 
 

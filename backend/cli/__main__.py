@@ -124,6 +124,23 @@ def main() -> None:
     stamp_parser.add_argument("-o", "--output", required=True, help="Output (watermarked) file path")
     stamp_parser.add_argument("--secret", default=None, help="Override the watermark secret")
 
+    provision_parser = subparsers.add_parser(
+        "provision-twin",
+        help="Stand up a twin end to end: configure, knowledge, contract, population, precompute",
+    )
+    provision_parser.add_argument("--config", default=None, help="marketplace.yaml path (default: settings)")
+    provision_parser.add_argument("--domain-schema", default=None, help="Generate marketplace.yaml from this domain schema first")
+    provision_parser.add_argument("--references", default=None, help="CommonContext reference JSONL to load")
+    provision_parser.add_argument("--population", default=None, help="Watermarked population JSON to load")
+    provision_parser.add_argument("--schema-dir", default=None, help="Directory to publish profile-schema contracts into")
+    provision_parser.add_argument("--mode", choices=["demo", "production"], default="demo")
+    provision_parser.add_argument("--no-index", action="store_true", help="Skip embedding/indexing")
+    provision_parser.add_argument("--allow-partial", action="store_true", help="Precompute even when records were rejected or failed to index")
+    provision_parser.add_argument("--only", default=None, help="Comma-separated stages to run exclusively")
+    provision_parser.add_argument("--skip", default=None, help="Comma-separated stages to skip")
+    provision_parser.add_argument("--dry-run", action="store_true", help="Print the plan without executing")
+    provision_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit machine-readable results")
+
     schema_parser = subparsers.add_parser(
         "export-profile-schema",
         help="Publish a participant type's profile schema as JSON (contract for generators)",
@@ -150,6 +167,33 @@ def main() -> None:
         from cli.stamp_population import stamp_population
 
         ok = stamp_population(args.file, args.output, secret=args.secret)
+        sys.exit(0 if ok else 1)
+    if args.command == "provision-twin":
+        from app.core.config import settings
+        from cli.provision import ProvisionPlan, STAGES, provision_twin
+
+        def _stages(raw: str | None) -> tuple[str, ...]:
+            if not raw:
+                return ()
+            names = tuple(n.strip() for n in raw.split(",") if n.strip())
+            unknown = [n for n in names if n not in STAGES]
+            if unknown:
+                parser.error(f"unknown stage(s): {', '.join(unknown)}. Valid: {', '.join(STAGES)}")
+            return names
+
+        plan = ProvisionPlan(
+            config_path=args.config or settings.marketplace_config_path,
+            domain_schema=args.domain_schema,
+            references=args.references,
+            population=args.population,
+            schema_dir=args.schema_dir,
+            mode=args.mode,
+            index=not args.no_index,
+            allow_partial=args.allow_partial,
+            only=_stages(args.only),
+            skip=_stages(args.skip),
+        )
+        ok = provision_twin(plan, as_json=args.as_json, dry_run=args.dry_run)
         sys.exit(0 if ok else 1)
     if args.command == "export-profile-schema":
         from app.core.config import settings

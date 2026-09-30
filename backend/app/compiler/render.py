@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import keyword
 import re
 from pathlib import Path
@@ -14,17 +15,42 @@ _DEFAULT_ALEMBIC_BASE = "0001_postgres_pgvector"
 _ALEMBIC_REV_RE = re.compile(r"^revision\s*=\s*[\"']([^\"']+)[\"']", re.MULTILINE)
 
 
+def _parse_alembic_down_revisions(text: str) -> tuple[str, ...]:
+    """Every parent revision a migration declares.
+
+    A merge revision declares a tuple, often across several lines. Reading only
+    single-quoted one-line values missed those parents, so each of them still
+    looked like a live head: the head count came out greater than one, this
+    resolver fell back to "last mkt_* lexicographically", and the new migration
+    branched off an old revision instead of the real head. That is how the graph
+    accumulated the heads that made `alembic upgrade head` fail.
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return ()
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(getattr(target, "id", None) == "down_revision" for target in node.targets):
+            continue
+        try:
+            value = ast.literal_eval(node.value)
+        except (ValueError, SyntaxError):
+            return ()
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            return (value,)
+        if isinstance(value, (tuple, list)):
+            return tuple(str(item) for item in value if item)
+    return ()
+
+
 def _parse_alembic_down_revision(text: str) -> str | None:
-    """Return down_revision string, or None if down_revision = None."""
-    m = re.search(r"^down_revision\s*=\s*(.+)$", text, re.MULTILINE)
-    if not m:
-        return None
-    rest = m.group(1).strip()
-    if rest == "None":
-        return None
-    if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in {'"', "'"}:
-        return rest[1:-1]
-    return None
+    """The single parent of a linear migration, or None."""
+    parents = _parse_alembic_down_revisions(text)
+    return parents[0] if len(parents) == 1 else None
 
 
 def resolve_alembic_down_revision(project_root: Path, new_revision: str) -> str:
@@ -57,9 +83,7 @@ def resolve_alembic_down_revision(project_root: Path, new_revision: str) -> str:
         if not m:
             continue
         all_revs.add(m.group(1))
-        down = _parse_alembic_down_revision(text)
-        if down:
-            parent_downs.add(down)
+        parent_downs.update(_parse_alembic_down_revisions(text))
 
     heads = all_revs - parent_downs
     if len(heads) == 1:

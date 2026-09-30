@@ -209,11 +209,31 @@ class TestResolvedChatConfig:
 class TestEmbeddingConfig:
     @pytest.mark.asyncio
     @patch("app.modules.ai.repository.get_llm_settings", new_callable=AsyncMock)
-    async def test_defaults(self, mock_get):
+    async def test_defaults_to_a_provider_whose_key_is_set(self, mock_get):
+        """With no stored settings, defaulting to OpenAI on an OpenRouter-only
+        deployment means every embedding call fails and the population loads but
+        indexes nothing."""
         mock_get.return_value = None
+        from app.core.config import settings
         from app.modules.ai.repository import get_embedding_config
 
-        config = await get_embedding_config()
+        with patch.object(settings, "openai_api_key", ""),              patch.object(settings, "openrouter_api_key", "sk-or-test"):
+            config = await get_embedding_config()
+
+        assert config["provider"] == "openrouter"
+        assert config["model"] == "openai/text-embedding-3-small"
+        assert config["dimensions"] == 1536
+
+    @pytest.mark.asyncio
+    @patch("app.modules.ai.repository.get_llm_settings", new_callable=AsyncMock)
+    async def test_defaults_to_openai_when_it_is_the_keyed_provider(self, mock_get):
+        mock_get.return_value = None
+        from app.core.config import settings
+        from app.modules.ai.repository import get_embedding_config
+
+        with patch.object(settings, "openai_api_key", "sk-test"),              patch.object(settings, "openrouter_api_key", ""):
+            config = await get_embedding_config()
+
         assert config["provider"] == "openai"
         assert config["model"] == "text-embedding-3-small"
         assert config["dimensions"] == 1536
@@ -269,6 +289,9 @@ class TestSettingsMigration:
             }
         )
         mock_repo.upsert_llm_settings = AsyncMock()
+        mock_repo.default_embedding_provider = MagicMock(
+            return_value=("openrouter", "openai/text-embedding-3-small", 1536)
+        )
         from app.modules.ai.settings_migration import migrate_llm_settings
 
         await migrate_llm_settings()
@@ -278,8 +301,37 @@ class TestSettingsMigration:
         assert args["chat_model"] == "openai/gpt-4o"
         assert args["temperature"] == 0.5
         assert args["max_tokens"] == 2048
-        assert args["embedding_provider"] == "openai"
         assert args["enabled_providers"] == ["openrouter", "openai"]
+        # The embedding provider follows whichever key is set, not a hardcoded one.
+        assert args["embedding_provider"] in {"openai", "openrouter"}
+
+    @pytest.mark.asyncio
+    @patch("app.modules.ai.settings_migration.repo")
+    async def test_migration_keeps_embedding_settings_already_chosen(self, mock_repo):
+        """The admin API saves only the fields it is sent, so a settings document
+        can hold embedding fields and no chat_provider. Rewriting the embeddings
+        here reset a working OpenRouter deployment to an unkeyed OpenAI one on the
+        next restart, and the following provisioning run failed preflight."""
+        mock_repo.get_llm_settings = AsyncMock(
+            return_value={
+                "embedding_provider": "openrouter",
+                "embedding_model": "openai/text-embedding-3-small",
+                "embedding_dimensions": 1536,
+            }
+        )
+        mock_repo.upsert_llm_settings = AsyncMock()
+        mock_repo.default_embedding_provider = MagicMock(
+            return_value=("openai", "text-embedding-3-small", 1536)
+        )
+        from app.modules.ai.settings_migration import migrate_llm_settings
+
+        await migrate_llm_settings()
+
+        args = mock_repo.upsert_llm_settings.call_args[0][0]
+        assert args["chat_provider"] == "openrouter"
+        assert "embedding_provider" not in args
+        assert "embedding_model" not in args
+        assert "embedding_dimensions" not in args
 
 
 # ── LLM Client ───────────────────────────────────────────────────────────

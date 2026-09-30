@@ -10,9 +10,10 @@ from fastapi import FastAPI
 from app.core.marketplace_config import MarketplaceConfig, load_marketplace_config
 
 from .exporter import create_export_archive
+from .fsutil import ensure_output_dir
 from .ir import CompileOptions
 from .manifest import (
-    MANIFEST_PATH,
+    MANIFEST_REL,
     invalid_managed_manifest_entries,
     load_manifest,
     stale_managed_files,
@@ -39,7 +40,7 @@ def compile_marketplace(
     generated_files, removed_files = write_artifacts(
         root,
         artifacts,
-        keep_paths={str(MANIFEST_PATH), "openapi/generated_openapi.json"},
+        keep_paths={MANIFEST_REL, "openapi/generated_openapi.json"},
     )
 
     openapi_rel = "openapi/generated_openapi.json"
@@ -50,8 +51,9 @@ def compile_marketplace(
     if include_generated_aliases:
         _assert_generated_alias_contracts(openapi_doc, [role.slug for role in ir.roles])
     openapi_text = json.dumps(openapi_doc, indent=2, sort_keys=True)
-    (root / openapi_rel).parent.mkdir(parents=True, exist_ok=True)
-    (root / openapi_rel).write_text(openapi_text, encoding="utf-8")
+    openapi_path = root / openapi_rel
+    openapi_path = ensure_output_dir(openapi_path.parent) / openapi_path.name
+    openapi_path.write_text(openapi_text, encoding="utf-8")
     generated_files.append(openapi_rel)
 
     warnings: list[str] = []
@@ -68,7 +70,7 @@ def compile_marketplace(
         root,
         spec_hash=ir.spec_hash,
         mode=options.mode,
-        generated_files=sorted(set(generated_files + [str(MANIFEST_PATH)])),
+        generated_files=sorted(set(generated_files + [MANIFEST_REL])),
         migration_revision=migration_revision,
         export_path=export_path,
     )
@@ -115,30 +117,30 @@ def check_compile_sync(
         if current != expected_content:
             drift_files.append(rel)
 
-    stale = stale_managed_files(root, set(artifacts.keys()) | {str(MANIFEST_PATH)})
+    stale = stale_managed_files(root, set(artifacts.keys()) | {MANIFEST_REL})
     drift_files.extend(stale)
 
     manifest = load_manifest(root)
     current_manifest_hash = manifest.get("spec_hash") if manifest else None
-    expected_generated_files = sorted(set(artifacts.keys()) | {str(MANIFEST_PATH)})
+    expected_generated_files = sorted(set(artifacts.keys()) | {MANIFEST_REL})
     invalid_manifest_entries = invalid_managed_manifest_entries(root)
 
     if manifest is None:
-        drift_files.append(str(MANIFEST_PATH))
+        drift_files.append(MANIFEST_REL)
     else:
         manifest_generated_files = sorted(set(manifest.get("generated_files", [])))
         if manifest.get("spec_hash") != ir.spec_hash:
-            drift_files.append(str(MANIFEST_PATH))
+            drift_files.append(MANIFEST_REL)
         if manifest.get("mode") != options.mode:
-            drift_files.append(str(MANIFEST_PATH))
+            drift_files.append(MANIFEST_REL)
         if manifest.get("migration_revision") != migration_revision:
-            drift_files.append(str(MANIFEST_PATH))
+            drift_files.append(MANIFEST_REL)
         if manifest.get("generator_version") != GENERATOR_VERSION:
-            drift_files.append(str(MANIFEST_PATH))
+            drift_files.append(MANIFEST_REL)
         if manifest_generated_files != expected_generated_files:
-            drift_files.append(str(MANIFEST_PATH))
+            drift_files.append(MANIFEST_REL)
         if invalid_manifest_entries:
-            drift_files.append(str(MANIFEST_PATH))
+            drift_files.append(MANIFEST_REL)
 
     deduped = sorted(set(drift_files))
     return {
