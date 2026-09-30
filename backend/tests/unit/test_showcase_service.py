@@ -142,3 +142,56 @@ async def test_get_personas_scopes_by_participant_type_prefix():
         result = await service.get_personas("candidate", limit=10)
     lbp.assert_awaited_once_with("persona", "candidate:", limit=10)
     assert result == [{"profile_id": "p1"}]
+
+
+# ── repository.list_by_kind_prefix ──────────────────────────────────────────────
+
+def _cache_doc(kind: str, cache_key: str) -> dict:
+    return {"kind": kind, "cache_key": cache_key, "payload": {"cache_key": cache_key}}
+
+
+class _FakeFind:
+    def __init__(self, docs: list[dict]):
+        self._docs = docs
+
+    async def to_list(self, length=None):
+        return self._docs if length is None else self._docs[:length]
+
+
+class _FakeCollection:
+    def __init__(self, docs: list[dict]):
+        self._docs = docs
+
+    def find(self, query: dict):
+        kind = query.get("kind")
+        return _FakeFind([d for d in self._docs if d["kind"] == kind])
+
+
+@pytest.mark.asyncio
+async def test_personas_of_a_later_type_are_not_hidden_by_the_limit():
+    """The limit must apply after the prefix filter.
+
+    Applying it to the unfiltered read meant a participant type whose rows sat
+    past the first `limit` documents came back empty — thirty producers cached
+    ahead of twenty buyers made Mode 1 show no buyers at all.
+    """
+    from app.modules.showcase import repository
+
+    docs = [_cache_doc("persona", f"producer:p{i}") for i in range(30)]
+    docs += [_cache_doc("persona", f"buyer:b{i}") for i in range(20)]
+
+    with patch.object(repository, "get_collection", MagicMock(return_value=_FakeCollection(docs))):
+        buyers = await repository.list_by_kind_prefix("persona", "buyer:", limit=30)
+        producers = await repository.list_by_kind_prefix("persona", "producer:", limit=30)
+
+    assert len(buyers) == 20, "buyers must not be crowded out by producers stored before them"
+    assert len(producers) == 30
+
+
+@pytest.mark.asyncio
+async def test_the_limit_still_bounds_a_single_type():
+    from app.modules.showcase import repository
+
+    docs = [_cache_doc("persona", f"buyer:b{i}") for i in range(40)]
+    with patch.object(repository, "get_collection", MagicMock(return_value=_FakeCollection(docs))):
+        assert len(await repository.list_by_kind_prefix("persona", "buyer:", limit=25)) == 25
