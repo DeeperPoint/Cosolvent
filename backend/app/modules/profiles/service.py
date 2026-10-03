@@ -17,6 +17,7 @@ from app.core.security import hash_password
 
 import logging
 from app.core.queue import enqueue_job
+from app.modules.activity import service as activity
 from app.engine.schema_engine import compute_completeness, validate_profile_fields
 from app.engine.visibility_engine import ViewerTier, filter_fields, get_viewer_tier
 from app.modules.auth import repository as auth_repo
@@ -255,6 +256,13 @@ async def submit_draft(user: dict, config: MarketplaceConfig) -> dict:
                 config.marketplace.name,
                 onboarding.welcome_email_on_approval,
             )
+        await activity.record(
+            "profile.submitted",
+            subject_type="profile",
+            subject_id=str(profile["_id"]),
+            actor_id=user_id,
+            detail="Draft submitted and auto-approved",
+        )
         return {"status": "active", "profile_id": str(profile["_id"])}
 
 
@@ -799,6 +807,12 @@ async def approve_application(app_id: str, feedback: str = "") -> dict:
             welcome,
         )
 
+    await activity.record(
+        "application.approved",
+        subject_type="profile",
+        subject_id=str(profile["_id"]),
+        detail=feedback or "Application approved",
+    )
     return {"status": "approved", "profile_id": str(profile["_id"])}
 
 

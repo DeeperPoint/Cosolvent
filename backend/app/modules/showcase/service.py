@@ -19,6 +19,7 @@ injected, matching CONVERGENCE.md's Phase 6a design.
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -26,6 +27,7 @@ from app.core.marketplace_config import MarketplaceConfig
 from app.modules.discovery import matching as discovery_matching
 from app.modules.knowledge import service as knowledge_service
 from app.modules.profiles import repository as profiles_repo
+from app.modules.activity import service as activity
 from app.modules.showcase import repository as repo
 from app.modules.showcase.schemas import PrecomputeRunResult
 
@@ -48,7 +50,7 @@ async def _synthetic_profiles(participant_type: str, limit: int) -> list[dict[st
 
 
 async def _precompute_matches_for_type(
-    config: MarketplaceConfig, participant_type: str
+    config: MarketplaceConfig, participant_type: str, run_id: str | None = None
 ) -> tuple[int, int, list[str]]:
     personas_cached = 0
     matches_cached = 0
@@ -86,6 +88,25 @@ async def _precompute_matches_for_type(
         await repo.upsert("matches", f"{participant_type}:{profile_id}", {"matches": cached_matches})
         matches_cached += 1
 
+        if run_id:
+            # The cache is replaced each run; these rows are not, so a pairing
+            # keeps a record of what it scored and when.
+            scored_at = datetime.now(timezone.utc).isoformat()
+            await repo.record_ledger_rows([
+                {
+                    "run_id": run_id,
+                    "participant_type": participant_type,
+                    "profile_id": profile_id,
+                    "candidate_profile_id": m["candidate_profile_id"],
+                    "candidate_participant_type": m["candidate_participant_type"],
+                    "rank": rank,
+                    "score": m["score"],
+                    "score_breakdown": m.get("score_breakdown", {}),
+                    "scored_at": scored_at,
+                }
+                for rank, m in enumerate(cached_matches, start=1)
+            ])
+
     return personas_cached, matches_cached, errors
 
 
@@ -122,11 +143,13 @@ async def run_precompute(config: MarketplaceConfig) -> PrecomputeRunResult:
     await repo.clear("matches")
     await repo.clear("qa")
 
+    run_id = str(uuid.uuid4())
+    started_at = datetime.now(timezone.utc).isoformat()
     personas_cached = matches_cached = qa_cached = 0
     errors: list[str] = []
 
     for pt in config.participant_types:
-        p, m, errs = await _precompute_matches_for_type(config, pt.slug)
+        p, m, errs = await _precompute_matches_for_type(config, pt.slug, run_id)
         personas_cached += p
         matches_cached += m
         errors.extend(errs)
@@ -139,11 +162,45 @@ async def run_precompute(config: MarketplaceConfig) -> PrecomputeRunResult:
         "Showcase precompute: personas=%d matches=%d qa=%d errors=%d",
         personas_cached, matches_cached, qa_cached, len(errors),
     )
+    generated_at = datetime.now(timezone.utc).isoformat()
+
+    await repo.record_run({
+        "run_id": run_id,
+        "started_at": started_at,
+        "finished_at": generated_at,
+        "marketplace": config.marketplace.name,
+        "participant_types": [pt.slug for pt in config.participant_types],
+        "personas_cached": personas_cached,
+        "matches_cached": matches_cached,
+        "qa_cached": qa_cached,
+        "errors": errors,
+    })
+    await activity.record(
+        "showcase.precomputed",
+        subject_type="market",
+        subject_id=config.marketplace.name,
+        detail=(
+            f"{personas_cached} persona(s), {matches_cached} match set(s), {qa_cached} answer(s)"
+            + (f", {len(errors)} error(s)" if errors else "")
+        ),
+        metadata={"run_id": run_id},
+    )
+
     return PrecomputeRunResult(
-        generated_at=datetime.now(timezone.utc).isoformat(),
+        generated_at=generated_at,
         personas_cached=personas_cached, matches_cached=matches_cached,
         qa_cached=qa_cached, errors=errors,
     )
+
+
+async def get_runs(limit: int = 20) -> list[dict[str, Any]]:
+    """Precompute runs, newest first — the ledger's index."""
+    return await repo.list_runs(limit=limit)
+
+
+async def get_ledger(participant_type: str, profile_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    """Every score this profile's pairings have been given, across runs."""
+    return await repo.ledger_for(participant_type, profile_id, limit=limit)
 
 
 async def get_personas(participant_type: str, limit: int = 30) -> list[dict[str, Any]]:

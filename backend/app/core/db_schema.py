@@ -61,6 +61,15 @@ DOCUMENT_COLLECTIONS = [
     "ai_chat_messages",
     # Temporary compatibility table while services are migrated.
     "ai_chat_history",
+    # Append-only record of what happened in the market: profile edits, approvals,
+    # population loads, precompute runs, deal milestones. Read as one feed per
+    # market and as the audit trail of a single profile.
+    "activity_events",
+    # One row per showcase precompute run, and one per scored pairing in it. The
+    # showcase cache only holds the latest result; these keep the history, so a
+    # score can be compared with what the same pairing scored a run ago.
+    "match_runs",
+    "match_ledger",
 ]
 
 
