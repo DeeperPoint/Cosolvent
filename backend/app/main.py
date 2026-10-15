@@ -11,7 +11,11 @@ from fastapi.routing import APIRoute
 from app.core.config import settings
 from app.core.database import close_db, connect_db
 from app.core.exceptions import register_exception_handlers
-from app.core.marketplace_config import load_marketplace_config, set_marketplace_config
+from app.core.marketplace_config import (
+    get_marketplace_config,
+    load_marketplace_config,
+    set_marketplace_config,
+)
 from app.core.middleware import register_middleware
 from app.core.redis import close_redis, connect_redis
 
@@ -188,11 +192,45 @@ def _register_routers(application: FastAPI) -> None:
 
     generated_alias_path = Path(__file__).parent / "generated" / "role_alias_router.py"
     if generated_alias_path.exists():
-        from app.generated.role_alias_router import router as generated_role_router
+        mc = get_marketplace_config()
+        stale = _stale_generated_roles(mc)
+        if stale:
+            # The aliases were compiled from a different marketplace than the one
+            # this process loaded, which happens whenever MARKETPLACE_CONFIG_PATH
+            # changes without a recompile — including two instances serving two
+            # verticals from one checkout. Mounting them would advertise routes for
+            # participant types this market does not have; they would refuse every
+            # call anyway, having no type to match. The generic
+            # /api/profiles/{type_slug} routes are driven by the loaded config and
+            # serve this market correctly, so they stay visible instead.
+            logger.warning(
+                "Skipped generated role aliases: compiled for %s, but this marketplace (%s) "
+                "defines %s. Re-run the compiler to regenerate them; the generic "
+                "/api/profiles/{type_slug} routes serve this market in the meantime.",
+                ", ".join(sorted(stale)),
+                mc.marketplace.name,
+                ", ".join(pt.slug for pt in mc.participant_types),
+            )
+        else:
+            from app.generated.role_alias_router import router as generated_role_router
 
-        application.include_router(generated_role_router)
-        _hide_generic_profile_routes_from_docs(application)
-        logger.info("Loaded generated role aliases from %s", generated_alias_path)
+            application.include_router(generated_role_router)
+            _hide_generic_profile_routes_from_docs(application)
+            logger.info("Loaded generated role aliases from %s", generated_alias_path)
+
+
+def _stale_generated_roles(mc) -> set[str]:
+    """Compiled role slugs this marketplace has no participant type for.
+
+    Read from the generated registry rather than by importing the alias router,
+    because importing it is the thing being decided — its request models are built
+    from the compiled enums, and those belong to whichever market was compiled.
+    """
+    try:
+        from app.generated.role_registry import ROLE_SLUGS
+    except Exception:  # a build without the registry: nothing to check against
+        return set()
+    return set(ROLE_SLUGS) - {pt.slug for pt in mc.participant_types}
 
 
 def _hide_generic_profile_routes_from_docs(application: FastAPI) -> None:
