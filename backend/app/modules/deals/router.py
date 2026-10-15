@@ -204,6 +204,19 @@ async def rate_deal(
     return await reputation_service.rate_deal(deal_id, user, body)
 
 
+@router.post("/demo/open")
+async def demo_open(
+    user: dict = Depends(get_current_user),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """Demo-only: open a deal with a synthetic counterparty from the other side of
+    the market, because the anonymous showcase cache withholds the counterparty
+    ids a caller would otherwise need. Disabled when DEMO_MODE=off."""
+    if settings.demo_mode == "off":
+        raise ForbiddenError("Demo actions are disabled (DEMO_MODE=off)")
+    return await service.demo_open(user, config)
+
+
 @router.post("/{deal_id}/demo/agree")
 async def demo_agree(
     deal_id: str = Path(...),
