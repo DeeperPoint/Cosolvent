@@ -1,0 +1,26 @@
+# Local only: minio/minio and minio/mc were pulled from Docker Hub, so use Bitnami's legacy images.
+services:
+  s3:
+    image: bitnamilegacy/minio:latest
+    command: ["/opt/bitnami/scripts/minio/run.sh"]
+    environment:
+      MINIO_DEFAULT_BUCKETS: cosolvent-files
+  createbuckets:
+    image: bitnamilegacy/minio-client:latest
+    entrypoint: ["/bin/sh", "-c", "exit 0"]
+  api:
+    volumes:
+      - type: bind
+        source: C:/Users/hpvic/Documents/GitHub/DT-Mfg-Capacity-Exchange
+        target: /twin
+        read_only: true
+    environment:
+      MARKETPLACE_CONFIG_PATH: /twin/cosolvent/marketplace.yaml
+  worker:
+    volumes:
+      - type: bind
+        source: C:/Users/hpvic/Documents/GitHub/DT-Mfg-Capacity-Exchange
+        target: /twin
+        read_only: true
+    environment:
+      MARKETPLACE_CONFIG_PATH: /twin/cosolvent/marketplace.yaml

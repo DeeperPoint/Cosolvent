@@ -89,6 +89,7 @@ services:
       DEMO_MODE: ${DEMO_MODE:-live}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      SYNTHETIC_WATERMARK_SECRET: ${SYNTHETIC_WATERMARK_SECRET:-change-me-synthetic}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-noreply@example.com}
       S3_BUCKET: ${S3_BUCKET:-cosolvent-files}
@@ -131,6 +132,7 @@ services:
       ALLOW_PUBLIC_APPLICATION: ${ALLOW_PUBLIC_APPLICATION:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      SYNTHETIC_WATERMARK_SECRET: ${SYNTHETIC_WATERMARK_SECRET:-change-me-synthetic}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-noreply@example.com}
       S3_BUCKET: ${S3_BUCKET:-cosolvent-files}
