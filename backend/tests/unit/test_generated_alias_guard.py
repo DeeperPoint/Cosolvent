@@ -13,8 +13,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from app.core.marketplace_config import load_marketplace_config
 from app.main import _stale_generated_roles
 
