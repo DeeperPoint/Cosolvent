@@ -115,12 +115,17 @@ async def test_precompute_qa_is_non_fatal_per_question():
 @pytest.mark.asyncio
 async def test_run_precompute_clears_then_rebuilds_all_three_kinds():
     clear_calls = []
+    run_doc = {}
     with patch.object(service.repo, "clear", new=AsyncMock(side_effect=lambda k: clear_calls.append(k))), \
+         patch.object(service.repo, "record_run", new=AsyncMock(side_effect=lambda d: run_doc.update(d))), \
          patch.object(service, "_precompute_matches_for_type", new=AsyncMock(return_value=(2, 2, []))), \
          patch.object(service, "_precompute_qa_for_type", new=AsyncMock(return_value=(2, []))):
         result = await service.run_precompute(_cfg())
 
     assert set(clear_calls) == {"persona", "matches", "qa"}
+    # The run is recorded so the ledger rows have an index to hang from.
+    assert run_doc["run_id"] and run_doc["started_at"] and run_doc["finished_at"]
+    assert run_doc["personas_cached"] == 6
     # talent.yaml has 3 participant types -> 3x matches + 3x qa calls.
     assert result.personas_cached == 6
     assert result.matches_cached == 6
@@ -195,3 +200,48 @@ async def test_the_limit_still_bounds_a_single_type():
     docs = [_cache_doc("persona", f"buyer:b{i}") for i in range(40)]
     with patch.object(repository, "get_collection", MagicMock(return_value=_FakeCollection(docs))):
         assert len(await repository.list_by_kind_prefix("persona", "buyer:", limit=25)) == 25
+
+
+# ── match ledger ────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_a_run_id_turns_cached_matches_into_ledger_rows():
+    """The cache is replaced on every run, so without these rows a score change
+    leaves no trace. Each row records the pairing, its rank and when it scored."""
+    profiles = [_profile("p1", "u1")]
+    result = {"results": [
+        {"id": "cand1", "participant_type": "employer", "fields": {}, "score": 0.87,
+         "score_breakdown": {"vector": 0.9, "field_overlap": 0.0}},
+        {"id": "cand2", "participant_type": "employer", "fields": {}, "score": 0.61,
+         "score_breakdown": {"vector": 0.7, "field_overlap": 0.0}},
+    ]}
+    rows = []
+    with patch.object(service.profiles_repo, "list_profiles", new=AsyncMock(return_value=profiles)), \
+         patch.object(service.discovery_matching, "suggested_matches", new=AsyncMock(return_value=result)), \
+         patch.object(service.repo, "upsert", new=AsyncMock()), \
+         patch.object(service.repo, "record_ledger_rows", new=AsyncMock(side_effect=lambda r: rows.extend(r))):
+        await service._precompute_matches_for_type(_cfg(), "candidate", "run-123")
+
+    assert [r["candidate_profile_id"] for r in rows] == ["cand1", "cand2"]
+    assert [r["rank"] for r in rows] == [1, 2]
+    assert all(r["run_id"] == "run-123" for r in rows)
+    assert rows[0]["score"] == 0.87
+    assert rows[0]["score_breakdown"]["field_overlap"] == 0.0
+    assert rows[0]["scored_at"]
+
+
+@pytest.mark.asyncio
+async def test_without_a_run_id_nothing_is_written_to_the_ledger():
+    """`_precompute_matches_for_type` is also called directly in tests and tools;
+    only a real run should leave history behind."""
+    profiles = [_profile("p1", "u1")]
+    result = {"results": [{"id": "c1", "participant_type": "employer", "fields": {}, "score": 0.5,
+                           "score_breakdown": {}}]}
+    ledger = AsyncMock()
+    with patch.object(service.profiles_repo, "list_profiles", new=AsyncMock(return_value=profiles)), \
+         patch.object(service.discovery_matching, "suggested_matches", new=AsyncMock(return_value=result)), \
+         patch.object(service.repo, "upsert", new=AsyncMock()), \
+         patch.object(service.repo, "record_ledger_rows", new=ledger):
+        await service._precompute_matches_for_type(_cfg(), "candidate")
+
+    ledger.assert_not_awaited()

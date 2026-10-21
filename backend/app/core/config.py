@@ -67,7 +67,10 @@ class Settings(BaseSettings):
 
     # App
     marketplace_config_path: str = "marketplace.yaml"
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # Both spellings of the dev host: a browser treats http://localhost:3000 and
+    # http://127.0.0.1:3000 as different origins, so allowing only one means the
+    # same page silently fails depending on which the operator typed.
+    cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
     debug: bool = False
 
     # Demo Mode staging (MarketForge Phase 6a / story-progression §11 mode note):

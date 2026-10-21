@@ -53,3 +53,34 @@ async def clear(kind: str) -> None:
     docs = await get_collection(_CACHE).find({"kind": kind}).to_list(length=10_000)
     for d in docs:
         await get_collection(_CACHE).delete_one({"_id": d["_id"]})
+
+
+# ── Scoring history ─────────────────────────────────────────────────────────
+# The cache above holds only the latest result for a pairing. These two keep the
+# history: one row per precompute run, and one per pairing scored in it, so a
+# score can be read against what the same pairing scored a run ago.
+
+_RUNS = "match_runs"
+_LEDGER = "match_ledger"
+
+
+async def record_run(run: dict[str, Any]) -> None:
+    await get_collection(_RUNS).insert_one(run)
+
+
+async def record_ledger_rows(rows: list[dict[str, Any]]) -> None:
+    for row in rows:
+        await get_collection(_LEDGER).insert_one(row)
+
+
+async def list_runs(limit: int = 20) -> list[dict[str, Any]]:
+    docs = await get_collection(_RUNS).find({}).to_list(length=None)
+    docs.sort(key=lambda d: str(d.get("started_at", "")), reverse=True)
+    return docs[:limit]
+
+
+async def ledger_for(participant_type: str, profile_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    docs = await get_collection(_LEDGER).find({"participant_type": participant_type}).to_list(length=None)
+    rows = [d for d in docs if str(d.get("profile_id")) == str(profile_id)]
+    rows.sort(key=lambda d: (str(d.get("scored_at", "")), -float(d.get("score") or 0)), reverse=True)
+    return rows[:limit]

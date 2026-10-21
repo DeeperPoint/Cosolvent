@@ -16,6 +16,7 @@ from app.core import watermark
 from app.core.config import settings
 from app.core.marketplace_config import MarketplaceConfig
 from app.engine.schema_engine import compute_completeness, validate_profile_fields
+from app.modules.activity import service as activity
 from app.modules.discovery.indexer import index_profile
 from app.modules.population import repository as repo
 from app.modules.population.schemas import PopulationImportResult
@@ -110,5 +111,15 @@ async def import_population(
     logger.info(
         "Population import (%s): loaded=%d updated=%d rejected_watermark=%d skipped_invalid=%d indexed=%d",
         mode, res.loaded, res.updated, res.rejected_watermark, res.skipped_invalid, res.indexed,
+    )
+    await activity.record(
+        "population.imported",
+        subject_type="market",
+        subject_id=config.marketplace.name,
+        detail=(
+            f"{res.loaded} loaded, {res.updated} updated, {res.indexed} indexed, "
+            f"{res.rejected_watermark} rejected, {res.skipped_invalid} invalid"
+        ),
+        metadata={"mode": res.mode, "total": res.total},
     )
     return res
