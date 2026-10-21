@@ -13,7 +13,9 @@ Design source: MarketForge `framework/story-progression-system.md`.
 from __future__ import annotations
 
 import logging
+import random
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any
 
 from app.core.exceptions import AppError, ConflictError, ForbiddenError, NotFoundError
@@ -25,6 +27,61 @@ from app.modules.deals.templates import validate_snapshot
 logger = logging.getLogger("cosolvent.deals.service")
 
 TERMINAL_DEAL_STATES = {"handoff", "closed", "cancelled"}
+
+
+async def demo_open(caller: dict[str, Any], config: MarketplaceConfig) -> dict[str, Any]:
+    """Mode-2 dramatization: open a deal with a synthetic counterparty from the
+    other side of this market.
+
+    A deal needs a counterparty's ``user_id``, and the showcase cache a visitor
+    reads deliberately withholds those — it is anonymous. So a visitor who signs
+    in as a persona has no way to name anyone to deal with, and the deal screens
+    stay empty through no fault of the data. This picks one server-side instead
+    of publishing the ids.
+
+    Only ``is_synthetic`` profiles are ever eligible, and the router gates this to
+    ``DEMO_MODE != "off"`` — same contract as :func:`demo_agree`.
+    """
+    from app.modules.profiles import repository as profiles_repo
+
+    caller_type = caller.get("participant_type")
+    mine = config.get_type(caller_type) if caller_type else None
+    if mine is None:
+        raise ForbiddenError("Your account has no participant type, so it has no side of the market")
+
+    # The complementary side: supply pairs with demand and vice versa, while a
+    # facilitator deals with whichever principal side the market defines first.
+    wanted = {"supply": "demand", "demand": "supply"}.get(mine.role)
+    candidates = [pt for pt in config.participant_types if pt.role == wanted] if wanted else [
+        pt for pt in config.participant_types if pt.role in ("supply", "demand")
+    ]
+    if not candidates:
+        raise NotFoundError(f"This market defines no counterpart role for {mine.role}")
+
+    for pt in candidates:
+        profiles = await profiles_repo.list_profiles(pt.slug, status="active", limit=500)
+        synthetic = [
+            p for p in profiles
+            if p.get("is_synthetic") and p.get("user_id") and p["user_id"] != caller["_id"]
+        ]
+        if not synthetic:
+            continue
+        profile = random.choice(synthetic)
+        body = SimpleNamespace(
+            conversation_id=None,
+            counterparty_user_id=profile["user_id"],
+            counterparty_user_ids=None,
+            context="Opened from the twin walkthrough.",
+            facilitator_slots=None,
+        )
+        deal = await create_deal(caller, body, config)
+        deal["counterparty_participant_type"] = pt.slug
+        return deal
+
+    raise NotFoundError(
+        f"No synthetic counterparty with an account in {', '.join(pt.slug for pt in candidates)} "
+        "— import a population first"
+    )
 
 
 # ── small helpers ────────────────────────────────────────────────────────────
