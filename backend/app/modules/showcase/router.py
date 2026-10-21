@@ -4,8 +4,10 @@ itself is admin-triggered (see admin/router.py's /showcase/run)."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Depends, Path, Query
 
+from app.core.dependencies import get_config
+from app.core.marketplace_config import MarketplaceConfig
 from app.modules.showcase import service
 
 router = APIRouter()
@@ -44,3 +46,39 @@ async def persona_ledger(
     score visible rather than silent.
     """
     return {"ledger": await service.get_ledger(participant_type, profile_id, limit=limit)}
+
+
+@router.get("/market")
+async def market_shape(config: MarketplaceConfig = Depends(get_config)):
+    """The market's own shape: its name, its participant types and their fields.
+
+    Public, because Mode 1 is anonymous and a visitor cannot render a market it
+    cannot describe. Nothing here is private: the field definitions are the
+    registration form every prospective participant already sees, and the role
+    kinds are what the matcher pairs on.
+    """
+    types = []
+    for pt in config.participant_types:
+        schema = config.profile_schemas.get(pt.slug)
+        fields = []
+        for field in (list(schema.all_fields) if schema else []):
+            fields.append({
+                "name": field.name,
+                "label": getattr(field, "label", None) or field.name,
+                "type": field.type,
+                "required": bool(getattr(field, "required", False)),
+                "options": list(getattr(field, "options", None) or []) or None,
+            })
+        types.append({
+            "slug": pt.slug,
+            "label": pt.name,
+            "role_kind": pt.role,
+            "searchable": pt.slug in (config.discovery.searchable_types or []),
+            # What this role may do, so a client can explain a refusal instead of
+            # offering an action and then reporting 403. Who may search and who
+            # may be found are separate settings: 'searchable' above is the
+            # second, can_search here is the first.
+            "permissions": pt.permissions.model_dump(),
+            "fields": fields,
+        })
+    return {"marketplace": config.marketplace.name, "participant_types": types}
