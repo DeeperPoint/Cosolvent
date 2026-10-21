@@ -60,6 +60,16 @@ async def get_deal(
     return await service.get_deal(deal_id, user, config)
 
 
+@router.get("/{deal_id}/risks")
+async def deal_risks(
+    deal_id: str = Path(...),
+    user: dict = Depends(get_current_user),
+    config: MarketplaceConfig = Depends(get_config),
+):
+    """What could stop this deal, derived from its current state."""
+    return {"risks": await service.deal_risks(deal_id, user, config)}
+
+
 @router.post("/{deal_id}/respond")
 async def respond(
     body: RespondRequest,

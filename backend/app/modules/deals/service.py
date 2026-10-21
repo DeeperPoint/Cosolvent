@@ -1053,3 +1053,110 @@ async def _notify(user_ids: list[str], *, exclude: str | None, ntype: str, data:
                 await create_notification(user_id=uid, notification_type=ntype, data=data)
     except Exception:
         logger.warning("Deal notification failed (non-fatal)", exc_info=True)
+
+
+# ── Risk register ───────────────────────────────────────────────────────────
+
+_STALE_AFTER_DAYS = 14
+
+
+async def deal_risks(deal_id: str, user: dict[str, Any], config: MarketplaceConfig) -> list[dict[str, Any]]:
+    """What could stop this deal, derived from its own state.
+
+    Nothing here is stored or scored by a model: each risk is a fact about the
+    deal — an unacknowledged version, a required field still empty, a facilitator
+    slot nobody filled — restated as the thing it puts at risk. That keeps the
+    register honest when a deal moves, because there is no second copy to update.
+    """
+    view = await _deal_view(deal_id, user, config)
+    risks: list[dict[str, Any]] = []
+
+    current = view.get("current_version") or {}
+    pending = current.get("pending_acknowledgers") or []
+    if pending:
+        risks.append({
+            "severity": "med",
+            "label": "Unacknowledged version",
+            "detail": f"{len(pending)} party(ies) have not acknowledged the current version.",
+            "mitigation": "The deal cannot advance until every required party acknowledges.",
+            "source": "story_versions",
+        })
+
+    template = current.get("template_result") or {}
+    missing = template.get("missing") or template.get("missing_fields") or []
+    if missing:
+        risks.append({
+            "severity": "high" if len(missing) > 2 else "med",
+            "label": "Incomplete instrument",
+            "detail": f"{len(missing)} required field(s) unset: {', '.join(map(str, missing[:5]))}.",
+            "mitigation": "Complete them before handoff; the brief is not binding while they are blank.",
+            "source": "instrument template",
+        })
+
+    if not view.get("instrument"):
+        risks.append({
+            "severity": "med",
+            "label": "No instrument chosen",
+            "detail": "The deal has no instrument, so no template governs what must be agreed.",
+            "mitigation": "Set one — it decides the required fields and the completeness check.",
+            "source": "deal",
+        })
+
+    parties = view.get("parties") or []
+    needed = [p for p in parties if p.get("status") == "needed"]
+    if needed:
+        risks.append({
+            "severity": "med",
+            "label": "Facilitator slot unfilled",
+            "detail": f"{len(needed)} slot(s) still marked needed: "
+                      f"{', '.join(str(p.get('role_type') or '?') for p in needed[:4])}.",
+            "mitigation": "Confirm or waive each slot; an unfilled slot blocks the milestone.",
+            "source": "deal parties",
+        })
+
+    if view.get("access") == "pending_audience_consent":
+        risks.append({
+            "severity": "low",
+            "label": "Awaiting audience consent",
+            "detail": "A facilitator is on the deal but cannot see the milestone yet.",
+            "mitigation": "Principals consent to the audience before the facilitator can act.",
+            "source": "consent_records",
+        })
+
+    principals = [p for p in parties if (p.get("role") or p.get("party_role")) == "principal"]
+    if len(principals) == 2:
+        risks.append({
+            "severity": "low",
+            "label": "Single counterparty",
+            "detail": "Two principals: no alternative counterparty is engaged on this matter.",
+            "mitigation": "The twin can hold a shadow match for continuity if this one lapses.",
+            "source": "deal parties",
+        })
+
+    withheld = current.get("withheld") or []
+    if withheld:
+        risks.append({
+            "severity": "low",
+            "label": "Withheld attributes",
+            "detail": f"{len(withheld)} attribute(s) redacted from the published version.",
+            "mitigation": "The counterparty is deciding on incomplete information until consent clears.",
+            "source": "story version",
+        })
+
+    updated = str(view.get("updated_at") or "")
+    if updated:
+        try:
+            last = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - last).days
+            if age >= _STALE_AFTER_DAYS:
+                risks.append({
+                    "severity": "med" if age >= _STALE_AFTER_DAYS * 2 else "low",
+                    "label": "Stalled",
+                    "detail": f"No movement for {age} days.",
+                    "mitigation": "Reopen the matter or close the deal; a stalled deal blocks its parties.",
+                    "source": "deal",
+                })
+        except ValueError:
+            pass
+
+    return risks
