@@ -140,6 +140,16 @@ def main() -> None:
     provision_parser.add_argument("--skip", default=None, help="Comma-separated stages to skip")
     provision_parser.add_argument("--dry-run", action="store_true", help="Print the plan without executing")
     provision_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit machine-readable results")
+    verify_parser = subparsers.add_parser(
+        "verify-population",
+        help="Verify watermarks on a population file (no database required)",
+    )
+    verify_parser.add_argument("file", help="Path to the population JSON file")
+    verify_parser.add_argument(
+        "--policy", choices=["signature", "hash"], default=None,
+        help="Admission policy to check against (default: settings.watermark_policy)",
+    )
+    verify_parser.add_argument("--secret", default=None, help="Override the watermark secret")
 
     schema_parser = subparsers.add_parser(
         "export-profile-schema",
@@ -194,6 +204,10 @@ def main() -> None:
             skip=_stages(args.skip),
         )
         ok = provision_twin(plan, as_json=args.as_json, dry_run=args.dry_run)
+    if args.command == "verify-population":
+        from cli.verify_population import verify_population
+
+        ok = verify_population(args.file, policy=args.policy, secret=args.secret)
         sys.exit(0 if ok else 1)
     if args.command == "export-profile-schema":
         from app.core.config import settings
