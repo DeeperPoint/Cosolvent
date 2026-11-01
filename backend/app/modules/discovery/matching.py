@@ -149,12 +149,24 @@ async def suggested_matches(
             composite += slot.weight * s
             slot_detail[slot.name] = {"score": round(s, 6), "weight": slot.weight}
 
+        # GAP-18c: modifiers add on top of the weighted budget -- never subtract, so
+        # a candidate with no evidence scores exactly as if the modifier didn't exist,
+        # never worse. Clamp the composite afterward since it can now exceed 1.0.
+        modifier_detail: dict[str, Any] = {}
+        for modifier in match_profile.modifiers:
+            applied = cand_fields.get(modifier.field) not in (None, "", [], False)
+            bonus = modifier.max_bonus if applied else 0.0
+            composite += bonus
+            modifier_detail[modifier.name] = {"applied": applied, "bonus": bonus}
+        composite = min(composite, 1.0)
+
         gate_results = _evaluate_gates(cand_fields, match_profile.hard_gates, hatches_by_gate)
         entry["score"] = round(composite, 6)
         entry["score_breakdown"] = {
             "vector": round(vector_score, 6),
             "vector_weight": match_profile.vector_weight,
             "slots": slot_detail,
+            "modifiers": modifier_detail,
             "gates": gate_results,
         }
 

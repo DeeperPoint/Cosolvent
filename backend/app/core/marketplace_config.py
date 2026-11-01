@@ -222,12 +222,27 @@ class BlockerRule(StrictModel):
     blocks_value: Any = True
 
 
+class ScoreModifier(StrictModel):
+    """An additive, never-negative bonus to the composite score (GAP-18c).
+
+    Unlike a MatchSlot, a modifier sits outside the weights-sum-to-1.0 budget: it
+    is a bonus layered on top of the composite, so adding one never has to steal
+    weight from an existing dimension, and its absence never counts against a
+    candidate (floor is 0.0, never a penalty). No partial credit -- the field
+    being present (non-empty) adds the full ``max_bonus``; the *degree* of
+    evidence belongs to the prompt/curation layer, not the engine."""
+    name: str
+    field: str
+    max_bonus: float = Field(ge=0.0, le=1.0)
+
+
 class MatchProfile(StrictModel):
     """The scoring weight table + gates used against one target type."""
     vector_weight: float = Field(default=0.5, ge=0.0, le=1.0)
     slots: list[MatchSlot] = []
     hard_gates: list[HardGate] = []
     blocker_screen: list[BlockerRule] = []
+    modifiers: list[ScoreModifier] = []
 
     @model_validator(mode="after")
     def _weights_sum_to_one(self) -> "MatchProfile":
@@ -536,6 +551,12 @@ class MarketplaceConfig(StrictModel):
                     raise ValueError(
                         f"Matching blocker_screen rule '{blocker.name}' references unknown field "
                         f"'{blocker.field}'"
+                    )
+            for modifier in mp.modifiers:
+                if modifier.field not in all_field_names:
+                    raise ValueError(
+                        f"Matching modifier '{modifier.name}' references unknown field "
+                        f"'{modifier.field}'"
                     )
 
         return self
