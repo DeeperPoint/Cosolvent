@@ -6,7 +6,7 @@ from typing import Any
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.core.marketplace_config import MarketplaceConfig
-from app.engine.permission_engine import can_initiate_conversation, has_completed_required_onboarding
+from app.engine.permission_engine import can_initiate_conversation, check_permission, has_completed_required_onboarding
 from app.modules.communication import repository as repo
 
 
@@ -36,6 +36,13 @@ async def create_conversation(
         raise ForbiddenError(
             f"{initiator_type} cannot initiate conversations with {receiver_type}"
         )
+    # conversation_rules is the pairwise matrix (who may message whom); the permission
+    # flags are the coarser, per-type kill switches -- both must hold. A rule naming a
+    # pair does not override a type that has had conversations turned off entirely.
+    if not check_permission(config, initiator_type, "can_initiate_conversation"):
+        raise ForbiddenError(f"{initiator_type} cannot initiate conversations")
+    if not check_permission(config, receiver_type, "can_receive_conversation"):
+        raise ForbiddenError(f"{receiver_type} cannot receive conversations")
 
     rule_key = f"{initiator_type}->{receiver_type}"
     status = "pending" if requires_approval else "active"

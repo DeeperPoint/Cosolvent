@@ -71,6 +71,45 @@ async def search(
     return {"results": serialized, "total": total, "page": page, "page_size": page_size}
 
 
+async def list_type(
+    config: MarketplaceConfig,
+    type_slug: str,
+    viewer: dict[str, Any] | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    """Query-less catalog browse for one participant type -- distinct from
+    ``search()``: gated by the *listed* type's own ``can_list`` permission, not by
+    the viewer's ``can_search``, and needs no text query, filters, or vector search.
+    A storefront-style "browse all" page, e.g. for a type with ``can_search: false``
+    that should still be publicly browsable."""
+    if config.get_type(type_slug) is None:
+        raise NotFoundError("Unknown participant type")
+    if not check_permission(config, type_slug, "can_list"):
+        raise ForbiddenError(f"'{type_slug}' profiles are not listable")
+
+    schema = config.profile_schemas.get(type_slug)
+    if not schema:
+        raise NotFoundError("No profile schema for type")
+
+    viewer_tier: ViewerTier = "authenticated" if viewer else "anonymous"
+    page = max(page, 1)
+    skip = (page - 1) * page_size
+
+    docs = await repo.search_profiles(participant_type=type_slug, skip=skip, limit=page_size)
+    total = await repo.count_profiles(participant_type=type_slug)
+
+    serialized = [
+        {
+            "id": str(doc["_id"]),
+            "participant_type": type_slug,
+            "fields": filter_fields_for_discovery(config, schema, doc.get("fields", {}), viewer_tier),
+        }
+        for doc in docs
+    ]
+    return {"results": serialized, "total": total, "page": page, "page_size": page_size}
+
+
 def _resolve_discovery_viewer_tier(config: MarketplaceConfig, viewer: dict[str, Any] | None) -> ViewerTier:
     if viewer is None:
         if not config.discovery.access.anonymous_search_enabled:

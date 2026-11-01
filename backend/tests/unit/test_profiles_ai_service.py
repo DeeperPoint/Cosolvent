@@ -35,6 +35,7 @@ def _config():
 
     class _Cfg:
         marketplace = _Marketplace()
+        onboarding: dict = {}
 
     return _Cfg()
 

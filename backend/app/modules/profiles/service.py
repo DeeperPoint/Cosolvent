@@ -822,6 +822,14 @@ async def ai_generate_profile(profile_id: str, user: dict, config: MarketplaceCo
     if profile["user_id"] != str(user["_id"]) and user.get("role") != "admin":
         raise ForbiddenError("Not your profile")
 
+    pt = str(profile.get("participant_type", ""))
+    onboarding = config.onboarding.get(pt)
+    if onboarding is not None and not onboarding.ai_profile_generation:
+        raise ForbiddenError(
+            f"AI profile generation is not enabled for '{pt}'. "
+            "Set onboarding.{pt}.ai_profile_generation to turn it on.".replace("{pt}", pt)
+        )
+
     summary = await generate_profile_content(
         fields=profile.get("fields", {}),
         participant_type=profile.get("participant_type", ""),
