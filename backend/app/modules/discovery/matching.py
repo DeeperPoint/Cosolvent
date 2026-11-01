@@ -108,6 +108,15 @@ async def suggested_matches(
         cand_fields = cand_profile.get("fields", {}) or {}
         vector_score = float(cand.get("score", 0.0))
 
+        # GAP-18b: the symmetric blocker screen runs before anything else. A candidate
+        # it excludes is dropped silently -- not added to `results` or `gated` -- so it
+        # is indistinguishable, on either side, from a candidate the vector search never
+        # surfaced. See BlockerRule's docstring for why that symmetry is the point.
+        if match_profile is not None and _blocked_by_screen(
+            self_fields, cand_fields, match_profile.blocker_screen
+        ):
+            continue
+
         filtered_fields = (
             filter_fields_for_discovery(config, target_schema, cand_fields, candidate_tier)
             if target_schema
@@ -405,6 +414,19 @@ def _condition_passes(cand_fields: dict[str, Any], condition: dict[str, Any]) ->
     passed, _ = _apply_op(cand_fields.get(field), field, condition.get("op", "equals"),
                           condition.get("value"))
     return passed
+
+
+def _blocked_by_screen(
+    self_fields: dict[str, Any], cand_fields: dict[str, Any], rules: list[Any]
+) -> bool:
+    """True if either side's field matches a BlockerRule's `blocks_value`. Checked
+    before scoring; see BlockerRule's docstring in marketplace_config.py."""
+    for rule in rules:
+        if self_fields.get(rule.field) == rule.blocks_value:
+            return True
+        if cand_fields.get(rule.field) == rule.blocks_value:
+            return True
+    return False
 
 
 def _evaluate_gates(

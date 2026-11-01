@@ -209,11 +209,25 @@ class HardGate(StrictModel):
     value: Any = None  # unused for op == "present"
 
 
+class BlockerRule(StrictModel):
+    """A mutual, symmetric pre-gate (GAP-18b): checked against BOTH sides of a
+    candidate pair, before scoring and before hard_gates. If either the viewer's
+    own field or the candidate's field equals ``blocks_value``, the pair never
+    proposes. Unlike HardGate, a blocker carries no reason and no per-gate entry
+    in score_breakdown -- the exclusion is indistinguishable from "no match
+    found" on both sides, which is the point: neither party learns whether they
+    or the other side was the one who failed it."""
+    name: str
+    field: str
+    blocks_value: Any = True
+
+
 class MatchProfile(StrictModel):
     """The scoring weight table + gates used against one target type."""
     vector_weight: float = Field(default=0.5, ge=0.0, le=1.0)
     slots: list[MatchSlot] = []
     hard_gates: list[HardGate] = []
+    blocker_screen: list[BlockerRule] = []
 
     @model_validator(mode="after")
     def _weights_sum_to_one(self) -> "MatchProfile":
@@ -516,6 +530,12 @@ class MarketplaceConfig(StrictModel):
                 if gate.field not in all_field_names:
                     raise ValueError(
                         f"Matching hard_gate '{gate.name}' references unknown field '{gate.field}'"
+                    )
+            for blocker in mp.blocker_screen:
+                if blocker.field not in all_field_names:
+                    raise ValueError(
+                        f"Matching blocker_screen rule '{blocker.name}' references unknown field "
+                        f"'{blocker.field}'"
                     )
 
         return self
