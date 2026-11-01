@@ -45,7 +45,7 @@ _VALID_ACCEPTED_TYPES = {"image", "pdf", "document"}
 class FieldDefinition(StrictModel):
     name: str
     label: str
-    type: Literal["text", "number", "select", "multi_select", "date", "file", "files", "rich_text", "location"]
+    type: Literal["text", "number", "select", "multi_select", "date", "date_range", "file", "files", "rich_text", "location"]
     required: bool = False
     options: list[str] | None = None
     accepted_types: list[str] | None = None

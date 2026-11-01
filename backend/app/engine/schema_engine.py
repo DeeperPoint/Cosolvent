@@ -20,6 +20,7 @@ _TYPE_MAP: dict[str, type] = {
     "select": str,
     "multi_select": list[str],
     "date": str,
+    "date_range": list[str],  # [start, end] ISO dates -- the GAP-18 window_overlap comparator's input shape
     "file": str,
     "files": list,
     "location": dict,

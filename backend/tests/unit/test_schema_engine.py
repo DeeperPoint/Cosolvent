@@ -3,10 +3,10 @@
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
+from pydantic import ValidationError, create_model
 
-from app.core.marketplace_config import load_marketplace_config
-from app.engine.schema_engine import clear_cache, get_profile_model, validate_profile_fields
+from app.core.marketplace_config import FieldDefinition, load_marketplace_config
+from app.engine.schema_engine import _python_type, clear_cache, get_profile_model, validate_profile_fields
 
 FIXTURES = Path(__file__).parent.parent / "test_config"
 
@@ -75,3 +75,26 @@ class TestTalentConfig:
         for slug in ["candidate", "employer", "recruiter"]:
             model = get_profile_model(cfg, slug)
             assert model is not None
+
+
+class TestDateRangeField:
+    """date_range: [start, end] ISO dates, the input shape GAP-18's window_overlap
+    comparator expects. Added because no existing field type produces a plain list
+    without requiring `options` (select/multi_select do) -- a readiness/availability
+    window has no fixed option set."""
+
+    def test_python_type_is_list(self):
+        field = FieldDefinition(name="readiness_window", label="Readiness window", type="date_range")
+        assert _python_type(field) == list[str]
+
+    def test_accepts_two_element_list(self):
+        py_type = _python_type(FieldDefinition(name="readiness_window", label="x", type="date_range"))
+        model = create_model("T", readiness_window=(py_type, ...))
+        instance = model(readiness_window=["2027-05-01", "2027-07-01"])
+        assert instance.readiness_window == ["2027-05-01", "2027-07-01"]
+
+    def test_rejects_plain_string(self):
+        py_type = _python_type(FieldDefinition(name="readiness_window", label="x", type="date_range"))
+        model = create_model("T", readiness_window=(py_type, ...))
+        with pytest.raises(ValidationError):
+            model(readiness_window="2027-05-01")
