@@ -2,6 +2,12 @@
 
 # Cosolvent — Headless Marketplace Engine
 
+> **Where this fits.** Cosolvent is one part of the DeeperPoint toolkit.
+> [MarketForge](https://github.com/DeeperPoint/MarketForge) is the toolkit's design map: what the
+> parts are, the order in which a market is built with them (a domain wiki, a question page, a
+> twin, a marketplace), and how far each has got. This README carries Cosolvent's own detail:
+> installation, configuration, the API and the feature list.
+
 An open-source, headless marketplace engine for launching marketplace platforms in thin markets. Includes a full sponsor admin dashboard; the participant-facing frontend is yours to build — using AI or any stack you choose.
 
 ## The Problem
@@ -148,7 +154,7 @@ See [`Cosolvent-ROADMAP.md`](Cosolvent-ROADMAP.md) for the full development road
 
 | Project | Description |
 |---|---|
-| [MarketForge](https://github.com/DeeperPoint/MarketForge) | Market configuration and deployment orchestration |
+| [MarketForge](https://github.com/DeeperPoint/MarketForge) | The design map and the method: the guides for building a market, and the wiki engine |
 | [CommonContext](https://github.com/DeeperPoint/CommonContext) | AI-curated reference library for domain knowledge |
 | [ClientSynth](https://github.com/DeeperPoint/ClientSynth) | Synthetic participant generation for testing and demos |
 
