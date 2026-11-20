@@ -92,6 +92,12 @@ profile_schemas:
     sections:
     - name: Company
       fields:
+      - name: profile_image
+        label: Profile Image
+        type: file
+        required: false
+        visibility: public
+        searchable: false
       - name: company_name
         label: Company Name
         type: text
@@ -325,6 +331,12 @@ profile_schemas:
     sections:
     - name: Organization
       fields:
+      - name: profile_image
+        label: Profile Image
+        type: file
+        required: false
+        visibility: public
+        searchable: false
       - name: company_name
         label: Organization Name
         type: text
@@ -562,6 +574,12 @@ profile_schemas:
     sections:
     - name: Company
       fields:
+      - name: profile_image
+        label: Profile Image
+        type: file
+        required: false
+        visibility: public
+        searchable: false
       - name: company_name
         label: Company Name
         type: text
@@ -619,6 +637,12 @@ profile_schemas:
     sections:
     - name: Company
       fields:
+      - name: profile_image
+        label: Profile Image
+        type: file
+        required: false
+        visibility: public
+        searchable: false
       - name: company_name
         label: Company Name
         type: text
@@ -676,6 +700,12 @@ profile_schemas:
     sections:
     - name: Company
       fields:
+      - name: profile_image
+        label: Profile Image
+        type: file
+        required: false
+        visibility: public
+        searchable: false
       - name: company_name
         label: Company Name
         type: text
@@ -733,6 +763,12 @@ profile_schemas:
     sections:
     - name: Company
       fields:
+      - name: profile_image
+        label: Profile Image
+        type: file
+        required: false
+        visibility: public
+        searchable: false
       - name: company_name
         label: Company Name
         type: text
@@ -790,6 +826,12 @@ profile_schemas:
     sections:
     - name: Company
       fields:
+      - name: profile_image
+        label: Profile Image
+        type: file
+        required: false
+        visibility: public
+        searchable: false
       - name: company_name
         label: Company Name
         type: text

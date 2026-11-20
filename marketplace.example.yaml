@@ -39,6 +39,7 @@ profile_schemas:
     sections:
       - name: "Basic Information"
         fields:
+          - { name: profile_image, label: "Profile Image", type: file, required: false, visibility: public, searchable: false }
           - { name: farm_name, label: "Farm Name", type: text, required: true, visibility: public, searchable: true }
           - { name: country, label: "Country", type: select, required: true, options: ["Canada", "USA", "Brazil", "Australia", "Argentina"], visibility: public, searchable: true }
           - { name: region, label: "Region/Province", type: text, required: false, visibility: public, searchable: true }
@@ -58,6 +59,7 @@ profile_schemas:
     sections:
       - name: "Organization"
         fields:
+          - { name: profile_image, label: "Profile Image", type: file, required: false, visibility: public, searchable: false }
           - { name: org_name, label: "Organization Name", type: text, required: true, visibility: public, searchable: true }
           - { name: country, label: "Country", type: select, required: true, options: ["Canada", "USA", "Brazil", "Japan", "South Korea", "Germany", "Italy"], visibility: public, searchable: true }
           - { name: business_type, label: "Business Type", type: select, required: true, options: ["Mill", "Brewery", "Bakery", "Trading Company", "Food Manufacturer", "Other"], visibility: public, searchable: true }
