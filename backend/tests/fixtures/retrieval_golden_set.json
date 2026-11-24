@@ -1,0 +1,138 @@
+{
+  "description": "A golden set for reference-library retrieval. Without measurement, no retrieval change is verifiable — a reranking tweak that helps three queries and quietly breaks five looks identical to one that helps all eight.",
+  "how_embeddings_are_built": "Each chunk names a semantic cluster. Every chunk in a cluster gets the same base vector plus small deterministic jitter, so cosine similarity inside a cluster is high and between clusters is low. This reproduces the property that makes this corpus hard: the discriminating token is the only thing separating two chunks an embedding considers nearly identical. The vectors are generated, not stored, so the fixture stays readable.",
+  "clusters": [
+    "aerospace_quality",
+    "grain_weighing",
+    "material_spec",
+    "payment_terms"
+  ],
+  "corpus": [
+    {
+      "doc_id": "as9100d_scope",
+      "cluster": "aerospace_quality",
+      "text": "AS9100D certification is required of the supplier for all flight hardware deliveries under this agreement. The certificate shall remain valid for the full term."
+    },
+    {
+      "doc_id": "as9102_fai",
+      "cluster": "aerospace_quality",
+      "text": "First article inspection shall be performed and reported in accordance with AS9102 for every new part number and after any process change."
+    },
+    {
+      "doc_id": "nadcap_heat_treat",
+      "cluster": "aerospace_quality",
+      "text": "NADCAP accreditation is required for heat treating and for non-destructive testing performed by any subcontractor."
+    },
+    {
+      "doc_id": "iso9001_general",
+      "cluster": "aerospace_quality",
+      "text": "A quality management system conforming to ISO 9001:2015 shall be maintained and audited annually by an accredited registrar."
+    },
+    {
+      "doc_id": "gafta48_weighing",
+      "cluster": "grain_weighing",
+      "text": "Under GAFTA 48 the weight ascertained at the port of loading shall be final, save for manifest error, and the weighing certificate shall accompany the documents."
+    },
+    {
+      "doc_id": "gafta49_weighing",
+      "cluster": "grain_weighing",
+      "text": "Under GAFTA 49 the weight is determined at discharge, and any dispute over the weighing shall be referred to arbitration."
+    },
+    {
+      "doc_id": "cgc_sampling",
+      "cluster": "grain_weighing",
+      "text": "The Canadian Grain Commission requires that official samples be drawn during loading and retained for the statutory period."
+    },
+    {
+      "doc_id": "ti64_properties",
+      "cluster": "material_spec",
+      "text": "Ti-6Al-4V in the annealed condition shall meet a minimum ultimate tensile strength of 895 MPa and 10 percent elongation."
+    },
+    {
+      "doc_id": "inconel718_properties",
+      "cluster": "material_spec",
+      "text": "Inconel 718 in the solution treated and aged condition shall meet a minimum ultimate tensile strength of 1240 MPa."
+    },
+    {
+      "doc_id": "al7075_properties",
+      "cluster": "material_spec",
+      "text": "7075-T6 aluminium shall meet a minimum ultimate tensile strength of 524 MPa and shall not be used above 150 degrees Celsius."
+    },
+    {
+      "doc_id": "payment_against_documents",
+      "cluster": "payment_terms",
+      "text": "Payment shall be made against presentation of documents within three banking days of receipt, by telegraphic transfer in the contract currency."
+    },
+    {
+      "doc_id": "payment_letter_of_credit",
+      "cluster": "payment_terms",
+      "text": "Where an irrevocable letter of credit is opened, it shall be confirmed by a first class bank and shall be available by sight payment."
+    }
+  ],
+  "queries": [
+    {
+      "id": "exact_standard_as9100d",
+      "query": "AS9100D certification requirement",
+      "near_cluster": "aerospace_quality",
+      "nearest_doc": "iso9001_general",
+      "expected": ["as9100d_scope"],
+      "why": "The discriminating token is the standard number. An embedding reads AS9100D, AS9102 and a generic quality-systems paragraph as near-identical content about aerospace quality."
+    },
+    {
+      "id": "exact_standard_as9102",
+      "query": "AS9102 first article inspection",
+      "near_cluster": "aerospace_quality",
+      "nearest_doc": "as9100d_scope",
+      "expected": ["as9102_fai"],
+      "why": "The neighbouring standard is the trap: the two differ by one character that carries the whole meaning."
+    },
+    {
+      "id": "exact_contract_gafta48",
+      "query": "GAFTA 48 weighing at port of loading",
+      "near_cluster": "grain_weighing",
+      "nearest_doc": "gafta49_weighing",
+      "expected": ["gafta48_weighing"],
+      "why": "Contract numbers. 48 and 49 describe opposite rules for the same subject."
+    },
+    {
+      "id": "exact_alloy_ti64",
+      "query": "Ti-6Al-4V tensile strength",
+      "near_cluster": "material_spec",
+      "nearest_doc": "inconel718_properties",
+      "expected": ["ti64_properties"],
+      "why": "Alloy designations. Every chunk in the cluster states a tensile minimum; only the designation separates them."
+    },
+    {
+      "id": "exact_alloy_inconel",
+      "query": "Inconel 718 solution treated and aged",
+      "near_cluster": "material_spec",
+      "nearest_doc": "ti64_properties",
+      "expected": ["inconel718_properties"],
+      "why": "As above, from the other side, so a fix that merely reorders the cluster does not pass."
+    },
+    {
+      "id": "accreditation_nadcap",
+      "query": "NADCAP accreditation for heat treating",
+      "near_cluster": "aerospace_quality",
+      "nearest_doc": "iso9001_general",
+      "expected": ["nadcap_heat_treat"],
+      "why": "A named accreditation body."
+    },
+    {
+      "id": "semantic_payment",
+      "query": "when is payment due after documents are presented",
+      "near_cluster": "payment_terms",
+      "nearest_doc": "payment_against_documents",
+      "expected": ["payment_against_documents"],
+      "why": "A control. The query shares almost no exact tokens with the chunk, so a change that helps only lexical matching must not break this one."
+    },
+    {
+      "id": "semantic_letter_of_credit",
+      "query": "what kind of bank must confirm the credit",
+      "near_cluster": "payment_terms",
+      "nearest_doc": "payment_letter_of_credit",
+      "expected": ["payment_letter_of_credit"],
+      "why": "A second control, phrased as a question rather than keywords."
+    }
+  ]
+}
