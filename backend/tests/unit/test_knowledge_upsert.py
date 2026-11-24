@@ -14,10 +14,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
-from app.core.db_schema import reference_library
 from app.modules.knowledge import service
 
 DOC = "doc-1"
