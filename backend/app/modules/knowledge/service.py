@@ -7,13 +7,15 @@ metadata filters (vertical, document_type, jurisdiction, ...).
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import uuid
 from pathlib import PurePosixPath
 from typing import Any
 
-from sqlalchemy import case, delete, desc, false, func, insert, or_, select, update
+from sqlalchemy import case, delete, desc, false, func, insert, or_, select, tuple_, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.sql import Select
 
 from app.core.database import session_scope
@@ -86,9 +88,23 @@ def normalize_record(rec: dict[str, Any], *, default_vertical: str | None = None
 async def load_reference_records(
     records: list[dict[str, Any]], *, default_vertical: str | None = None
 ) -> dict[str, int]:
-    """Idempotently load reference records. Existing chunks for any referenced
-    source_doc_id are deleted first, so re-loading a document replaces it cleanly.
-    Returns counts: {"loaded", "documents", "skipped"}."""
+    """Idempotently load reference records, as an upsert.
+
+    Re-loading a document still replaces it: chunks that are no longer in the
+    incoming set are deleted, chunks whose text is unchanged are updated in
+    place, and new chunks are inserted.
+
+    This used to delete every chunk for each referenced document and re-insert
+    the lot. That is also correct, and it makes the unique constraint on
+    (source_doc_id, chunk_text_hash) dead weight — nothing ever collides with it,
+    because the rows it would collide with were deleted a statement earlier. So
+    re-ingesting a document after a one-line edit rewrote every row, and with
+    hybrid retrieval it now also rebuilds every row's tsvector.
+
+    Returns counts: {"loaded", "documents", "skipped", "inserted", "updated",
+    "deleted"}. `loaded` is the size of the incoming set, unchanged for callers
+    that already read it.
+    """
     rows: list[dict[str, Any]] = []
     skipped = 0
     for rec in records:
@@ -98,17 +114,70 @@ async def load_reference_records(
             skipped += 1
 
     if not rows:
-        return {"loaded": 0, "documents": 0, "skipped": skipped}
+        return {"loaded": 0, "documents": 0, "skipped": skipped,
+                "inserted": 0, "updated": 0, "deleted": 0}
 
     doc_ids = sorted({r["source_doc_id"] for r in rows})
+
+    # md5 here must match the chunk_text_hash generated column exactly, or every
+    # row looks new and the upsert degrades into the delete-and-reinsert it
+    # replaced — silently, and only visibly as a bill.
+    incoming_hashes = {
+        (r["source_doc_id"], hashlib.md5(r["chunk_text"].encode("utf-8")).hexdigest())
+        for r in rows
+    }
+
     async with session_scope() as session:
+        existing = (
+            await session.execute(
+                select(reference_library.c.source_doc_id, reference_library.c.chunk_text_hash)
+                .where(reference_library.c.source_doc_id.in_(doc_ids))
+            )
+        ).all()
+        existing_pairs = {(row.source_doc_id, row.chunk_text_hash) for row in existing}
+
+        # Chunks that were in these documents and are not in the incoming set:
+        # text that was edited away or deleted. Without this a shrinking document
+        # would leave its old chunks behind, answering questions from a version
+        # of the page that no longer exists.
+        stale = existing_pairs - incoming_hashes
+        deleted = 0
+        if stale:
+            await session.execute(
+                delete(reference_library).where(
+                    tuple_(
+                        reference_library.c.source_doc_id, reference_library.c.chunk_text_hash
+                    ).in_(list(stale))
+                )
+            )
+            deleted = len(stale)
+
+        statement = pg_insert(reference_library).values(rows)
         await session.execute(
-            delete(reference_library).where(reference_library.c.source_doc_id.in_(doc_ids))
+            statement.on_conflict_do_update(
+                constraint="uq_reference_library_doc_chunk",
+                set_={
+                    # chunk_text is the conflict target, so it cannot have changed.
+                    # Everything derived from it or alongside it can: a re-tagged
+                    # topic, a new governance axis, a re-embedding under a newer
+                    # model.
+                    "embedding": statement.excluded.embedding,
+                    "reference_metadata": statement.excluded.reference_metadata,
+                    "vertical": statement.excluded.vertical,
+                },
+            )
         )
-        await session.execute(insert(reference_library), rows)
         await session.commit()  # session_scope only rolls back; writers must commit
 
-    return {"loaded": len(rows), "documents": len(doc_ids), "skipped": skipped}
+    updated = len(incoming_hashes & existing_pairs)
+    return {
+        "loaded": len(rows),
+        "documents": len(doc_ids),
+        "skipped": skipped,
+        "inserted": len(rows) - updated,
+        "updated": updated,
+        "deleted": deleted,
+    }
 
 
 # Operators a filter value may use instead of a bare scalar/list.
