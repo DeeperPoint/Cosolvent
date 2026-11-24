@@ -17,7 +17,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 
 metadata = MetaData()
 
@@ -140,6 +140,12 @@ reference_library = Table(
     # Dedup on a fixed-size hash of it instead; server-computed so every writer gets
     # it for free (see knowledge/service.py::normalize_record, which never sets it).
     Column("chunk_text_hash", Text, Computed("md5(chunk_text)", persisted=True)),
+    # Lexical half of retrieval. Generated and stored for the same reason as the
+    # hash above: every writer gets it without knowing it exists. The text search
+    # configuration is named rather than defaulted because to_tsvector(text) is
+    # only STABLE — Postgres rejects it in a generated column, and an index whose
+    # meaning follows a session GUC is a trap on restore.
+    Column("chunk_tsv", TSVECTOR, Computed("to_tsvector('english', chunk_text)", persisted=True)),
     Column("embedding", Vector(1536), nullable=False),
     Column("reference_metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),

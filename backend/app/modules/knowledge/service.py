@@ -13,7 +13,7 @@ import uuid
 from pathlib import PurePosixPath
 from typing import Any
 
-from sqlalchemy import case, delete, desc, false, insert, or_, select, update
+from sqlalchemy import case, delete, desc, false, func, insert, or_, select, update
 from sqlalchemy.sql import Select
 
 from app.core.database import session_scope
@@ -111,19 +111,107 @@ async def load_reference_records(
     return {"loaded": len(rows), "documents": len(doc_ids), "skipped": skipped}
 
 
+# Operators a filter value may use instead of a bare scalar/list.
+#   {"field": "x"}                  field = 'x'                    (unchanged)
+#   {"field": ["x", "y"]}           field IN ('x','y')             (unchanged)
+#   {"field": {"in": [...]}}        field IN (...)
+#   {"field": {"not": [...]}}       field IS NULL OR field NOT IN (...)
+#
+# `not` is the one that was missing, and its absence is why an evidence-class
+# convention could be documented but not enforced: a policy of the form "answer
+# participant questions, but never cite demo-derived material" is a negation and
+# had no expression. See _not_clause for why it is NULL-tolerant.
+_FILTER_OPS = ("in", "not")
+
+
+def _as_values(value: Any) -> list[str]:
+    """Normalise a scalar or sequence into a list of comparison strings."""
+    if isinstance(value, (list, tuple, set)):
+        return [str(v) for v in value]
+    return [str(value)]
+
+
+def _not_clause(column: Any, values: list[str]) -> Any:
+    """`column NOT IN values`, treating an absent tag as passing the filter.
+
+    A plain `col != 'demo_invented'` is NULL for any row whose metadata has no
+    `evidence_class` key at all, and NULL is not true, so SQL drops the row. Every
+    chunk indexed before the governance vocabulary existed is exactly that row, so
+    the naive form would silently empty the corpus the first time anyone excluded
+    a class — the filter would look like it worked and would in fact be deleting
+    the library from every answer.
+
+    An untagged chunk is unclassified, not classified-as-excluded, so it passes.
+    Tightening that is a curation job (tag the backlog), not a query-time one.
+    """
+    return or_(column.is_(None), column.notin_(values))
+
+
 def _apply_filters(stmt: Select[Any], filters: dict[str, Any]) -> Select[Any]:
     col = reference_library.c.reference_metadata
     for key, value in filters.items():
         if value is None:
             continue
+        column = col[key].astext
+
+        if isinstance(value, dict) and any(op in value for op in _FILTER_OPS):
+            if "in" in value:
+                included = _as_values(value["in"])
+                # An explicitly empty allow-list matches nothing, and saying so is
+                # better than quietly ignoring the caller's filter.
+                stmt = stmt.where(or_(*[column == v for v in included]) if included else false())
+            if "not" in value:
+                excluded = _as_values(value["not"])
+                if excluded:
+                    stmt = stmt.where(_not_clause(column, excluded))
+            continue
+
         if isinstance(value, list):
             if not value:
                 stmt = stmt.where(false())
                 continue
-            stmt = stmt.where(or_(*[col[key].astext == str(v) for v in value]))
+            stmt = stmt.where(or_(*[column == str(v) for v in value]))
         else:
-            stmt = stmt.where(col[key].astext == str(value))
+            stmt = stmt.where(column == str(value))
     return stmt
+
+
+# The default policy for a participant-facing answer. Demo-invented material
+# describes nothing real, and generation-only material is seed input for the
+# population generator; neither is a fact about this market, so neither may be
+# quoted back to a participant. Curators and the operator console can still reach
+# both by passing their own filters.
+PARTICIPANT_SAFE_FILTERS: dict[str, Any] = {
+    "evidence_class": {"not": ["demo_invented"]},
+    "purpose": {"not": ["generation"]},
+}
+
+
+def merge_filters(base: dict[str, Any], extra: dict[str, Any] | None) -> dict[str, Any]:
+    """Combine two filter maps, unioning `not` sets rather than overwriting them.
+
+    A caller narrowing by topic must not, as a side effect, drop the safety
+    exclusions it never mentioned — so an exclusion present in either map survives
+    into the result.
+    """
+    merged: dict[str, Any] = dict(base)
+    for key, value in (extra or {}).items():
+        current = merged.get(key)
+        if (
+            isinstance(current, dict)
+            and isinstance(value, dict)
+            and "not" in current
+            and "not" in value
+        ):
+            merged[key] = {**current, **value,
+                           "not": sorted(set(_as_values(current["not"])) | set(_as_values(value["not"])))}
+        elif isinstance(current, dict) and "not" in current and not isinstance(value, dict):
+            # Caller asked for a positive match on a field that carries an
+            # exclusion. Keep both: the exclusion is a floor, not a default.
+            merged[key] = {**current, "in": _as_values(value)}
+        else:
+            merged[key] = value
+    return merged
 
 
 # Soft preference for curated wiki chunks over raw ones (CommonContext tags each chunk's
@@ -134,22 +222,89 @@ PREFERRED_SOURCE_LAYER = "wiki"
 SOURCE_LAYER_BOOST = 0.05
 
 
+# ── Hybrid retrieval: vector + lexical, fused by rank ────────────────────────
+# Reciprocal Rank Fusion. Each ranker contributes 1/(RRF_K + rank) to a chunk's
+# score, so what fuses is rank position, not the raw scores — which is the point:
+# a cosine similarity and a ts_rank_cd are not on comparable scales and any
+# attempt to weight them directly needs a calibration constant nobody can defend.
+#
+# k = 60 is the value from the original RRF paper and the usual default. It is
+# large relative to the ranks that matter, which flattens the curve near the top:
+# positions 1 and 2 differ by about 2 per cent of a point rather than by half of
+# one. That is deliberate — it stops a single ranker's first place from deciding
+# the fused order on its own, which is the whole reason to fuse.
+RRF_K = 60
+
+# How many candidates to pull from each ranker before fusing. A chunk ranked 3rd
+# lexically and 40th by vector should still surface; with a pool of top_k only, it
+# never enters the fusion at all. The pool is bounded so a large top_k cannot turn
+# into an unbounded read.
+_RRF_POOL_MULTIPLIER = 5
+_RRF_POOL_MIN = 50
+_RRF_POOL_MAX = 500
+
+
+def _candidate_pool(top_k: int) -> int:
+    return max(_RRF_POOL_MIN, min(top_k * _RRF_POOL_MULTIPLIER, _RRF_POOL_MAX))
+
+
+def _scoped(stmt: Select[Any], vertical: str | None, filters: dict[str, Any] | None) -> Select[Any]:
+    """Apply the vertical and metadata filters shared by both rankers.
+
+    Both must see exactly the same candidate set. If the lexical side skipped a
+    filter, an excluded chunk could be fused back in on its lexical rank alone —
+    which would quietly defeat the participant-safe exclusions.
+    """
+    if vertical:
+        stmt = stmt.where(reference_library.c.vertical == vertical)
+    if filters:
+        stmt = _apply_filters(stmt, filters)
+    return stmt
+
+
+def _row_payload(row: Any) -> dict[str, Any]:
+    return {
+        "id": str(row.id),
+        "chunk_text": row.chunk_text,
+        "metadata": row.reference_metadata or {},
+        "score": float(row.score),
+    }
+
+
 async def search_reference_library(
     query_embedding: list[float],
     *,
+    query_text: str | None = None,
     top_k: int = 5,
     vertical: str | None = None,
     filters: dict[str, Any] | None = None,
     prefer_source_layer: str | None = PREFERRED_SOURCE_LAYER,
     source_layer_boost: float = SOURCE_LAYER_BOOST,
+    lexical: bool = True,
 ) -> list[dict[str, Any]]:
-    """Metadata-filtered cosine-similarity search over the reference library.
+    """Metadata-filtered hybrid search over the reference library.
+
+    Two rankers run over the same filtered candidate set — cosine similarity over
+    the embedding, and ts_rank_cd over the full-text index — and their rank
+    positions are fused with RRF. Lexical retrieval is the single best-evidenced
+    improvement available for this corpus, whose discriminating tokens are
+    contract numbers, grade codes and standard references: terms whose exact form
+    carries the meaning and which an embedding blurs into their neighbours.
+
+    ``query_text`` is what the lexical side searches for. Without it there is
+    nothing to match on, so retrieval degrades to vector-only — which is the old
+    behaviour, and is also what happens for a caller that has only an embedding.
 
     When ``prefer_source_layer`` is set (default "wiki"), chunks whose
-    ``reference_metadata.source_layer`` matches receive a small distance discount so
-    curated wiki chunks outrank raw chunks of comparable relevance. This is a soft
-    preference: raw chunks remain available as fallback coverage. Pass
-    ``source_layer_boost=0`` (or ``prefer_source_layer=None``) to disable.
+    ``reference_metadata.source_layer`` matches receive a small distance discount
+    so curated wiki chunks outrank raw chunks of comparable relevance. The
+    discount is applied inside the vector ranking and reaches the fused order
+    through it; it is deliberately not added a second time after fusion, which
+    would count the same preference twice.
+
+    ``score`` in each result stays what it has always been — cosine similarity —
+    so existing callers read it unchanged. The fusion detail is reported
+    alongside it in ``fused_score``, ``vector_rank`` and ``lexical_rank``.
     """
     distance = reference_library.c.embedding.cosine_distance(query_embedding)
     score = (1 - distance).label("score")
@@ -159,31 +314,73 @@ async def search_reference_library(
         layer = reference_library.c.reference_metadata["source_layer"].astext
         order_expr = distance - case((layer == prefer_source_layer, source_layer_boost), else_=0.0)
 
-    stmt: Select[Any] = select(
-        reference_library.c.id,
-        reference_library.c.chunk_text,
-        reference_library.c.reference_metadata,
-        score,
-    ).order_by(order_expr)
-
-    if vertical:
-        stmt = stmt.where(reference_library.c.vertical == vertical)
-    if filters:
-        stmt = _apply_filters(stmt, filters)
-    stmt = stmt.limit(top_k)
+    pool = _candidate_pool(top_k)
+    vector_stmt: Select[Any] = _scoped(
+        select(
+            reference_library.c.id,
+            reference_library.c.chunk_text,
+            reference_library.c.reference_metadata,
+            score,
+        ).order_by(order_expr),
+        vertical,
+        filters,
+    ).limit(pool if (lexical and query_text) else top_k)
 
     async with session_scope() as session:
-        rows = (await session.execute(stmt)).all()
+        vector_rows = (await session.execute(vector_stmt)).all()
 
-    return [
-        {
-            "id": str(row.id),
-            "chunk_text": row.chunk_text,
-            "metadata": row.reference_metadata or {},
-            "score": float(row.score),
-        }
-        for row in rows
-    ]
+        if not (lexical and query_text and query_text.strip()):
+            return [_row_payload(row) for row in vector_rows]
+
+        # websearch_to_tsquery never raises on user input — it parses a search-box
+        # string and ignores what it cannot use. plainto_/to_tsquery would make a
+        # stray quote or operator in a participant's question an error, turning a
+        # malformed query into a failed answer instead of a weaker one.
+        tsquery = func.websearch_to_tsquery("english", query_text)
+        lexical_rank_expr = func.ts_rank_cd(reference_library.c.chunk_tsv, tsquery)
+        lexical_stmt: Select[Any] = _scoped(
+            select(
+                reference_library.c.id,
+                reference_library.c.chunk_text,
+                reference_library.c.reference_metadata,
+                score,
+            )
+            .where(reference_library.c.chunk_tsv.op("@@")(tsquery))
+            .order_by(desc(lexical_rank_expr)),
+            vertical,
+            filters,
+        ).limit(pool)
+        lexical_rows = (await session.execute(lexical_stmt)).all()
+
+    return _fuse(vector_rows, lexical_rows, top_k=top_k)
+
+
+def _fuse(vector_rows: list[Any], lexical_rows: list[Any], *, top_k: int) -> list[dict[str, Any]]:
+    """Reciprocal Rank Fusion over the two rankers' positions."""
+    payloads: dict[str, dict[str, Any]] = {}
+    fused: dict[str, float] = {}
+
+    for label, rows in (("vector_rank", vector_rows), ("lexical_rank", lexical_rows)):
+        for position, row in enumerate(rows, start=1):
+            key = str(row.id)
+            payloads.setdefault(key, _row_payload(row))
+            payloads[key][label] = position
+            fused[key] = fused.get(key, 0.0) + 1.0 / (RRF_K + position)
+
+    for key, value in fused.items():
+        payloads[key]["fused_score"] = value
+        payloads[key].setdefault("vector_rank", None)
+        payloads[key].setdefault("lexical_rank", None)
+
+    ranked = sorted(
+        payloads.values(),
+        # Ties break on cosine similarity: two chunks found by one ranker each, at
+        # the same position, are otherwise ordered by dict insertion, which is an
+        # accident of which query returned first.
+        key=lambda p: (p["fused_score"], p["score"]),
+        reverse=True,
+    )
+    return ranked[:top_k]
 
 
 # ── Loop-2: knowledge gap signals (GAP-14) ───────────────────────────────────
@@ -470,6 +667,7 @@ async def ask(
     filters: dict | None = None,
     vertical: str | None = None,
     top_k: int = 8,
+    participant_safe: bool = True,
 ) -> AskResponse:
     """Answer a question strictly from the reference library, with citations.
 
@@ -477,13 +675,25 @@ async def ask(
     using only those excerpts, and — when nothing matches, the model reports the
     answer is not covered, or the answer carries no resolvable citation — records
     a knowledge gap signal for curators and reports ``answered=False``.
+
+    ``participant_safe`` (the default) adds the exclusions in
+    PARTICIPANT_SAFE_FILTERS: demo-invented and generation-only material is kept
+    out of the retrieved set entirely, rather than being retrieved and hopefully
+    not quoted. Curation tooling that needs to see the whole corpus passes False.
     """
+    effective = merge_filters(PARTICIPANT_SAFE_FILTERS, filters) if participant_safe else (filters or {})
     embedding = await get_embedding(query)
-    hits = await search_reference_library(embedding, top_k=top_k, vertical=vertical, filters=filters)
+    # The question itself drives the lexical ranker. This is the whole value of
+    # the hybrid for a question like "what does GAFTA 48 say about weighing?":
+    # the embedding finds clauses about weighing, and the lexical side is what
+    # pins the answer to contract 48 rather than its neighbours.
+    hits = await search_reference_library(
+        embedding, query_text=query, top_k=top_k, vertical=vertical, filters=effective
+    )
     used_chunks = [h["id"] for h in hits]
 
     if not hits:
-        await _record_gap(query, vertical, filters, "no_matching_chunks")
+        await _record_gap(query, vertical, effective, "no_matching_chunks")
         return AskResponse(query=query, answered=False, answer=_NOT_COVERED_MSG)
 
     keys = [_cite_key(h.get("metadata") or {}, i) for i, h in enumerate(hits)]
@@ -494,14 +704,14 @@ async def ask(
     raw = (await generate(messages, use_case="rag_query")).strip()
 
     if raw.upper().startswith(_NOT_COVERED):
-        await _record_gap(query, vertical, filters, "model_not_covered")
+        await _record_gap(query, vertical, effective, "model_not_covered")
         return AskResponse(query=query, answered=False, answer=_NOT_COVERED_MSG, used_chunks=used_chunks)
 
     citations = _extract_citations(raw, hits, keys)
     if not citations:
         # Prose with no resolvable citation is not a grounded answer under the
         # "grounded, with citations" contract; treat as not covered + log a gap.
-        await _record_gap(query, vertical, filters, "answer_without_citation")
+        await _record_gap(query, vertical, effective, "answer_without_citation")
         return AskResponse(query=query, answered=False, answer=_NOT_COVERED_MSG, used_chunks=used_chunks)
 
     return AskResponse(query=query, answered=True, answer=raw, citations=citations, used_chunks=used_chunks)
