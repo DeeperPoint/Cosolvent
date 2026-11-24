@@ -29,3 +29,60 @@ jobs:
         env:
           MARKETPLACE_CONFIG_PATH: ../marketplace.yaml
         run: pytest tests/unit -q
+
+  # Retrieval quality, measured rather than asserted.
+  #
+  # A separate job because it needs a real Postgres. The lexical half of
+  # retrieval is websearch_to_tsquery and ts_rank_cd over a GIN index, and
+  # reimplementing either in Python to keep this in the unit job would measure
+  # the reimplementation instead of the system.
+  #
+  # No embedding provider: the fixture corpus uses deterministic vectors built
+  # from named clusters, so the numbers are reproducible and the job costs
+  # nothing per run.
+  retrieval-golden-set:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cosolvent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Migrate
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          MARKETPLACE_CONFIG_PATH: ../marketplace.yaml
+        run: alembic upgrade head
+
+      - name: Measure retrieval
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          MARKETPLACE_CONFIG_PATH: ../marketplace.yaml
+          RUN_INTEGRATION: "1"
+        # -s so the measured numbers reach the build log. A metric nobody can
+        # read in the output gets ignored until someone deletes the job.
+        run: pytest tests/integration/test_retrieval_golden_set.py -q -s
